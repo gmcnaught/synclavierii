@@ -181,6 +181,26 @@ the CPU timing, so **do not move the jumper**.
 *(Correction from the board owner: the two CPU cards talk through the
 backplane. J1 on each card is a ribbon to other external cards.)*
 
+**Installation notes supplied by the board owner** (source not yet cited;
+confirm against the NED bin configuration guide):
+* Both cards plug fully into the system backplane, for example the legacy
+  **IB25** backplane. The data, address and low-level control lines between
+  the sequencer and the register module are hard-wired in the backplane
+  traces.
+* The FPRM and FPSM **must sit in strictly adjacent slots**, as set out in
+  the bin configuration guide, to keep timing tight and traces short.
+* Peripheral cards (for example the **MFC1** terminal card and the floppy and
+  Winchester controllers) use external ribbon or serial cables out of the
+  rack. The FPRM→FPSM pipeline is entirely inside the backplane.
+
+The adjacency rule suggests that some CPU lines are **slot-to-slot traces
+between the two CPU slots only**, rather than bussed to every slot. That can
+be checked on the backplane alone, with no card tracing (see below).
+
+Open point: these notes describe cabled peripherals, but both CPU cards also
+carry a 34-pin J1 header. What J1 on the CPU cards connects to is still
+unknown.
+
 * **[HYP]** FPSM → FPRM: microword control fields. Candidate drivers on this
   card are U2/U3 ('LS374, 16 outputs fanning to the edge) and possibly U38/U54
   (open collector). Candidate receivers on the FPRM are U7 ('ALS244) and then
@@ -202,6 +222,24 @@ fingers from one end, giving side A and side B.
 
 Fingers that are used on **both** cards and don't belong to the main
 address/data buses are the private CPU control and status lines.
+
+#### Quicker first step: map the backplane between the two CPU slots
+
+With the bin powered off and every card removed, use the two CPU slot
+connectors (*S_RM* for the FPRM and *S_SM* for the FPSM) and one ordinary
+peripheral slot (*S_X*). For each contact position in *S_RM*:
+
+| Result | Meaning |
+|---|---|
+| Beeps to the same position in *S_SM* **and** in *S_X* | Bussed system line: address, data, power or global control |
+| Beeps to a **different** position in *S_SM* only | **Private CPU link**, crossed between the slots. Record both positions. |
+| Beeps to the same position in *S_SM* only, not *S_X* | **Private CPU link**, straight between the slots |
+| Beeps to nothing | Unused, or used only by this slot (an off-backplane jumper or termination) |
+
+Do this for the full connector length (both sides) and record which slot
+numbers were used. The rows marked as private links are exactly the
+FPRM↔FPSM interface. After that, the edge-finger table above only needs
+filling in for those rows, plus power and a sample of the buses.
 
 ### J1 (34-pin ribbon, to other external cards)
 * **[OBS]** J1 sits right next to **U91/U92**: two 16-pin DIP resistor

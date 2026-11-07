@@ -17,6 +17,14 @@ and the FPRM returns ALU flags. The 34-pin J1 ribbon on each card goes to
 *other* external cards. Mapping the P1 edge fingers on both cards is the most
 useful next measurement.
 
+**Installation (owner-supplied):** both cards plug into the system backplane
+(for example IB25) in **strictly adjacent slots**, and the sequencer↔register
+lines are hard-wired in the backplane. Peripheral cards (MFC1 terminal,
+floppy/Winchester controllers) cable out of the rack instead. The cheapest
+way to find the private CPU lines is to beep the two CPU slots against each
+other and against a peripheral slot on an empty backplane. The procedure is
+in [FPSM README §5](synclavier-fpsm-185/README.md#5-fprm--fpsm-interface-backplane-p1).
+
 ```
         ABLE backplane (P1 on both cards)
    ═══════╤═══════════════════════════════════╤══════════

@@ -64,7 +64,9 @@ The data path on this card:
   known to live on the FPSM, these are more likely local decode/steering logic
   than the main microcode store. The 20-pin U28 could be a PAL, for example.
 * **Control link to the FPSM: over the backplane (P1).** *(Confirmed by the
-  board owner: the two CPU cards talk through the backplane, not the ribbon.)*
+  board owner: the two CPU cards talk through the backplane, not the ribbon.
+  They must sit in strictly adjacent slots, for example in the IB25
+  backplane.)*
   The FPSM's microword control fields (ALU function S0–S3/M/Cn, register-file
   address and write enable, latch and output enables) must reach this card
   through edge fingers. Status (carry, zero, sign, A=B) and possibly opcode

@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="900" viewBox="0 0 1400 900" font-family="Helvetica, Arial, sans-serif" font-size="13">
+<defs>
+<marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#222"/></marker>
+<style>
+.b{fill:#fff;stroke:#222;stroke-width:1.6}
+.u{fill:#f3f6ff;stroke:#2a4b9b;stroke-width:1.6}
+.p{fill:#fff4e0;stroke:#b06a00;stroke-width:1.6}
+.c{fill:#eef8ee;stroke:#2c7a2c;stroke-width:1.6}
+.w{stroke:#222;stroke-width:3;fill:none}
+.s{stroke:#666;stroke-width:1.4;fill:none;stroke-dasharray:6 4}
+.t{font-weight:bold;font-size:14px}
+.n{font-size:11px;fill:#444}
+.h{font-size:22px;font-weight:bold}
+</style>
+</defs>
+<rect width="1400" height="900" fill="#fff"/>
+<text x="20" y="34" class="h">NED Synclavier II — FPSM-185 CPU Sequencer Module — first-pass BLOCK schematic</text>
+<text x="20" y="56" class="n">Heavy = multi-bit paths (inferred). Dashed = control/status. Orange = socketed, labelled PROMs. Exact nets NOT verified — see README.</text>
+
+<!-- J1 left -->
+<rect x="20" y="90" width="150" height="250" class="b"/>
+<text x="30" y="112" class="t">J1  34-pin IDC</text><text x="30" y="130" class="n">ribbon to FPRM-185</text><text x="30" y="145" class="n">REGISTER MODULE</text>
+<text x="30" y="175" class="n">→ ALU S0–S3, M, Cn</text><text x="30" y="190" class="n">→ reg-file addr / WE̅</text><text x="30" y="205" class="n">→ latch / OE enables</text><text x="30" y="230" class="n">← flags (C, Z, N, A=B)</text><text x="30" y="245" class="n">← condition / status</text><text x="30" y="270" class="n">(all TBD)</text>
+<rect x="190" y="90" width="150" height="110" class="b"/><text x="200" y="112" class="t">U91, U92</text><text x="200" y="130" class="n">16-pin DIP R-networks</text><text x="200" y="145" class="n">8 isolated R each</text><text x="200" y="160" class="n">series termination</text><text x="200" y="175" class="n">of ~16 ribbon lines</text>
+<path d="M190,145 H170" class="w" marker-end="url(#a)"/>
+
+<!-- Microcode store -->
+<rect x="380" y="90" width="460" height="100" class="p"/>
+<text x="390" y="112" class="t">MICROCODE ROM  (socketed, ©1986 N.E.D.)</text>
+<text x="390" y="132" class="n">U61 SMR00 (24-pin, ×8) · U71 SMR01 (24-pin, ×8)</text>
+<text x="390" y="147" class="n">U81 SMR02 (24-pin, ×8) · U51 SMR03 (16-pin, ×4?)</text>
+<text x="390" y="167" class="n">≈ 28-bit microword; depth 256–2K words (identify parts)</text>
+<text x="390" y="182" class="n">all four share the microaddress bus</text>
+<rect x="380" y="230" width="460" height="100" class="u"/>
+<text x="390" y="252" class="t">MICROINSTRUCTION PIPELINE REGISTER</text>
+<text x="390" y="272" class="n">U62 Am29823 (SMR00) · U72 Am29823 (SMR01)</text><text x="390" y="287" class="n">U82 74F374 (SMR02) · U52 74F175 (SMR03)</text>
+<text x="390" y="302" class="n">each sits directly below its PROM on the board</text>
+<text x="390" y="320" class="n">outputs: FPRM control fields, branch address, cond-select, sequencer ops</text>
+<path d="M610,190 V230" class="w" marker-end="url(#a)"/>
+<path d="M380,260 H360 V170 H340" class="w" marker-end="url(#a)"/>
+<text x="200" y="222" class="n">FPRM control fields</text>
+
+<!-- Sequencer -->
+<rect x="380" y="400" width="300" height="130" class="u"/>
+<text x="390" y="422" class="t">NEXT-ADDRESS MUX</text>
+<text x="390" y="440" class="t">U43, U44, U45, U46, U47  74F153</text>
+<text x="390" y="460" class="n">5 × dual 4→1 = 10 address bits</text>
+<text x="390" y="475" class="n">sources: µPC (+1) · branch field · dispatch</text>
+<text x="390" y="490" class="n">(DDE PROM) · interrupt / INIT vector</text>
+<text x="390" y="510" class="n">select ← pipeline reg + condition</text>
+<path d="M380,465 H350 V72 H600 V90" class="w" marker-end="url(#a)"/>
+<text x="225" y="460" class="n">µADDR → SMR00–03</text>
+<rect x="720" y="400" width="180" height="90" class="u"/><text x="730" y="422" class="t">U32, U33</text><text x="730" y="440" class="t">74ALS161 ×2</text><text x="730" y="460" class="n">micro-program counter</text><text x="730" y="475" class="n">(load / increment)</text>
+<path d="M720,445 H680" class="w" marker-end="url(#a)"/>
+<path d="M530,530 V560 H810 V490" class="w" marker-end="url(#a)"/>
+<rect x="720" y="560" width="180" height="90" class="u"/><text x="730" y="582" class="t">U31  74F151</text><text x="730" y="600" class="n">8→1 condition select</text><text x="730" y="615" class="n">flags from FPRM / bus</text><text x="730" y="630" class="n">→ branch / no-branch</text>
+<path d="M720,600 H620 V530" class="s" marker-end="url(#a)"/>
+<path d="M170,240 H200 V700 H810 V650" class="s" marker-end="url(#a)"/>
+<text x="210" y="690" class="n">flags / status from FPRM via J1</text>
+<path d="M800,330 V350 H915 V610 H900" class="s" marker-end="url(#a)"/>
+<text x="855" y="345" class="n">cond sel</text>
+
+<!-- Dispatch -->
+<rect x="940" y="90" width="200" height="110" class="u"/><text x="950" y="112" class="t">U24  Am29823</text><text x="950" y="130" class="n">instruction register?</text><text x="950" y="145" class="n">(opcode field from</text><text x="950" y="160" class="n">data bus via U12–U14)</text>
+<rect x="940" y="230" width="200" height="110" class="p"/><text x="950" y="252" class="t">U22, U23  (socketed)</text><text x="950" y="270" class="n">24-pin PROMs "DDE…", "REV B"</text><text x="950" y="285" class="n">opcode → microcode</text><text x="950" y="300" class="n">entry address (dispatch</text><text x="950" y="315" class="n">/ decode)</text>
+<path d="M1040,200 V230" class="w" marker-end="url(#a)"/>
+<path d="M1040,340 V380 H600 V400" class="w" marker-end="url(#a)"/>
+<text x="900" y="372" class="n">dispatch address</text>
+<rect x="940" y="420" width="200" height="120" class="u"/><text x="950" y="442" class="t">U34, U35  74LS348 ×2</text><text x="950" y="460" class="n">16-level priority encoder</text><text x="950" y="475" class="t">U36  74LS174</text><text x="950" y="492" class="n">request latch</text><text x="950" y="510" class="t">U42  INITROM (socketed)</text><text x="950" y="527" class="n">power-up / trap vectors</text>
+<path d="M940,480 H900 V520 H680" class="w" marker-end="url(#a)"/>
+
+<!-- Clock -->
+<rect x="380" y="740" width="330" height="110" class="c"/><text x="390" y="762" class="t">CLOCK / TIMING</text><text x="390" y="780" class="n">U93 tapped delay line (DL15C60D)</text><text x="390" y="795" class="n">JP1 tap select 40/50/60/70/80 ns → CLK</text><text x="390" y="810" class="n">U53 74F74 · U63 F00 · U64 F02 · U73 F08 · U74 F04</text><text x="390" y="825" class="n">microcycle clock + phases → both cards</text>
+<rect x="20" y="740" width="320" height="110" class="b"/><text x="30" y="762" class="t">Glue / open-collector</text><text x="30" y="780" class="n">U37 LS00 · U48 LS04 · U41 F241</text><text x="30" y="795" class="n">U38 74F38 · U54 7438 (OC → wired-OR</text><text x="30" y="810" class="n">backplane lines)</text><text x="30" y="830" class="n">R1, D1, C28 (reset / misc?) · RW1 rework</text>
+
+<!-- Edge -->
+<rect x="1310" y="90" width="60" height="760" class="b"/>
+<text x="1340" y="470" class="t" transform="rotate(90 1340 470)" text-anchor="middle">P1  CARD-EDGE  (ABLE backplane)</text>
+<rect x="1170" y="90" width="120" height="120" class="u"/><text x="1178" y="112" class="t">U14 74F245</text><text x="1178" y="130" class="t">U12, U13 F374</text><text x="1178" y="150" class="n">data-bus tap:</text><text x="1178" y="165" class="n">instruction</text><text x="1178" y="180" class="n">capture</text>
+<rect x="1170" y="240" width="120" height="150" class="u"/><text x="1178" y="262" class="t">U2, U3</text><text x="1178" y="280" class="t">74LS374</text><text x="1178" y="300" class="n">many traces to</text><text x="1178" y="315" class="n">edge fingers:</text><text x="1178" y="330" class="n">bus control /</text><text x="1178" y="345" class="n">cycle outputs</text>
+<rect x="1170" y="420" width="120" height="110" class="u"/><text x="1178" y="442" class="t">U1 74LS240</text><text x="1178" y="460" class="t">U4 74F240</text><text x="1178" y="480" class="n">inverting bus</text><text x="1178" y="495" class="n">buffers (IRQ /</text><text x="1178" y="510" class="n">status in?)</text>
+<rect x="1170" y="560" width="120" height="70" class="c"/><text x="1178" y="582" class="t">C1 tant.</text><text x="1178" y="600" class="n">+5 V bulk</text><text x="1178" y="615" class="n">C2–C43 0.1 µF</text>
+<path d="M1310,150 H1290" class="w" marker-end="url(#a)" marker-start="url(#a)"/>
+<path d="M1170,145 H1140" class="w" marker-end="url(#a)"/>
+<path d="M1290,315 H1310" class="w" marker-end="url(#a)"/>
+<path d="M1310,475 H1290" class="s" marker-end="url(#a)"/>
+<path d="M1170,475 H1140" class="s" marker-end="url(#a)"/>
+<path d="M840,240 H920 V215 H1155 V315 H1170" class="s" marker-end="url(#a)"/>
+<text x="1000" y="215" class="n"> </text>
+</svg>

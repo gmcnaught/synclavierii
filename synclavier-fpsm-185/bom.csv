@@ -1,0 +1,54 @@
+RefDes,Qty,Part (as marked),Function,Package,Mfr (as marked),Confidence,Notes
+U1,1,SN74LS240N,Octal inverting buffer (3-state),DIP-20,Texas Instruments (Malaysia),High,Edge-side; backplane control/interrupt lines (inferred)
+U2,1,SN74LS374N,Octal D flip-flop (3-state),DIP-20,Texas Instruments (Malaysia),High,Many traces to edge fingers; backplane control/status register (inferred)
+U3,1,SN74LS374N,Octal D flip-flop (3-state),DIP-20,Texas Instruments (Malaysia),High,Many traces to edge fingers; backplane control/status register (inferred)
+U4,1,74F240PC,Octal inverting buffer (3-state),DIP-20,Fairchild (Korea),Medium,Marking read as F240 (close to F245 - check)
+U12,1,74F374PC,Octal D flip-flop (3-state),DIP-20,Fairchild,High,Bus-side register (instruction/data capture?)
+U13,1,74F374PC,Octal D flip-flop (3-state),DIP-20,Fairchild,High,Bus-side register (instruction/data capture?)
+U14,1,74F245,Octal bus transceiver,DIP-20,Fairchild (Korea),High,Backplane data bus tap (inferred)
+U22,1,Programmed PROM (label damaged - 'REV. B'?),Instruction decode / dispatch PROM,DIP-24 (socketed),Unknown - paper label,Medium,Label mostly destroyed; blue handwritten marks - DUMP BEFORE SERVICE
+U23,1,Programmed PROM 'DDE..2 (c)1986 N.E.D.',Instruction decode / dispatch PROM,DIP-24 (socketed),Unknown - paper label,Medium,Label partly legible - DUMP BEFORE SERVICE
+U24,1,AM29823PC,9-bit D register w/ clock enable & clear (3-state),DIP-24 (0.3in),AMD,High,Candidate instruction register / dispatch latch
+U31,1,74F151APC,8-to-1 multiplexer,DIP-16,Fairchild,High,Condition-code select for conditional micro-branches (inferred)
+U32,1,SN74ALS161BN,4-bit synchronous binary counter,DIP-16,Texas Instruments (Malaysia),High,Micro-program counter low nibble (inferred)
+U33,1,SN74ALS161BN,4-bit synchronous binary counter,DIP-16,Texas Instruments (Malaysia),High,Micro-program counter next nibble (inferred)
+U34,1,SN74LS348N,8-to-3 priority encoder (3-state),DIP-16,Texas Instruments (Malaysia),High,Interrupt/trap priority encode (inferred)
+U35,1,SN74LS348N,8-to-3 priority encoder (3-state),DIP-16,Texas Instruments (Malaysia),High,Cascaded with U34 -> 16-level encode (inferred)
+U36,1,SN74LS174N,Hex D flip-flop w/ clear,DIP-16,Texas Instruments (Malaysia),High,Status / interrupt request latch (inferred)
+U37,1,SN74LS00N,Quad 2-input NAND,DIP-14,Texas Instruments (Malaysia),High,Glue
+U38,1,74F38N,Quad 2-input NAND buffer (open collector),DIP-14,Signetics? (marked 5KK8505),Medium,Drives wired-OR backplane lines (inferred)
+U41,1,74F241PC,Octal buffer (3-state; 2x4 opposite enables),DIP-20,Fairchild (Korea),High,
+U42,1,Programmed PROM 'INITROM (c)1986 N.E.D.',Power-up / initialisation PROM,DIP-16 (socketed),Unknown - paper label,Medium,16-pin: 82S123/82S129/82S131 class bipolar PROM - DUMP BEFORE SERVICE
+U43,1,MC74F153N,Dual 4-to-1 multiplexer,DIP-16,Motorola,High,Next-microaddress mux bits (inferred)
+U44,1,MC74F153N,Dual 4-to-1 multiplexer,DIP-16,Motorola,High,Next-microaddress mux bits (inferred)
+U45,1,74F153PC,Dual 4-to-1 multiplexer,DIP-16,Fairchild,High,Next-microaddress mux bits (inferred)
+U46,1,MC74F153N,Dual 4-to-1 multiplexer,DIP-16,Motorola,High,Next-microaddress mux bits (inferred)
+U47,1,74F153PC,Dual 4-to-1 multiplexer,DIP-16,Fairchild,High,Next-microaddress mux bits (inferred)
+U48,1,SN74LS04N,Hex inverter,DIP-14,Texas Instruments (Malaysia),High,Glue
+U51,1,Programmed PROM 'SMR03 (c)1986 N.E.D.',Microcode ROM - slice 3 (4 bits wide?),DIP-16 (socketed),Unknown - paper label,Medium,16-pin x4 PROM (82S129 256x4 / 82S131 512x4 class) - DUMP BEFORE SERVICE
+U52,1,74F175PC,Quad D flip-flop w/ clear,DIP-16,Fairchild,Medium,Marking read as F175 (could be F174/F176); pipeline register for SMR03 (4 bits)
+U53,1,74F74PC,Dual D flip-flop,DIP-14,Fairchild,High,Clock/phase or state flops
+U54,1,SN7438N,Quad 2-input NAND buffer (open collector),DIP-14,Texas Instruments (Brazil),High,Drives wired-OR backplane lines (inferred)
+U61,1,Programmed PROM 'SMR00 (c)1986 N.E.D.',Microcode ROM - slice 0 (8 bits),DIP-24 (socketed),Unknown - paper label,Medium,8-bit wide bipolar PROM (1Kx8 / 2Kx8 class?) - DUMP BEFORE SERVICE
+U62,1,AM29823PC,9-bit D register (3-state),DIP-24 (0.3in),AMD,High,Microinstruction pipeline register for SMR00
+U63,1,74F00PC,Quad 2-input NAND,DIP-14,Fairchild (Korea),High,Glue / clock
+U64,1,74F02PC,Quad 2-input NOR,DIP-14,Fairchild,High,Glue / clock
+U71,1,Programmed PROM 'SMR01 (c)1986 N.E.D.',Microcode ROM - slice 1 (8 bits),DIP-24 (socketed),Unknown - paper label,Medium,DUMP BEFORE SERVICE
+U72,1,AM29823PC,9-bit D register (3-state),DIP-24 (0.3in),AMD,High,Microinstruction pipeline register for SMR01
+U73,1,74F08PC,Quad 2-input AND,DIP-14,Fairchild,Medium,Marking read as F08 (could be F09/F86)
+U74,1,74F04PC,Hex inverter,DIP-14,Fairchild,Medium,Clock buffering (next to delay line)
+U81,1,Programmed PROM 'SMR02 (c)1986 N.E.D.',Microcode ROM - slice 2 (8 bits),DIP-24 (socketed),Unknown - paper label,Medium,Silkscreen reads 'U8' - second digit hidden; DUMP BEFORE SERVICE
+U82,1,74F374PC,Octal D flip-flop (3-state),DIP-20,Fairchild,Medium,Silkscreen reads 'U8'; pipeline register for SMR02 - drives J1 via U91/U92
+U91,1,DIP resistor network 16-pin (4116R-001-101?),8 isolated resistors (100R?),DIP-16,Bourns? (yellow),Medium,Series termination for J1 ribbon lines (inferred)
+U92,1,DIP resistor network 16-pin (4116R-001-1x2?),8 isolated resistors,DIP-16,Bourns? (yellow),Medium,Series termination for J1 ribbon lines (inferred)
+U93,1,Tapped delay line 'DL15C60D 20833',Clock delay / phase generator,DIP-14,Unknown,Medium,Jumper pads 40/50/60/70/80 ns -> CLK select tap
+JP1,1,Jumper pads 40/50/60/70/80/CLK,Delay-line tap select for CLK,Pads,,High,Record which tap is linked on the real board
+C1,1,Tantalum axial (+ marked),Bulk +5V decoupling at edge connector,Axial,Unknown,High,Value not legible
+C2-C43,~42,ESK104 / KLK104-type 0.1uF,Per-IC decoupling,Radial dipped,,High,'104' = 0.1uF
+C28,1,Brown dipped capacitor,Unknown (larger value / timing?),Radial,,Low,Near R1/D1
+R1,1,Resistor,Unknown,Axial,,Low,Near U54/U48
+D1,1,Diode (glass),Unknown (reset / clamp?),DO-35,,Low,Near R1
+RW1,2,Resistors on solder side,Rework,Axial,,Medium,Two resistors soldered on the back near U36-U38 - record values and both ends
+J1,1,34-pin (2x17) shrouded IDC box header,Ribbon to FPRM-185 Register Module,THT 0.1in,,Medium,Pin count estimated from photo
+P1,1,Card-edge fingers,ABLE backplane,Edge,,Low,Pin-out unknown
+PCB,1,NED FPSM-185,Bare board - CPU Sequencer Module (partner: FPRM-185 Register Module),2-layer (94V-0 marked),New England Digital Corp,High,Handwritten '12-2' on component side

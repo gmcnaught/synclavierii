@@ -14,12 +14,12 @@
 </style>
 </defs>
 <rect width="1400" height="900" fill="#fff"/>
-<text x="20" y="34" class="h">NED Synclavier II — FPRM-185 CPU Register Module — first-pass BLOCK schematic</text>
+<text x="20" y="34" class="h">FPRM-185 Fast Processor Register Module (ABLE Model C/D) — BLOCK schematic</text>
 <text x="20" y="56" class="n">Heavy lines = 16-bit data paths (inferred). Dashed = control. Bit-slice ordering and exact nets NOT verified — see README "Verification plan".</text>
 
 <!-- Edge connector -->
 <rect x="1310" y="90" width="60" height="760" class="b"/>
-<text x="1340" y="470" class="t" transform="rotate(90 1340 470)" text-anchor="middle">P1  CARD-EDGE  (memory / I/O backplane)</text>
+<text x="1340" y="470" class="t" transform="rotate(90 1340 470)" text-anchor="middle">P1  72-pin EZbuss (slot 13)</text>
 
 <!-- Host interface column 1 -->
 <rect x="1090" y="90" width="180" height="90" class="u"/><text x="1100" y="112" class="t">U3, U4  74F245</text><text x="1100" y="130" class="n">16-bit bidirectional</text><text x="1100" y="145" class="n">BDB0–15 (pins 63–33)</text><text x="1100" y="160" class="n">DIR/OE from bus cycle</text>
@@ -46,8 +46,8 @@
 <!-- Column 2: pipeline regs -->
 <rect x="830" y="90" width="190" height="110" class="u"/><text x="840" y="112" class="t">U12, U13, U14  74F374</text><text x="840" y="130" class="n">operand / pipeline regs</text><text x="840" y="145" class="n">(load from IDB, clocked)</text>
 <rect x="830" y="220" width="190" height="80" class="u"/><text x="840" y="242" class="t">U15, U16  74F373</text><text x="840" y="260" class="n">result / readback latch</text><text x="840" y="275" class="n">→ IDB → data bus</text>
-<rect x="830" y="320" width="190" height="80" class="u"/><text x="840" y="342" class="t">U17  74F374</text><text x="840" y="360" class="n">instruction reg? /</text><text x="840" y="375" class="n">control pipeline reg</text>
-<rect x="830" y="420" width="190" height="100" class="p"/><text x="840" y="442" class="t">U18  PROM (socketed)</text><text x="840" y="460" class="n">16-pin, paper label</text><text x="840" y="475" class="n">82S129/82S123-class?</text><text x="840" y="490" class="n">local decode</text>
+<rect x="830" y="320" width="190" height="80" class="u"/><text x="840" y="342" class="t">U17  74F374</text><text x="840" y="360" class="n">IAB code / R-field</text><text x="840" y="375" class="n">latch? (IR is on FPSM)</text>
+<rect x="830" y="420" width="190" height="100" class="p"/><text x="840" y="442" class="t">U18  PROM (socketed)</text><text x="840" y="460" class="n">16-pin, paper label</text><text x="840" y="475" class="n">82S129/82S123-class?</text><text x="840" y="490" class="n">IAB class decode?</text>
 <rect x="830" y="540" width="190" height="80" class="u"/><text x="840" y="562" class="t">U11 74F10 · U21 74F00</text><text x="840" y="580" class="t">U23 74F04</text><text x="840" y="598" class="n">glue / clock / strobes</text>
 <rect x="830" y="640" width="190" height="60" class="b"/><text x="840" y="662" class="t">W1 bodge wire</text><text x="840" y="680" class="n">solder side, near U11/U12</text>
 

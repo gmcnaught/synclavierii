@@ -77,6 +77,23 @@ followed and checked. Newest information wins where entries disagree.
   dumps. A secondary source (500sound.com, unreachable) reportedly says NED
   produced no service manuals.
 
+## 7. Consolidation (no hardware available)
+
+* **Instruction set:** transcribed in full from page images of the manual
+  (pp. 2-5 to 2-31, App. IV) into `docs/instruction-set.md` and
+  `data/able-opcodes.csv`.
+* **Consistency pass:**
+  * The FPRM is now described as controlled by IAB codes on the shared bus.
+    The earlier idea of "control fields" sent from the FPSM was dropped.
+  * The instruction register is placed on the FPSM, per the manual.
+  * The slot numbers are reconciled: 9–10 in the ABLE bin, 13–14 in the
+    Synclavier bin.
+  * New point: the ABLE table limits MA0–15 to slots 1–12, so the
+    Synclavier backplane must route MA differently.
+* **New hypothesis:** FPRM U18 is a 32×8 PROM (82S123 class) that decodes
+  the IAB class from ADR7–3.
+* **Also added:** the bench checklist, the data CSVs and the pinned sources.
+
 ## Searched without useful results
 
 * archive.org full-text and metadata search for "synclavier", "new england

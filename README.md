@@ -8,10 +8,16 @@ This project documents the CPU of the New England Digital Synclavier: the
 | **FPRM-185** | Fast Processor **Register Module**. 16-bit ALU (4× 74F181 + 74S182), 16×16 register file (4× CY27S07), C/Z/M flags, memory-address and data-bus interface. Used in **Model C and Model D**. Bin slot 13. | [`boards/fprm-185/`](boards/fprm-185/README.md) |
 | **FPSM-185** | Fast Processor **Sequencer Module**. ≈28-bit pipelined microcode (SMR00–03 PROMs), next-address sequencer, opcode-dispatch PROMs, interrupt priority, delay-line timing. **Model C** only (Model D uses the DSM instead). Bin slot 14. | [`boards/fpsm-185/`](boards/fpsm-185/README.md) |
 
-The architecture, instruction format and backplane pinout from the NED
-documentation are summarised in **[`docs/able-reference.md`](docs/able-reference.md)**.
-How we got here, including corrections and dead ends, is in
-**[`docs/research-log.md`](docs/research-log.md)**.
+Where to start:
+
+| Document | Contents |
+|---|---|
+| [`docs/able-reference.md`](docs/able-reference.md) | Architecture, the 72-pin EZbuss pinout, processor models and slots |
+| [`docs/instruction-set.md`](docs/instruction-set.md) | **Full ABLE instruction set** (every source/destination code, flags, PSW/PCW, device map) |
+| [`docs/bench-checklist.md`](docs/bench-checklist.md) | What to do when someone has a board or bin: PROM reads, measurements, photos |
+| [`docs/sources.md`](docs/sources.md) | Pinned sources: checksums, commit IDs, page map |
+| [`docs/research-log.md`](docs/research-log.md) | How we got here, including corrections and dead ends |
+| [`data/`](data/README.md) | CSVs: EZbuss pinout, opcode map, netlist (STD/OBS/HYP) |
 
 > **Status: first pass.** The BOMs and chip identities are solid. The block
 > schematics and netlists are **inferred** from 822×622 photos plus NED
@@ -27,11 +33,15 @@ How we got here, including corrections and dead ends, is in
 ```
 README.md                    this file: overview, status, next steps
 docs/
-  able-reference.md          notes from the NED ABLE Hardware Reference Manual,
-                             Synclavier Internals and the 2023 "Cards and Components"
-                             description: architecture, instruction format,
-                             72-pin EZbuss pinout, processor models and slots
+  able-reference.md          architecture, 72-pin EZbuss pinout, processor models/slots
+  instruction-set.md         full ABLE instruction set (from page images of the manual)
+  bench-checklist.md         hardware tasks: PROM reads, edge/backplane maps, photos
+  sources.md                 pinned sources: checksums, commits, page map
   research-log.md            chronology of findings, corrections and sources
+data/
+  ezbuss-pinout.csv          72-pin pinout + expected chips + columns to fill in
+  able-opcodes.csv           source/destination code map with flag effects
+  netlist.csv                board connections tagged STD / OBS / HYP
 boards/
   fprm-185/
     README.md                layout, inferred netlist, doc cross-check, verification plan
@@ -97,11 +107,11 @@ boards/
 
 | Option | Needs hardware? | Notes |
 |---|---|---|
-| **Behavioural / instruction-level model** of the ABLE CPU (spec + test vectors, then HDL, e.g. as an FPGA core) | No | The NED docs give enough detail: registers, flags, instruction format, micro-cycle, bus handshake. Cross-check against the existing ABLE VHDL re-implementation (see `docs/able-reference.md`). |
+| **Behavioural / instruction-level model** of the ABLE CPU (spec + test vectors, then HDL, e.g. as an FPGA core) | No | `docs/instruction-set.md` gives the full ISA; `data/able-opcodes.csv` is a ready decode table. Cross-check against the existing ABLE VHDL re-implementation (see `docs/sources.md`). |
 | **KiCad capture** of what's confirmed | No | Parts, the '181/'182 carry chain, the register file, and the EZbuss nets; guessed nets left as labelled stubs. |
 | **Read the PROMs** | Yes | The single most valuable step. Without them, a gate-accurate model of the boards isn't possible. |
 | **High-resolution photos** (≥600 dpi, both sides, square-on) | Yes | Most traces could then be followed from overlaid images. |
-| **Edge-finger and backplane continuity map** | Yes | The procedure is in `boards/fpsm-185/README.md` §5. |
+| **Edge-finger and backplane continuity map** | Yes | The procedure is in `docs/bench-checklist.md` §3–4; record results in `data/ezbuss-pinout.csv`. |
 | **Community outreach** | — | Synclavier owners and repairers (see the forum thread in `docs/research-log.md`) may have spare cards, dumps or photos. |
 
 ## Sources and credits

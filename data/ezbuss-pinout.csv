@@ -1,0 +1,73 @@
+pin,side,signal,active_low,slots_ABLE_bin,pullup_ohms,fprm_expected_dir,fprm_expected_chip,fpsm_expected_dir,fpsm_expected_chip,fprm_measured,fpsm_measured,notes
+1,odd,GROUND,,1-32,,power,all ICs,power,all ICs,,,
+2,even,GROUND,,1-32,,power,all ICs,power,all ICs,,,
+3,odd,IRQ,yes,1-32,390,n/a,,in,U1/U4 74x240,,,
+4,even,HAK,yes,1-32,390,n/a,,out,U38/U54 OC?,,,
+5,odd,SYN,yes,1-32,3x 390,out,glue (OC),in,U1/U4 74x240,,,
+6,even,HALT,yes,1-32,390,n/a,,in,U1/U4 74x240,,,
+7,odd,IORST (tied to 8),yes,,390,,,,,,,
+8,even,INIT (tied to 7),yes,,,,,,,,,
+9,odd,WR,yes,1-32,2x 270,in,glue / U7?,out,U2/U3? or OC driver,,,
+10,even,RES,yes,1-32,390,,,,,,,
+11,odd,RD,yes,1-32,2x 270,in,glue / U7?,out,U2/U3? or OC driver,,,
+12,even,MEM,yes,1-12,390,,,,,,,
+13,odd,ACK,yes,1-32,330,n/a,,out,U38/U54 OC?,,,
+14,even,GROUND,,1-32,,power,all ICs,power,all ICs,,,
+15,odd,ADR0,yes,1-32,3x 1k,in,U7 74ALS244,out,U2/U3 74LS374 or U43-U47 74F153,,,
+16,even,MA15,yes,1-12,330,out,U5/U6 74F373,n/a,,,,ABLE bin: slots 1-12 only; Synclavier routing differs
+17,odd,ADR1,yes,1-32,3x 1k,in,U7 74ALS244,out,U2/U3 74LS374 or U43-U47 74F153,,,
+18,even,MA14,yes,1-12,330,out,U5/U6 74F373,n/a,,,,ABLE bin: slots 1-12 only; Synclavier routing differs
+19,odd,ADR2,yes,1-32,3x 1k,in,U7 74ALS244,out,U2/U3 74LS374 or U43-U47 74F153,,,
+20,even,MA13,yes,1-12,330,out,U5/U6 74F373,n/a,,,,ABLE bin: slots 1-12 only; Synclavier routing differs
+21,odd,ADR3,yes,1-32,3x 1k,in,U7 74ALS244,out,U2/U3 74LS374 or U43-U47 74F153,,,
+22,even,MA12,yes,1-12,330,out,U5/U6 74F373,n/a,,,,ABLE bin: slots 1-12 only; Synclavier routing differs
+23,odd,ADR4,yes,1-32,3x 1k,in,U7 74ALS244,out,U2/U3 74LS374 or U43-U47 74F153,,,
+24,even,MA11,yes,1-12,330,out,U5/U6 74F373,n/a,,,,ABLE bin: slots 1-12 only; Synclavier routing differs
+25,odd,ADR5,yes,1-32,3x 1k,in,U7 74ALS244,out,U2/U3 74LS374 or U43-U47 74F153,,,
+26,even,MA10,yes,1-12,330,out,U5/U6 74F373,n/a,,,,ABLE bin: slots 1-12 only; Synclavier routing differs
+27,odd,ADR6,yes,1-32,3x 1k,in,U7 74ALS244,out,U2/U3 74LS374 or U43-U47 74F153,,,
+28,even,MA9,yes,1-12,330,out,U5/U6 74F373,n/a,,,,ABLE bin: slots 1-12 only; Synclavier routing differs
+29,odd,ADR7,yes,1-32,3x 1k,in,U7 74ALS244,out,U2/U3 74LS374 or U43-U47 74F153,,,
+30,even,MA8,yes,1-12,330,out,U5/U6 74F373,n/a,,,,ABLE bin: slots 1-12 only; Synclavier routing differs
+31,odd,GROUND,,1-32,,power,all ICs,power,all ICs,,,
+32,even,MA7,yes,1-12,330,out,U5/U6 74F373,n/a,,,,ABLE bin: slots 1-12 only; Synclavier routing differs
+33,odd,BDB15,yes,1-32,330,bidir,U3/U4 74F245,bidir,U14 74F245 (+U12/U13),,,
+34,even,MA6,yes,1-12,330,out,U5/U6 74F373,n/a,,,,ABLE bin: slots 1-12 only; Synclavier routing differs
+35,odd,BDB14,yes,1-32,330,bidir,U3/U4 74F245,bidir,U14 74F245 (+U12/U13),,,
+36,even,MA5,yes,1-12,330,out,U5/U6 74F373,n/a,,,,ABLE bin: slots 1-12 only; Synclavier routing differs
+37,odd,BDB13,yes,1-32,330,bidir,U3/U4 74F245,bidir,U14 74F245 (+U12/U13),,,
+38,even,MA4,yes,1-12,330,out,U5/U6 74F373,n/a,,,,ABLE bin: slots 1-12 only; Synclavier routing differs
+39,odd,BDB12,yes,1-32,330,bidir,U3/U4 74F245,bidir,U14 74F245 (+U12/U13),,,
+40,even,MA3,yes,1-12,330,out,U5/U6 74F373,n/a,,,,ABLE bin: slots 1-12 only; Synclavier routing differs
+41,odd,BDB11,yes,1-32,330,bidir,U3/U4 74F245,bidir,U14 74F245 (+U12/U13),,,
+42,even,MA2,yes,1-12,330,out,U5/U6 74F373,n/a,,,,ABLE bin: slots 1-12 only; Synclavier routing differs
+43,odd,BDB10,yes,1-32,330,bidir,U3/U4 74F245,bidir,U14 74F245 (+U12/U13),,,
+44,even,MA1,yes,1-12,330,out,U5/U6 74F373,n/a,,,,ABLE bin: slots 1-12 only; Synclavier routing differs
+45,odd,BDB9,yes,1-32,330,bidir,U3/U4 74F245,bidir,U14 74F245 (+U12/U13),,,
+46,even,MA0,yes,1-12,330,out,U5/U6 74F373,n/a,,,,ABLE bin: slots 1-12 only; Synclavier routing differs
+47,odd,BDB8,yes,1-32,330,bidir,U3/U4 74F245,bidir,U14 74F245 (+U12/U13),,,
+48,even,GROUND,,1-32,,power,all ICs,power,all ICs,,,
+49,odd,BDB7,yes,1-32,330,bidir,U3/U4 74F245,bidir,U14 74F245 (+U12/U13),,,
+50,even,LD,yes,1-32,390,,,,,,,
+51,odd,BDB6,yes,1-32,330,bidir,U3/U4 74F245,bidir,U14 74F245 (+U12/U13),,,
+52,even,RST,yes,1-32,390,,,,,,,
+53,odd,BDB5,yes,1-32,330,bidir,U3/U4 74F245,bidir,U14 74F245 (+U12/U13),,,
+54,even,special TTY,,,,,,,,,,
+55,odd,BDB4,yes,1-32,330,bidir,U3/U4 74F245,bidir,U14 74F245 (+U12/U13),,,
+56,even,special TTY,,,,,,,,,,
+57,odd,BDB3,yes,1-32,330,bidir,U3/U4 74F245,bidir,U14 74F245 (+U12/U13),,,
+58,even,MAE,,1-32,390,,,,,,,
+59,odd,BDB2,yes,1-32,330,bidir,U3/U4 74F245,bidir,U14 74F245 (+U12/U13),,,
+60,even,MIN,yes,9-10,390,out,flag logic (U8/U1?),in,U31 74F151,,,private to CPU slot pair (13-14 in Synclavier 25-slot bin)
+61,odd,BDB1,yes,1-32,330,bidir,U3/U4 74F245,bidir,U14 74F245 (+U12/U13),,,
+62,even,C,yes,9-10,390,out,flag logic (U8/U1?),in,U31 74F151,,,private to CPU slot pair (13-14 in Synclavier 25-slot bin)
+63,odd,BDB0,yes,1-32,330,bidir,U3/U4 74F245,bidir,U14 74F245 (+U12/U13),,,
+64,even,Z,yes,9-10,390,out,flag logic (U8/U1?),in,U31 74F151,,,private to CPU slot pair (13-14 in Synclavier 25-slot bin)
+65,odd,DAISY (with 66),,,,,,,,,,
+66,even,DAISY (with 65),,,,,,,,,,
+67,odd,MAIS,yes,1-32,390,,,,,,,
+68,even,WRC,yes,1-32,390,,,,,,,
+69,odd,1 MHz,,1-32,on card,,,,,,,
+70,even,PDS,yes,1-32,390,,,,,,,
+71,odd,+5 V,,1-32,,power,all ICs,power,all ICs,,,
+72,even,+5 V,,1-32,,power,all ICs,power,all ICs,,,

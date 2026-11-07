@@ -91,40 +91,18 @@ claim is unconfirmed.
 
 ---
 
-## 2. Instruction format (HW Ref. Manual p. 2-5)
+## 2. Instruction format
 
-```
- 15                    8 7                     0
-| D7 D6 D5 D4 D3 D2 D1 D0 | S7 S6 S5 S4 S3 S2 S1 S0 |
-     DESTINATION address        SOURCE address
-```
+The full transcription (every source and destination code, flag effects,
+conditional transfers, PSW/PCW, device map and worked examples) is in
+**[`instruction-set.md`](instruction-set.md)**.
 
-The two 8-bit fields are independent, and each one is put on the IAB in
-turn. Source classes:
-
-| Code (bits 7–0) | Source class |
-|---|---|
-| `0 ddddddd` | I/O source, device 000–177 octal (000 = HOP panel, 001 = PSW) |
-| `1 0 S D4 D3 D2 D1 D0` | Immediate (6-bit signed) |
-| `1 1 0 I R3 R2 R1 R0` | Register source (I = post-increment) |
-| `1 1 1 I R3 R2 R1 R0` | Memory source (indirect on R; I = post-increment) |
-
-The destination classes are I/O, memory, register load, arithmetic/logic
-(add, subtract, AND, OR, XOR, load-complement, shift, rotate …), test, and
-conditional transfer (absolute or relative). The handwritten table on PDF
-p. 15 has the full bit patterns.
-
-**Why this matters for the FPRM:** every operation the Register Module
-performs is selected by the 8-bit code on ADR0–7, plus RD or WR. The FPRM's
-decode PROMs (U18/U28) are therefore most likely an **IAB-code → control**
-lookup: an address for the register stack, the ALU function (S0–S3/M/Cn),
-latch enables, gating onto the data bus and MAB, and the flag-register
-write. With U18/U28 dumped, the table above lets that lookup be labelled
-directly.
-
-Device 001 octal: reading it returns the **PSW** (bit 0 Z, 1 C, 2 M, 3 ION,
-4–15 interrupting-device bits, gathered with an ACK cycle). Writing it sets
-the **PCW** (Z, C, M, ION/ICS, PCS).
+**Why this matters for the FPRM:** every Register Module operation is
+selected by the 8-bit code on ADR0–7, plus RD̅ or WR̅. The FPRM's decode
+PROMs (U18/U28) are therefore most likely an **IAB-code → control** lookup:
+an address for the register stack, the ALU function, latch enables, gating
+onto the data bus and MAB, and the flag write. See
+[`boards/fprm-185/README.md`](../boards/fprm-185/README.md).
 
 ---
 
@@ -179,19 +157,23 @@ signals. MAE, MAIS, WRC, PDS, LD and MEM are not explained on this page.*
 
 ### What the table tells us
 * **The flags Z, C and MIN (pins 64/62/60) exist only in slots 9–10, the two
-  CPU slots.** These are the private Register Module → Sequencer lines. This
+  CPU slots of the original ABLE bin** (slots 13–14 in the Synclavier
+  25-slot bin; see §5). These are the private Register Module → Sequencer lines. This
   is why the FPRM and FPSM must sit in adjacent slots.
 * Everything else between the two cards uses the **shared** buses:
   ADR0–7 (IAB), RD, WR, SYN, BDB0–15 and MA0–15. So the FPRM is controlled
   by the same 8-bit address/RD/WR cycles that address any I/O device.
-* MA0–15 and MEM are present only in slots 1–12, the memory section of the
-  bin.
+* MA0–15 and MEM are present only in slots 1–12 in this table. In the
+  Synclavier bin the CPU sits in slots 13–14 and the core memory in 11–12,
+  so **the Synclavier backplane must route MA differently**. This is direct
+  evidence that the slot columns of this table do not carry over to the
+  Synclavier bin unchanged.
 * Pin numbering: even pins on one side, odd on the other; pins 1/2 are GND and
   71/72 are +5 V. Check which physical end is pin 1 on the real card.
 
 **Caveat:** this table is for the documented ABLE bin. Check a Synclavier
 bin (and the "185"-series cards) against it before relying on it,
-starting with GND, +5 V and the slot-9/10 flag pins.
+starting with GND, +5 V and the CPU-slot flag pins (60/62/64).
 
 ---
 

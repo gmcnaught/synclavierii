@@ -1,4 +1,4 @@
-# NED Synclavier II — Board FPSM-185 (CPU Sequencer Module): first-pass schematic & BOM
+# FPSM-185: Fast Processor Sequencer Module (ABLE Model C CPU)
 
 > **Status: first pass from photos only** (component side and solder side,
 > 822×622 px, studiorepair.com). Part markings are mostly readable. The
@@ -8,8 +8,9 @@
 **Partner board:** [FPRM-185 Register Module](../fprm-185/README.md).
 The two cards together make up the CPU. The FPSM is the **control unit**:
 microcode store, micro-sequencer, instruction dispatch, interrupt
-prioritisation and clock generation. It drives the FPRM's data path **through
-the backplane (P1)**. The 34-pin ribbon on J1 goes to *other* external cards,
+prioritisation and bus timing. It drives the FPRM **through the shared
+backplane bus**: it puts 8-bit operation codes on ADR0–7, asserts RD̅ or WR̅,
+and waits for SYN̅. The 34-pin ribbon on J1 goes to *other* external cards,
 not to the FPRM.
 
 | File | Contents |
@@ -49,43 +50,43 @@ not to the FPRM.
 * **Rework:** two resistors are soldered on the solder side near U36–U38.
   Record their values and both ends.
 
-### Identity (from the documentation search)
+### What the board is
 
 **FPSM = "Fast Processor" Sequencer Module, the sequencer half of the Model
 C processor** (Model C = FPSM + FPRM). It was used in the PSMT, all
 Direct-to-Disk and Poly systems, and some Synclavier IIs. Model D replaces
 this card with the **DSM** and keeps the FPRM. It sits in **slot 14** of the
-25-slot computer bin, next to the FPRM in slot 13. See
-[`docs/able-reference.md` §5](../../docs/able-reference.md#5-processor-models-and-slot-placement-cards-and-components-2023).
+25-slot computer bin, next to the FPRM in slot 13
+([`docs/able-reference.md` §5](../../docs/able-reference.md#5-processor-models-and-slot-placement-cards-and-components-2023)).
 No public schematic or microcode dump was found, so the SMR/DDE/INITROM
 contents can only come from reading a physical board.
 
-### Documentation cross-check (ABLE Series Hardware Reference Manual)
+### Documented role (ABLE Hardware Reference Manual)
 
-The manual (summarised in [`docs/able-reference.md`](../../docs/able-reference.md))
-describes the **Sequencer** as:
+The manual's Fig. 2 shows the **Sequencer** as:
 
 * an *Instruction Register* and a *Data Register*, both loaded from the data
   bus (the fetched word goes into both)
 * a decode/state block
 * a *Selector* that puts either the source half or the destination half of
-  the instruction on the **8-bit Instruction/Address bus (ADR0–7)**
+  the instruction on **ADR0–7**
 * the IRQ̅, HALT̅/HAK̅, SYN̅, RD̅ and WR̅ lines
-* the 3 flags C/Z/M as an input from the Register Module
+* the C/Z/M flags as an input from the Register Module
 
-Every instruction runs as fetch → source READ → destination WRITE. The bus
-is **asynchronous** (handshaken with SYN̅), so there is no system clock.
+Each instruction is fetch → source READ → destination WRITE, with
+immediate sources and failed conditional transfers shortening the cycle
+([`docs/instruction-set.md` §7](../../docs/instruction-set.md#7-execution-model-pp-2-6-2-9-to-2-11)).
 
-| Manual | This board (inferred) |
+| Documented block | This board **[HYP]** |
 |---|---|
-| Decode / state register | Microcode SMR00–03 + pipeline registers. This is a microcoded "Model C (or newer)" implementation (*Synclavier Internals*). |
-| Instruction decode | U22/U23 "DDE…" PROMs (opcode → microcode entry), U24 Am29823 |
-| Instruction Register and Data Register | U12/U13 74F374, U24, U14 74F245 on BDB0–15 (exact split TBD) |
-| Selector → IAB | Candidates: U43–U47 '153 (S field / D field / PC register code / device code) or U2/U3 'LS374 → edge (ADR0–7 = EZbuss odd pins 15–29) |
-| IRQ̅, HALT̅, SYN̅ inputs; HAK̅, RD̅, WR̅ outputs | U1 74LS240 / U4 74F240 inverting receivers (negative-logic bus); U38 74F38 / U54 7438 open-collector drivers (the manual recommends 7438-type drivers) |
-| Flags C/Z/M from the Register Module | EZbuss **pins 62/64/60, slots 9–10 only** → U31 '151 condition select |
-| "~180 ns from address to RD/WR command", no clock | **U93 delay line + JP1** set these delays and strobe widths |
-| Interrupt: IRQ̅ sampled at the end of each instruction; PC switches to R16; PSW read uses ACK̅ | U34/U35 'LS348, U36 'LS174, INITROM |
+| Decode / state | Microcode SMR00–03 + pipeline registers (a microcoded "Model C" implementation, per *Synclavier Internals*) |
+| Instruction decode | U22/U23 "DDE…" PROMs (instruction → microcode entry address) |
+| Instruction Register and Data Register | U12/U13 74F374, U24 Am29823, U14 74F245 on BDB0–15 (exact split unknown) |
+| Selector → ADR0–7 | U43–U47 '153 (S field / D field / PC register code / device code) or U2/U3 'LS374 → edge |
+| IRQ̅, HALT̅, SYN̅ in; HAK̅, RD̅, WR̅ out | U1 74LS240 / U4 74F240 inverting receivers (negative-logic bus); U38 74F38 / U54 7438 open-collector drivers (the manual recommends 7438-type drivers) |
+| C/Z/M flags from the FPRM | EZbuss **pins 62/64/60**, private to the CPU slot pair → U31 '151 condition select |
+| About 180 ns from address to RD/WR, no system clock | **U93 delay line + JP1** set the delays and strobe widths |
+| IRQ̅ sampled at the end of each instruction; PC switches to R16; ACK̅ on PSW read | U34/U35 'LS348, U36 'LS174, INITROM |
 
 ---
 
@@ -159,10 +160,14 @@ PROMs, check against the datasheet once the parts are identified.
   The Am29823's CLR̅ and EN̅ pins would let the sequencer clear the microword
   (a NOP) or hold it (a wait state).
 * Microword fields **[HYP]**:
-  * FPRM controls: ALU S0–S3/M/Cn, register-file address and WE̅,
-    latch/output enables
+  * bus-cycle control: which IAB code to drive (S field, D field, R17 for
+    fetch, 001 for PSW …), RD̅ vs WR̅, and when to wait for SYN̅
+  * IR/DR load enables, the immediate sign-extend path, and skipping steps
   * next-address select, branch address, condition select (to U31)
-  * backplane cycle controls (U2/U3)
+  * interrupt and HALT handling, and Model C extensions such as `RPT`
+
+  The FPRM decodes its own operation from the IAB code, so the microword
+  does **not** need to carry ALU S0–S3/M control.
 * **Microcode depth** depends on the PROM type. The 16-pin ×4 SMR03 suggests
   256×4 (82S129) or 512×4 (82S131), so 256 or 512 words. Ten mux bits
   (5× '153) would allow up to 1K.
@@ -195,11 +200,9 @@ PROMs, check against the datasheet once the parts are identified.
 
 ### 4.6 Backplane interface **[OBS] + [HYP]**
 * **[OBS]** U2/U3 ('LS374) have many traces fanning out to the edge fingers.
-  Since the FPRM is controlled over the backplane, these 16 registered outputs
-  are strong candidates for **the FPRM control fields** (ALU function,
-  register-file address, enables). The alternative is ordinary bus-cycle
-  controls (memory read/write, device select). Either way, they are loaded
-  from the microword.
+  These 16 registered outputs are candidates for **ADR0–7 plus the
+  bus-control lines** (RD̅, WR̅, and others), registered so that the address
+  is stable before the command, as the bus protocol requires.
 * U14 ('245) and U12/U13 ('374) tap the data bus, for example to capture the
   instruction word.
 * U38 (74F38) and U54 (7438) are open-collector drivers for wired-OR
@@ -216,76 +219,30 @@ the CPU timing, so **do not move the jumper**.
 
 ## 5. FPRM ↔ FPSM interface (backplane P1)
 
-*(Correction from the board owner: the two CPU cards talk through the
-backplane. J1 on each card is a ribbon to other external cards.)*
-
-**Installation notes supplied by the board owner** (source not yet cited;
-confirm against the NED bin configuration guide):
-* Both cards plug fully into the system backplane, for example the legacy
-  **IB25** backplane. The data, address and low-level control lines between
-  the sequencer and the register module are hard-wired in the backplane
-  traces.
-* The FPRM and FPSM **must sit in strictly adjacent slots**, as set out in
-  the bin configuration guide, to keep timing tight and traces short.
-* Peripheral cards (for example the **MFC1** terminal card and the floppy and
-  Winchester controllers) use external ribbon or serial cables out of the
-  rack. The FPRM→FPSM pipeline is entirely inside the backplane.
-
-The adjacency rule suggests that some CPU lines are **slot-to-slot traces
-between the two CPU slots only**, rather than bussed to every slot. That can
-be checked on the backplane alone, with no card tracing (see below).
-
-Open point: these notes describe cabled peripherals, but both CPU cards also
-carry a 34-pin J1 header. What J1 on the CPU cards connects to is still
-unknown.
-
-**What the manual says about the interface**
-([EZbuss table](../../docs/able-reference.md#3-ezbuss-72-pin-two-sided-edge-connector-appendix-ii-table-1)):
+Both cards plug into the 72-pin EZbuss backplane in **adjacent slots**: 13
+and 14 in the Synclavier 25-slot bin, or 9 and 10 in the original ABLE bin.
+See the [EZbuss table](../../docs/able-reference.md#3-ezbuss-72-pin-two-sided-edge-connector-appendix-ii-table-1).
 
 * **FPSM → FPRM** goes over the *shared* bus. The 8-bit ADR0–7 (pins 15–29
-  odd) carries the register/ALU operation code, RD̅ (11) and WR̅ (9) give
-  direction and timing, the FPRM answers on SYN̅ (5), and data moves on
-  BDB0–15. The FPRM is addressed the same way as any I/O device.
-* **FPRM → FPSM** has **three private lines: Z̅ (64), C̅ (62), MIN̅ (60),
-  wired only in slots 9–10**. That is the documented reason the two cards
-  must sit in adjacent slots.
+  odd) carries the operation code; RD̅ (11) and WR̅ (9) give direction and
+  timing; the FPRM answers on SYN̅ (5); data moves on BDB0–15. The FPRM is
+  addressed the same way as any I/O device.
+* **FPRM → FPSM** has **three private lines: Z̅ (64), C̅ (62), MIN̅ (60)**,
+  wired only between the two CPU slots. That is the documented reason the
+  cards must be adjacent.
 * There is no system clock line. Timing is generated on the FPSM (delay
   line) and handshaken with SYN̅. Pin 69 carries a 1 MHz reference generated
-  on a card; which card drives it is still to be checked.
+  on a card; which card drives it is still to be checked. *Cards and
+  Components* says the processor runs on a "D3 clock" from the
+  MFC/D40Q/M64K/D100 cards.
 
-The edge-finger table below can now be **pre-filled with the documented
-signal names**. What's left is to confirm the pin-out on the real cards and
-find which chip pin each signal reaches.
+Owner-supplied notes: the backplane is referred to as "IB25"; peripheral
+cards (MFC1, floppy/Winchester controllers) cable out of the rack.
 
-**The most useful single measurement for both schematics** is an edge-finger
-table for each card. Measure with the card out and unpowered, and number the
-fingers from one end, giving side A and side B.
-
-| Finger (side/number) | GND / +5 V? | FPSM chip pin | FPRM chip pin | Same finger used on both cards? | Signal name |
-|---|---|---|---|---|---|
-| A1 | | | | | |
-| … | | | | | |
-
-Fingers that are used on **both** cards and don't belong to the main
-address/data buses are the private CPU control and status lines.
-
-#### Quicker first step: map the backplane between the two CPU slots
-
-With the bin powered off and every card removed, use the two CPU slot
-connectors (*S_RM* for the FPRM and *S_SM* for the FPSM) and one ordinary
-peripheral slot (*S_X*). For each contact position in *S_RM*:
-
-| Result | Meaning |
-|---|---|
-| Beeps to the same position in *S_SM* **and** in *S_X* | Bussed system line: address, data, power or global control |
-| Beeps to a **different** position in *S_SM* only | **Private CPU link**, crossed between the slots. Record both positions. |
-| Beeps to the same position in *S_SM* only, not *S_X* | **Private CPU link**, straight between the slots |
-| Beeps to nothing | Unused, or used only by this slot (an off-backplane jumper or termination) |
-
-Do this for the full connector length (both sides) and record which slot
-numbers were used. The rows marked as private links are exactly the
-FPRM↔FPSM interface. After that, the edge-finger table above only needs
-filling in for those rows, plus power and a sample of the buses.
+The edge-finger and empty-backplane continuity procedures are in
+[`docs/bench-checklist.md`](../../docs/bench-checklist.md). The documented
+pin-out in machine-readable form is
+[`data/ezbuss-pinout.csv`](../../data/ezbuss-pinout.csv).
 
 ### J1 (34-pin ribbon, to other external cards)
 * **[OBS]** J1 sits right next to **U91/U92**: two 16-pin DIP resistor
@@ -319,4 +276,10 @@ filling in for those rows, plus power and a sample of the buses.
   U73 as `74F08`.
 * The P1 edge pin-out (§5), especially the FPRM↔FPSM lines.
 * Which external cards J1 connects to, and what it carries.
+* Which chips drive ADR0–7: the '153s or U2/U3.
+* How Model C extensions (`RPT n`, the undefined destination codes 270–277)
+  are encoded and executed.
 * What the handwritten "12-2" means.
+
+The step-by-step checks for whoever has a board are in
+[`docs/bench-checklist.md`](../../docs/bench-checklist.md).

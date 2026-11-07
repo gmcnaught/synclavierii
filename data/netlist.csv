@@ -1,0 +1,117 @@
+board,net,from,from_pin,to,to_pin,tag,notes
+FPRM,P_S0,'181 slice S0,15,U41,4,STD,slice-to-RefDes order TBD (U48..U43?)
+FPRM,G_S0,'181 slice S0,17,U41,3,STD,slice-to-RefDes order TBD
+FPRM,P_S1,'181 slice S1,15,U41,2,STD,slice-to-RefDes order TBD (U48..U43?)
+FPRM,G_S1,'181 slice S1,17,U41,1,STD,slice-to-RefDes order TBD
+FPRM,P_S2,'181 slice S2,15,U41,15,STD,slice-to-RefDes order TBD (U48..U43?)
+FPRM,G_S2,'181 slice S2,17,U41,14,STD,slice-to-RefDes order TBD
+FPRM,P_S3,'181 slice S3,15,U41,6,STD,slice-to-RefDes order TBD (U48..U43?)
+FPRM,G_S3,'181 slice S3,17,U41,5,STD,slice-to-RefDes order TBD
+FPRM,CIN,'181 slice S0,7,U41,13,STD,carry in from control logic
+FPRM,C4,U41,12,'181 slice S1,7,STD,
+FPRM,C8,U41,11,'181 slice S2,7,STD,
+FPRM,C12,U41,9,'181 slice S3,7,STD,
+FPRM,COUT,'181 slice S3,16,flag logic (U8?),,HYP,carry flag source
+FPRM,AEQB,'181 slice S0,14,pull-up (R8?),,HYP,open-collector wired-AND; zero detect
+FPRM,ALU_S0,'181 slice S0,6,decode (U18/U28/U2?),,STD+HYP,bussed to all slices (STD); source HYP
+FPRM,ALU_S1,'181 slice S0,5,decode (U18/U28/U2?),,STD+HYP,bussed to all slices (STD); source HYP
+FPRM,ALU_S2,'181 slice S0,4,decode (U18/U28/U2?),,STD+HYP,bussed to all slices (STD); source HYP
+FPRM,ALU_S3,'181 slice S0,3,decode (U18/U28/U2?),,STD+HYP,bussed to all slices (STD); source HYP
+FPRM,ALU_M,'181 slice S0,8,decode (U18/U28/U2?),,STD+HYP,bussed to all slices (STD); source HYP
+FPRM,AEQB,'181 slice S1,14,pull-up (R8?),,HYP,open-collector wired-AND; zero detect
+FPRM,ALU_S0,'181 slice S1,6,decode (U18/U28/U2?),,STD+HYP,bussed to all slices (STD); source HYP
+FPRM,ALU_S1,'181 slice S1,5,decode (U18/U28/U2?),,STD+HYP,bussed to all slices (STD); source HYP
+FPRM,ALU_S2,'181 slice S1,4,decode (U18/U28/U2?),,STD+HYP,bussed to all slices (STD); source HYP
+FPRM,ALU_S3,'181 slice S1,3,decode (U18/U28/U2?),,STD+HYP,bussed to all slices (STD); source HYP
+FPRM,ALU_M,'181 slice S1,8,decode (U18/U28/U2?),,STD+HYP,bussed to all slices (STD); source HYP
+FPRM,AEQB,'181 slice S2,14,pull-up (R8?),,HYP,open-collector wired-AND; zero detect
+FPRM,ALU_S0,'181 slice S2,6,decode (U18/U28/U2?),,STD+HYP,bussed to all slices (STD); source HYP
+FPRM,ALU_S1,'181 slice S2,5,decode (U18/U28/U2?),,STD+HYP,bussed to all slices (STD); source HYP
+FPRM,ALU_S2,'181 slice S2,4,decode (U18/U28/U2?),,STD+HYP,bussed to all slices (STD); source HYP
+FPRM,ALU_S3,'181 slice S2,3,decode (U18/U28/U2?),,STD+HYP,bussed to all slices (STD); source HYP
+FPRM,ALU_M,'181 slice S2,8,decode (U18/U28/U2?),,STD+HYP,bussed to all slices (STD); source HYP
+FPRM,AEQB,'181 slice S3,14,pull-up (R8?),,HYP,open-collector wired-AND; zero detect
+FPRM,ALU_S0,'181 slice S3,6,decode (U18/U28/U2?),,STD+HYP,bussed to all slices (STD); source HYP
+FPRM,ALU_S1,'181 slice S3,5,decode (U18/U28/U2?),,STD+HYP,bussed to all slices (STD); source HYP
+FPRM,ALU_S2,'181 slice S3,4,decode (U18/U28/U2?),,STD+HYP,bussed to all slices (STD); source HYP
+FPRM,ALU_S3,'181 slice S3,3,decode (U18/U28/U2?),,STD+HYP,bussed to all slices (STD); source HYP
+FPRM,ALU_M,'181 slice S3,8,decode (U18/U28/U2?),,STD+HYP,bussed to all slices (STD); source HYP
+FPRM,RF_A0,U31,1,IAB R-field latch,,STD+HYP,bussed to all four 27S07 (STD); source HYP
+FPRM,RF_A1,U31,15,IAB R-field latch,,STD+HYP,bussed to all four 27S07 (STD); source HYP
+FPRM,RF_A2,U31,14,IAB R-field latch,,STD+HYP,bussed to all four 27S07 (STD); source HYP
+FPRM,RF_A3,U31,13,IAB R-field latch,,STD+HYP,bussed to all four 27S07 (STD); source HYP
+FPRM,RF_WE,U31,3,write-pulse glue (U11/U21/U23?),,STD+HYP,bussed (STD)
+FPRM,RF_CS,U31,2,GND or decode,,HYP,
+FPRM,RF_A0,U33,1,IAB R-field latch,,STD+HYP,bussed to all four 27S07 (STD); source HYP
+FPRM,RF_A1,U33,15,IAB R-field latch,,STD+HYP,bussed to all four 27S07 (STD); source HYP
+FPRM,RF_A2,U33,14,IAB R-field latch,,STD+HYP,bussed to all four 27S07 (STD); source HYP
+FPRM,RF_A3,U33,13,IAB R-field latch,,STD+HYP,bussed to all four 27S07 (STD); source HYP
+FPRM,RF_WE,U33,3,write-pulse glue (U11/U21/U23?),,STD+HYP,bussed (STD)
+FPRM,RF_CS,U33,2,GND or decode,,HYP,
+FPRM,RF_A0,U37,1,IAB R-field latch,,STD+HYP,bussed to all four 27S07 (STD); source HYP
+FPRM,RF_A1,U37,15,IAB R-field latch,,STD+HYP,bussed to all four 27S07 (STD); source HYP
+FPRM,RF_A2,U37,14,IAB R-field latch,,STD+HYP,bussed to all four 27S07 (STD); source HYP
+FPRM,RF_A3,U37,13,IAB R-field latch,,STD+HYP,bussed to all four 27S07 (STD); source HYP
+FPRM,RF_WE,U37,3,write-pulse glue (U11/U21/U23?),,STD+HYP,bussed (STD)
+FPRM,RF_CS,U37,2,GND or decode,,HYP,
+FPRM,RF_A0,U38,1,IAB R-field latch,,STD+HYP,bussed to all four 27S07 (STD); source HYP
+FPRM,RF_A1,U38,15,IAB R-field latch,,STD+HYP,bussed to all four 27S07 (STD); source HYP
+FPRM,RF_A2,U38,14,IAB R-field latch,,STD+HYP,bussed to all four 27S07 (STD); source HYP
+FPRM,RF_A3,U38,13,IAB R-field latch,,STD+HYP,bussed to all four 27S07 (STD); source HYP
+FPRM,RF_WE,U38,3,write-pulse glue (U11/U21/U23?),,STD+HYP,bussed (STD)
+FPRM,RF_CS,U38,2,GND or decode,,HYP,
+FPRM,MA0,U5/U6 ('373 Q),,P1,46,OBS+HYP,16 traces to edge seen; bit order TBD
+FPRM,BDB0,U3/U4 ('245 B side),,P1,63,HYP,
+FPRM,MA1,U5/U6 ('373 Q),,P1,44,OBS+HYP,16 traces to edge seen; bit order TBD
+FPRM,BDB1,U3/U4 ('245 B side),,P1,61,HYP,
+FPRM,MA2,U5/U6 ('373 Q),,P1,42,OBS+HYP,16 traces to edge seen; bit order TBD
+FPRM,BDB2,U3/U4 ('245 B side),,P1,59,HYP,
+FPRM,MA3,U5/U6 ('373 Q),,P1,40,OBS+HYP,16 traces to edge seen; bit order TBD
+FPRM,BDB3,U3/U4 ('245 B side),,P1,57,HYP,
+FPRM,MA4,U5/U6 ('373 Q),,P1,38,OBS+HYP,16 traces to edge seen; bit order TBD
+FPRM,BDB4,U3/U4 ('245 B side),,P1,55,HYP,
+FPRM,MA5,U5/U6 ('373 Q),,P1,36,OBS+HYP,16 traces to edge seen; bit order TBD
+FPRM,BDB5,U3/U4 ('245 B side),,P1,53,HYP,
+FPRM,MA6,U5/U6 ('373 Q),,P1,34,OBS+HYP,16 traces to edge seen; bit order TBD
+FPRM,BDB6,U3/U4 ('245 B side),,P1,51,HYP,
+FPRM,MA7,U5/U6 ('373 Q),,P1,32,OBS+HYP,16 traces to edge seen; bit order TBD
+FPRM,BDB7,U3/U4 ('245 B side),,P1,49,HYP,
+FPRM,MA8,U5/U6 ('373 Q),,P1,30,OBS+HYP,16 traces to edge seen; bit order TBD
+FPRM,BDB8,U3/U4 ('245 B side),,P1,47,HYP,
+FPRM,MA9,U5/U6 ('373 Q),,P1,28,OBS+HYP,16 traces to edge seen; bit order TBD
+FPRM,BDB9,U3/U4 ('245 B side),,P1,45,HYP,
+FPRM,MA10,U5/U6 ('373 Q),,P1,26,OBS+HYP,16 traces to edge seen; bit order TBD
+FPRM,BDB10,U3/U4 ('245 B side),,P1,43,HYP,
+FPRM,MA11,U5/U6 ('373 Q),,P1,24,OBS+HYP,16 traces to edge seen; bit order TBD
+FPRM,BDB11,U3/U4 ('245 B side),,P1,41,HYP,
+FPRM,MA12,U5/U6 ('373 Q),,P1,22,OBS+HYP,16 traces to edge seen; bit order TBD
+FPRM,BDB12,U3/U4 ('245 B side),,P1,39,HYP,
+FPRM,MA13,U5/U6 ('373 Q),,P1,20,OBS+HYP,16 traces to edge seen; bit order TBD
+FPRM,BDB13,U3/U4 ('245 B side),,P1,37,HYP,
+FPRM,MA14,U5/U6 ('373 Q),,P1,18,OBS+HYP,16 traces to edge seen; bit order TBD
+FPRM,BDB14,U3/U4 ('245 B side),,P1,35,HYP,
+FPRM,MA15,U5/U6 ('373 Q),,P1,16,OBS+HYP,16 traces to edge seen; bit order TBD
+FPRM,BDB15,U3/U4 ('245 B side),,P1,33,HYP,
+FPRM,ADR0,P1,15,U7 ('ALS244 in),,HYP,
+FPRM,ADR1,P1,17,U7 ('ALS244 in),,HYP,
+FPRM,ADR2,P1,19,U7 ('ALS244 in),,HYP,
+FPRM,ADR3,P1,21,U7 ('ALS244 in),,HYP,
+FPRM,ADR4,P1,23,U7 ('ALS244 in),,HYP,
+FPRM,ADR5,P1,25,U7 ('ALS244 in),,HYP,
+FPRM,ADR6,P1,27,U7 ('ALS244 in),,HYP,
+FPRM,ADR7,P1,29,U7 ('ALS244 in),,HYP,
+FPRM,Z,flag logic (U8/U1?),,P1,64,HYP,private CPU-slot line
+FPSM,Z,P1,64,U31 ('F151 data in),,HYP,condition select
+FPRM,C,flag logic (U8/U1?),,P1,62,HYP,private CPU-slot line
+FPSM,C,P1,62,U31 ('F151 data in),,HYP,condition select
+FPRM,MIN,flag logic (U8/U1?),,P1,60,HYP,private CPU-slot line
+FPSM,MIN,P1,60,U31 ('F151 data in),,HYP,condition select
+FPSM,uWORD,U61 SMR00,O0-O7 (O0-O3),U62 Am29823,D inputs,OBS+HYP,each PROM sits directly above its register
+FPSM,uWORD,U71 SMR01,O0-O7 (O0-O3),U72 Am29823,D inputs,OBS+HYP,each PROM sits directly above its register
+FPSM,uWORD,U81 SMR02,O0-O7 (O0-O3),U82 74F374,D inputs,OBS+HYP,each PROM sits directly above its register
+FPSM,uWORD,U51 SMR03,O0-O7 (O0-O3),U52 74F175,D inputs,OBS+HYP,each PROM sits directly above its register
+FPSM,uADDR,U43-U47 '153 Y,,U61/U71/U81/U51/U42 A inputs,,HYP,shared microaddress bus
+FPSM,uPC,U32/U33 'ALS161 Q,,U43-U47 '153 input,,HYP,
+FPSM,DISPATCH,U22/U23 outputs,,U43-U47 '153 input,,HYP,
+FPSM,J1_OUT,U91/U92 resistors,,J1,,OBS,16 series-terminated lines; driver TBD
+FPSM,CLK,U93 tap via JP1,,U53/U63/U64/U73/U74,,OBS+HYP,record JP1 setting

@@ -19,8 +19,8 @@
 
 <!-- J1 left -->
 <rect x="20" y="90" width="150" height="250" class="b"/>
-<text x="30" y="112" class="t">J1  34-pin IDC</text><text x="30" y="130" class="n">ribbon to FPRM-185</text><text x="30" y="145" class="n">REGISTER MODULE</text>
-<text x="30" y="175" class="n">→ ALU S0–S3, M, Cn</text><text x="30" y="190" class="n">→ reg-file addr / WE̅</text><text x="30" y="205" class="n">→ latch / OE enables</text><text x="30" y="230" class="n">← flags (C, Z, N, A=B)</text><text x="30" y="245" class="n">← condition / status</text><text x="30" y="270" class="n">(all TBD)</text>
+<text x="30" y="112" class="t">J1  34-pin IDC</text><text x="30" y="130" class="n">ribbon to other</text><text x="30" y="145" class="n">external cards</text><text x="30" y="160" class="n">(NOT the FPRM)</text>
+<text x="30" y="185" class="n">≥16 series-terminated</text><text x="30" y="200" class="n">outputs; function TBD</text>
 <rect x="190" y="90" width="150" height="110" class="b"/><text x="200" y="112" class="t">U91, U92</text><text x="200" y="130" class="n">16-pin DIP R-networks</text><text x="200" y="145" class="n">8 isolated R each</text><text x="200" y="160" class="n">series termination</text><text x="200" y="175" class="n">of ~16 ribbon lines</text>
 <path d="M190,145 H170" class="w" marker-end="url(#a)"/>
 
@@ -35,10 +35,10 @@
 <text x="390" y="252" class="t">MICROINSTRUCTION PIPELINE REGISTER</text>
 <text x="390" y="272" class="n">U62 Am29823 (SMR00) · U72 Am29823 (SMR01)</text><text x="390" y="287" class="n">U82 74F374 (SMR02) · U52 74F175 (SMR03)</text>
 <text x="390" y="302" class="n">each sits directly below its PROM on the board</text>
-<text x="390" y="320" class="n">outputs: FPRM control fields, branch address, cond-select, sequencer ops</text>
+<text x="390" y="320" class="n">outputs: FPRM ctrl (via P1), branch address, cond-select, sequencer ops</text>
 <path d="M610,190 V230" class="w" marker-end="url(#a)"/>
 <path d="M380,260 H360 V170 H340" class="w" marker-end="url(#a)"/>
-<text x="200" y="222" class="n">FPRM control fields</text>
+<text x="200" y="222" class="n">microword fields</text>
 
 <!-- Sequencer -->
 <rect x="380" y="400" width="300" height="130" class="u"/>
@@ -55,8 +55,8 @@
 <path d="M530,530 V560 H810 V490" class="w" marker-end="url(#a)"/>
 <rect x="720" y="560" width="180" height="90" class="u"/><text x="730" y="582" class="t">U31  74F151</text><text x="730" y="600" class="n">8→1 condition select</text><text x="730" y="615" class="n">flags from FPRM / bus</text><text x="730" y="630" class="n">→ branch / no-branch</text>
 <path d="M720,600 H620 V530" class="s" marker-end="url(#a)"/>
-<path d="M170,240 H200 V700 H810 V650" class="s" marker-end="url(#a)"/>
-<text x="210" y="690" class="n">flags / status from FPRM via J1</text>
+<path d="M1310,700 H810 V650" class="s" marker-end="url(#a)"/>
+<text x="940" y="690" class="n">flags / condition from FPRM via P1</text>
 <path d="M800,330 V350 H915 V610 H900" class="s" marker-end="url(#a)"/>
 <text x="855" y="345" class="n">cond sel</text>
 
@@ -77,7 +77,7 @@
 <rect x="1310" y="90" width="60" height="760" class="b"/>
 <text x="1340" y="470" class="t" transform="rotate(90 1340 470)" text-anchor="middle">P1  CARD-EDGE  (ABLE backplane)</text>
 <rect x="1170" y="90" width="120" height="120" class="u"/><text x="1178" y="112" class="t">U14 74F245</text><text x="1178" y="130" class="t">U12, U13 F374</text><text x="1178" y="150" class="n">data-bus tap:</text><text x="1178" y="165" class="n">instruction</text><text x="1178" y="180" class="n">capture</text>
-<rect x="1170" y="240" width="120" height="150" class="u"/><text x="1178" y="262" class="t">U2, U3</text><text x="1178" y="280" class="t">74LS374</text><text x="1178" y="300" class="n">many traces to</text><text x="1178" y="315" class="n">edge fingers:</text><text x="1178" y="330" class="n">bus control /</text><text x="1178" y="345" class="n">cycle outputs</text>
+<rect x="1170" y="240" width="120" height="150" class="u"/><text x="1178" y="262" class="t">U2, U3</text><text x="1178" y="280" class="t">74LS374</text><text x="1178" y="300" class="n">many traces to</text><text x="1178" y="315" class="n">edge fingers:</text><text x="1178" y="330" class="n">FPRM control</text><text x="1178" y="345" class="n">fields via P1?</text>
 <rect x="1170" y="420" width="120" height="110" class="u"/><text x="1178" y="442" class="t">U1 74LS240</text><text x="1178" y="460" class="t">U4 74F240</text><text x="1178" y="480" class="n">inverting bus</text><text x="1178" y="495" class="n">buffers (IRQ /</text><text x="1178" y="510" class="n">status in?)</text>
 <rect x="1170" y="560" width="120" height="70" class="c"/><text x="1178" y="582" class="t">C1 tant.</text><text x="1178" y="600" class="n">+5 V bulk</text><text x="1178" y="615" class="n">C2–C43 0.1 µF</text>
 <path d="M1310,150 H1290" class="w" marker-end="url(#a)" marker-start="url(#a)"/>

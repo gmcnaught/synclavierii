@@ -8,14 +8,15 @@
 **Partner board:** [FPRM-185 Register Module](../synclavier-fprm-185/README.md).
 The two cards together make up the CPU. The FPSM is the **control unit**:
 microcode store, micro-sequencer, instruction dispatch, interrupt
-prioritisation and clock generation. It drives the FPRM's data path through
-the 34-pin ribbon on J1.
+prioritisation and clock generation. It drives the FPRM's data path **through
+the backplane (P1)**. The 34-pin ribbon on J1 goes to *other* external cards,
+not to the FPRM.
 
 | File | Contents |
 |---|---|
 | [`bom.csv`](bom.csv) | Bill of materials with a confidence rating for each line |
 | [`schematic-block.svg`](schematic-block.svg) | Block-level schematic |
-| `README.md` | Layout, inferred netlist, FPRM↔FPSM interface, verification plan |
+| `README.md` | Layout, inferred netlist, FPRM↔FPSM backplane interface, verification plan |
 
 ---
 
@@ -94,12 +95,12 @@ programmed PROMs**, plus 2 DIP resistor networks.
 | 1 each | 74F00, 74F02, 74F04, 74F08, 74LS00, 74LS04 | Glue | U63, U64, U74, U73, U37, U48 |
 | 1 / 1 | 74F38 / SN7438 | Open-collector NAND buffer | U38 / U54 |
 | 7 | Programmed bipolar PROMs | See §1 | U22, U23, U42, U51, U61, U71, U81 |
-| 2 | 16-pin DIP resistor network (yellow, `4116R-001-10x`?) | J1 series termination | U91, U92 |
+| 2 | 16-pin DIP resistor network (yellow, `4116R-001-10x`?) | Series termination for J1 ribbon lines | U91, U92 |
 | 1 | Tapped delay line `DL15C60D` | Clock timing | U93 |
 | ~42 | 0.1 µF (`ESK104`/`KLK104`) | Decoupling | C2–C43 |
 | 1 | Tantalum, axial | +5 V bulk | C1 |
 | 1 / 1 / 1 | Resistor / glass diode / brown dipped cap | Reset or misc? | R1 / D1 / C28 |
-| 1 | 34-pin IDC box header | To FPRM | J1 |
+| 1 | 34-pin IDC box header | Ribbon to other external cards | J1 |
 
 ---
 
@@ -137,7 +138,7 @@ PROMs, check against the datasheet once the parts are identified.
   3. dispatch address from the U22/U23 decode PROMs
   4. interrupt/INIT vector from U34/U35/U42
 * **U31 ('F151)** is the 8→1 **condition select**. It picks one flag (carry,
-  zero, sign, A=B from the FPRM over J1, or bus/interrupt status) to decide
+  zero, sign, A=B from the FPRM over the backplane, or bus/interrupt status) to decide
   whether a conditional branch is taken.
 
 ### 4.4 Instruction dispatch **[HYP]**
@@ -156,8 +157,11 @@ PROMs, check against the datasheet once the parts are identified.
 
 ### 4.6 Backplane interface **[OBS] + [HYP]**
 * **[OBS]** U2/U3 ('LS374) have many traces fanning out to the edge fingers.
-  They are probably registered bus-cycle control outputs (memory read/write,
-  device select, and so on) loaded from the microword.
+  Since the FPRM is controlled over the backplane, these 16 registered outputs
+  are strong candidates for **the FPRM control fields** (ALU function,
+  register-file address, enables). The alternative is ordinary bus-cycle
+  controls (memory read/write, device select). Either way, they are loaded
+  from the microword.
 * U14 ('245) and U12/U13 ('374) tap the data bus, for example to capture the
   instruction word.
 * U38 (74F38) and U54 (7438) are open-collector drivers for wired-OR
@@ -172,32 +176,40 @@ the CPU timing, so **do not move the jumper**.
 
 ---
 
-## 5. FPRM ↔ FPSM interface (J1 on both cards)
+## 5. FPRM ↔ FPSM interface (backplane P1)
 
-Both cards have a 34-pin (2×17) shrouded IDC header, J1, joined by a ribbon.
+*(Correction from the board owner: the two CPU cards talk through the
+backplane. J1 on each card is a ribbon to other external cards.)*
 
-* **[OBS]** On the FPSM, J1 sits right next to **U91/U92**: two 16-pin DIP
-  resistor networks, each holding 8 isolated resistors. That gives 16 lines
-  with **series termination**, the usual way to drive fast F-TTL signals down a
-  ribbon. Series termination goes on the *driving* end, so at least 16 lines
-  are driven FPSM → FPRM. They are most likely microword control fields from
-  U82/U62/U72.
-* **[HYP]** The remaining pins carry flags back from the FPRM's ALU (carry
-  out, A=B/zero, sign) and grounds. A 34-pin ribbon carrying fast TTL usually
-  alternates signal and ground.
-* **[HYP]** On the FPRM, these lines should land on the 74F181 S0–S3/M/Cn
-  pins, the CY27S07 A0–A3/WE̅, and the '373/'374 LE/OE pins.
+* **[HYP]** FPSM → FPRM: microword control fields. Candidate drivers on this
+  card are U2/U3 ('LS374, 16 outputs fanning to the edge) and possibly U38/U54
+  (open collector). Candidate receivers on the FPRM are U7 ('ALS244) and then
+  U2 ('139) and U18/U28.
+* **[HYP]** FPRM → FPSM: ALU flags and a selected condition from the FPRM's
+  U1 ('153), landing on the FPSM's U31 ('151) condition select.
+* **[HYP]** The microcycle clock from U93/U53 probably goes out on a
+  backplane line too, so that the FPRM's latches and the 27S07 write pulses
+  stay in step.
 
-**The most useful single measurement for both schematics:** with both cards
-out of the backplane and the ribbon connected, beep each J1 pin to find
-(a) which resistor in U91/U92 it comes from on the FPSM, and (b) which IC pin
-it lands on on the FPRM. Fill in this table:
+**The most useful single measurement for both schematics** is an edge-finger
+table for each card. Measure with the card out and unpowered, and number the
+fingers from one end, giving side A and side B.
 
-| J1 pin | FPSM source | FPRM destination | Signal name |
-|---:|---|---|---|
-| 1 | | | |
-| … | | | |
-| 34 | | | |
+| Finger (side/number) | GND / +5 V? | FPSM chip pin | FPRM chip pin | Same finger used on both cards? | Signal name |
+|---|---|---|---|---|---|
+| A1 | | | | | |
+| … | | | | | |
+
+Fingers that are used on **both** cards and don't belong to the main
+address/data buses are the private CPU control and status lines.
+
+### J1 (34-pin ribbon, to other external cards)
+* **[OBS]** J1 sits right next to **U91/U92**: two 16-pin DIP resistor
+  networks with 8 isolated resistors each. That gives 16 **series-terminated**
+  lines, and series termination goes on the *driving* end, so this card drives
+  at least 16 signals off-board on the ribbon.
+* What it connects to, and which signals it carries (microword fields,
+  sequencer state, timing?), is still open.
 
 ---
 
@@ -211,7 +223,7 @@ it lands on on the FPRM. Fill in this table:
    pins → register D inputs; these should be one-to-one).
 4. Microaddress bus: the '153 Y outputs → the A pins of all SMR PROMs and
    INITROM. The '161 Q outputs and the U22/U23 outputs → the '153 inputs.
-5. Map J1 (§5).
+5. Map the P1 edge fingers on both cards (§5), then J1.
 6. With the microcode dumped and the field map known, a disassembler/simulator
    becomes possible. The microword field boundaries come out of steps 3–5.
 
@@ -221,5 +233,6 @@ it lands on on the FPRM. Fill in this table:
   one wide mapping PROM.
 * U4 is read as `74F240`; check it is not a '245. U52 is read as `74F175`;
   U73 as `74F08`.
-* The J1 pin-out (§5) and the P1 edge pin-out.
+* The P1 edge pin-out (§5), especially the FPRM↔FPSM lines.
+* Which external cards J1 connects to, and what it carries.
 * What the handwritten "12-2" means.

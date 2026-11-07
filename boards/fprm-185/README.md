@@ -43,7 +43,7 @@ processor). The CPU is built on two cards:
 | Card | Role |
 |---|---|
 | **FPRM-185, Register Module** (this board) | Data path: ALU, general registers, memory address/data interface |
-| **[FPSM-185, Sequencer Module](../synclavier-fpsm-185/README.md)** (partner card) | Control: instruction fetch/decode, microcode sequencing, timing |
+| **[FPSM-185, Sequencer Module](../fpsm-185/README.md)** (partner card) | Control: instruction fetch/decode, microcode sequencing, timing |
 
 *(Card roles supplied by the board owner. The block-level reading below follows
 from them plus the parts on the board.)*
@@ -83,12 +83,12 @@ the **Model C** processor (with the FPSM) and also of the **Model D**
 processor (with the DSM). It sits in **slot 13** of the 25-slot computer bin,
 next to the sequencer in slot 14. A forum repair report confirms that the
 FPRM-185 holds the registers and the 74F181 ALU. See
-[`synclavier-able-reference.md` §5](../synclavier-able-reference.md#5-processor-models-and-slot-placement-cards-and-components-2023).
+[`docs/able-reference.md` §5](../../docs/able-reference.md#5-processor-models-and-slot-placement-cards-and-components-2023).
 No public schematic or PROM dump was found.
 
 ### Documentation cross-check (ABLE Series Hardware Reference Manual)
 
-The NED manual (summarised in [`synclavier-able-reference.md`](../synclavier-able-reference.md))
+The NED manual (summarised in [`docs/able-reference.md`](../../docs/able-reference.md))
 describes the CPU's **Register Module** as:
 
 * a 16-register stack
@@ -271,7 +271,7 @@ B0–B3 = 1, 22, 20, 18; F0–F3 = 9, 10, 11, 13.
 ### 4.6 Connectors
 
 * **P1 card edge: the 72-pin EZbuss** (36 contacts per side). The full
-  pin-out is in [`synclavier-able-reference.md` §3](../synclavier-able-reference.md#3-ezbuss-72-pin-two-sided-edge-connector-appendix-ii-table-1).
+  pin-out is in [`docs/able-reference.md` §3](../../docs/able-reference.md#3-ezbuss-72-pin-two-sided-edge-connector-appendix-ii-table-1).
   Expected on this card:
   * BDB0–15 (odd pins 63…33) ↔ U3/U4
   * MA0–15 (even pins 46…16) ← U5/U6
@@ -280,7 +280,7 @@ B0–B3 = 1, 22, 20, 18; F0–F3 = 9, 10, 11, 13.
   * GND on pins 1, 2, 14, 31, 48; +5 V on 71, 72
 
   **Check this pin-out against the card** (manual is for the original ABLE
-  bin). See the [FPSM README §5](../synclavier-fpsm-185/README.md#5-fprm--fpsm-interface-backplane-p1) for the edge-finger
+  bin). See the [FPSM README §5](../fpsm-185/README.md#5-fprm--fpsm-interface-backplane-p1) for the edge-finger
   table to fill in for both cards.
 * **J1 2×17 IDC:** about 17 rows visible, so 34 pins (to be confirmed). The
   ribbon goes to **other external cards, not the FPSM**. Its destination and

@@ -1,46 +1,134 @@
-# Hardware reverse-engineering notes
+# NED Synclavier "Fast Processor" (ABLE Model C) — reverse engineering
 
-First-pass schematics and BOMs worked out from board photos. Each folder holds
-a `README.md` (layout, inferred netlist, verification plan), a `bom.csv` and a
-block-level `schematic-block.svg`.
-
-## NED Synclavier II CPU (two-card set)
-
-**Documentation:** [`synclavier-able-reference.md`](synclavier-able-reference.md)
-has notes from the NED ABLE Series Hardware Reference Manual and *Synclavier
-Internals* (archive.org): the CPU architecture, the instruction format and the
-full **72-pin EZbuss pinout**. The flag lines Z/C/MIN exist only in slots
-9–10, which is why the two CPU cards must sit in adjacent slots.
+This project documents the CPU of the New England Digital Synclavier: the
+**ABLE Model C "Fast Processor"**. It is built from two cards:
 
 | Board | Role | Folder |
 |---|---|---|
-| FPRM-185 | **Fast Processor** Register Module (Model C and Model D CPU), bin slot 13: 16-bit ALU (4× 74F181 + 74S182), 16×16 register file (4× CY27S07), memory address/data bus interface | [`synclavier-fprm-185/`](synclavier-fprm-185/README.md) |
-| FPSM-185 | **Fast Processor** Sequencer Module (Model C CPU; Model D uses the DSM instead), bin slot 14: ≈28-bit pipelined microcode (SMR00–03), next-address sequencer, opcode dispatch PROMs, interrupt priority, clock delay line | [`synclavier-fpsm-185/`](synclavier-fpsm-185/README.md) |
+| **FPRM-185** | Fast Processor **Register Module**. 16-bit ALU (4× 74F181 + 74S182), 16×16 register file (4× CY27S07), C/Z/M flags, memory-address and data-bus interface. Used in **Model C and Model D**. Bin slot 13. | [`boards/fprm-185/`](boards/fprm-185/README.md) |
+| **FPSM-185** | Fast Processor **Sequencer Module**. ≈28-bit pipelined microcode (SMR00–03 PROMs), next-address sequencer, opcode-dispatch PROMs, interrupt priority, delay-line timing. **Model C** only (Model D uses the DSM instead). Bin slot 14. | [`boards/fpsm-185/`](boards/fpsm-185/README.md) |
 
-The two cards talk **through the backplane** (the P1 edge connector on each).
-The FPSM drives the FPRM's ALU function, register addresses and latch enables,
-and the FPRM returns ALU flags. The 34-pin J1 ribbon on each card goes to
-*other* external cards. Mapping the P1 edge fingers on both cards is the most
-useful next measurement.
+The architecture, instruction format and backplane pinout from the NED
+documentation are summarised in **[`docs/able-reference.md`](docs/able-reference.md)**.
+How we got here, including corrections and dead ends, is in
+**[`docs/research-log.md`](docs/research-log.md)**.
 
-**Installation (owner-supplied):** both cards plug into the system backplane
-(for example IB25) in **strictly adjacent slots**, and the sequencer↔register
-lines are hard-wired in the backplane. Peripheral cards (MFC1 terminal,
-floppy/Winchester controllers) cable out of the rack instead. The cheapest
-way to find the private CPU lines is to beep the two CPU slots against each
-other and against a peripheral slot on an empty backplane. The procedure is
-in [FPSM README §5](synclavier-fpsm-185/README.md#5-fprm--fpsm-interface-backplane-p1).
+> **Status: first pass.** The BOMs and chip identities are solid. The block
+> schematics and netlists are **inferred** from 822×622 photos plus NED
+> documentation. Every connection is tagged **[STD]** (standard topology),
+> **[OBS]** (seen in the photo) or **[HYP]** (hypothesis). No physical
+> hardware has been measured, no PROMs have been read, and no public
+> schematics exist as far as we could find.
+
+---
+
+## Repository layout
 
 ```
-        ABLE backplane (P1 on both cards)
-   ═══════╤═══════════════════════════════════╤══════════
-          │ addr/data · control fields ◄──────┤ (FPSM → FPRM)
-          │ ALU flags / condition ────────────► (FPRM → FPSM)
-  ┌───────┴────────┐                  ┌───────┴────────┐
-  │   FPRM-185     │                  │   FPSM-185     │
-  │ ALU · regs ·   │                  │ microcode ·    │
-  │ MAR · data bus │                  │ sequencer · clk│
-  └───────┬────────┘                  └───────┬────────┘
-          │ J1 34-pin                         │ J1 34-pin
-          ▼ to other external cards           ▼ to other external cards
+README.md                    this file: overview, status, next steps
+docs/
+  able-reference.md          notes from the NED ABLE Hardware Reference Manual,
+                             Synclavier Internals and the 2023 "Cards and Components"
+                             description: architecture, instruction format,
+                             72-pin EZbuss pinout, processor models and slots
+  research-log.md            chronology of findings, corrections and sources
+boards/
+  fprm-185/
+    README.md                layout, inferred netlist, doc cross-check, verification plan
+    bom.csv                  BOM with a confidence rating per line
+    schematic-block.svg      block-level schematic
+  fpsm-185/
+    README.md
+    bom.csv
+    schematic-block.svg
 ```
+
+## How the CPU works (short version)
+
+```
+                 72-pin EZbuss backplane (P1 on both cards)
+   ══════╤══════════════════════════════════════════════════╤══════
+         │  ADR0-7 (8-bit Instruction/Address bus), RD, WR,  │
+         │  SYN handshake, BDB0-15 data  ◄─── shared bus ───►│
+         │  MA0-15 memory address ◄── driven by the FPRM     │
+         │  Z, C, MIN flags ──── private: the two CPU slots ─►│
+ ┌───────┴────────┐                                  ┌───────┴────────┐
+ │   FPRM-185     │                                  │   FPSM-185     │
+ │ 16 regs · ALU  │                                  │ IR · data reg  │
+ │ flags · MAR    │                                  │ microcode ·    │
+ │ IAB decode     │                                  │ dispatch · IRQ │
+ └───────┬────────┘                                  └───────┬────────┘
+         │ J1 34-pin ribbon                                  │ J1 34-pin ribbon
+         ▼ to other external cards (TBD)                     ▼ to other external cards (TBD)
+```
+
+* The ABLE has a **single MOVE instruction**: an 8-bit SOURCE address and an
+  8-bit DESTINATION address (transport-triggered). Arithmetic, tests and
+  jumps are special destinations.
+* Each instruction runs as a three-step micro-cycle: **fetch → source READ →
+  destination WRITE**. Each step is an **asynchronous** bus transfer: the
+  sequencer puts an address on ADR0–7, asserts RD or WR, and waits for the
+  addressed module to answer on SYN. There is no system clock.
+* The sequencer drives the Register Module **over the shared bus**, using
+  register/ALU codes on ADR0–7, the same way it addresses any I/O device.
+  Only the three flag lines are private to the CPU slots, which is why the
+  two cards must sit in adjacent slots.
+
+## Processor models
+
+| Model | Cards | Used in |
+|---|---|---|
+| B | D1 sequencer + D300 register module | Original Synclavier II |
+| **C** | **FPSM + FPRM** ("Fast Processor") | PSMT, Direct-to-Disk, Poly systems, some Synclavier IIs |
+| D | DSM + FPRM | 3200 / 6400 / 9600, PostPro, PostPro SD |
+
+## Open questions
+
+* **PROM contents:** FPRM U18 and U28; FPSM SMR00–03, DDE (U22/U23) and
+  INITROM. These hold the microcode and decode tables. No public dumps exist.
+* The **P1 edge pin-out** on these cards, compared with the documented ABLE
+  EZbuss, starting with GND, +5 V and the Z/C/MIN pins (60, 62, 64).
+* What the **J1 34-pin ribbons** connect to.
+* Which FPSM chips drive ADR0–7: the '153 multiplexers or U2/U3.
+* Exact identity of a few chips (FPRM U41 and U8; FPSM U4, U52 and U73) and of
+  the PROMs under their labels.
+
+## Next steps
+
+| Option | Needs hardware? | Notes |
+|---|---|---|
+| **Behavioural / instruction-level model** of the ABLE CPU (spec + test vectors, then HDL, e.g. as an FPGA core) | No | The NED docs give enough detail: registers, flags, instruction format, micro-cycle, bus handshake. Cross-check against the existing ABLE VHDL re-implementation (see `docs/able-reference.md`). |
+| **KiCad capture** of what's confirmed | No | Parts, the '181/'182 carry chain, the register file, and the EZbuss nets; guessed nets left as labelled stubs. |
+| **Read the PROMs** | Yes | The single most valuable step. Without them, a gate-accurate model of the boards isn't possible. |
+| **High-resolution photos** (≥600 dpi, both sides, square-on) | Yes | Most traces could then be followed from overlaid images. |
+| **Edge-finger and backplane continuity map** | Yes | The procedure is in `boards/fpsm-185/README.md` §5. |
+| **Community outreach** | — | Synclavier owners and repairers (see the forum thread in `docs/research-log.md`) may have spare cards, dumps or photos. |
+
+## Sources and credits
+
+* Board photos: [STUDIO REPAIR gallery, NED Synclavier II](http://studiorepair.com/gallery/misc/NED_Synclavier_II/index.html).
+  These photos are © studiorepair.com and are **not included** in this repo;
+  link to them instead.
+* NED documentation (ABLE Series Hardware Reference Manual, Synclavier
+  Internals): [archive.org `Synclavier-docs`](https://archive.org/details/Synclavier-docs)
+  and [GitHub `Synclavier/Documentation`](https://github.com/Synclavier/Documentation),
+  including *Cards and Components – Description* (M. Waluga, 2023). They are
+  summarised here, not copied.
+* Board roles and installation notes supplied by the project owner.
+
+## Creating the standalone repository
+
+This branch has the project files at its root, and the commit history was
+carried over from where the work began. To publish it as its own repo:
+
+```bash
+# create an empty repo on GitHub first (no README/licence), then:
+git clone --branch synclavier-able-cpu --single-branch \
+    https://github.com/gmcnaught/misterfpga-skill.git synclavier-able-cpu
+cd synclavier-able-cpu
+git remote set-url origin https://github.com/<owner>/<new-repo>.git
+git branch -m main
+git push -u origin main
+```
+
+No licence has been chosen yet. Add one when the repo is created.

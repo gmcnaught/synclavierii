@@ -5,7 +5,7 @@
 > netlist is inferred: **[STD]** = standard topology, **[OBS]** = seen in the
 > photo, **[HYP]** = hypothesis to check with a meter.
 
-**Partner board:** [FPRM-185 Register Module](../synclavier-fprm-185/README.md).
+**Partner board:** [FPRM-185 Register Module](../fprm-185/README.md).
 The two cards together make up the CPU. The FPSM is the **control unit**:
 microcode store, micro-sequencer, instruction dispatch, interrupt
 prioritisation and clock generation. It drives the FPRM's data path **through
@@ -56,13 +56,13 @@ C processor** (Model C = FPSM + FPRM). It was used in the PSMT, all
 Direct-to-Disk and Poly systems, and some Synclavier IIs. Model D replaces
 this card with the **DSM** and keeps the FPRM. It sits in **slot 14** of the
 25-slot computer bin, next to the FPRM in slot 13. See
-[`synclavier-able-reference.md` §5](../synclavier-able-reference.md#5-processor-models-and-slot-placement-cards-and-components-2023).
+[`docs/able-reference.md` §5](../../docs/able-reference.md#5-processor-models-and-slot-placement-cards-and-components-2023).
 No public schematic or microcode dump was found, so the SMR/DDE/INITROM
 contents can only come from reading a physical board.
 
 ### Documentation cross-check (ABLE Series Hardware Reference Manual)
 
-The manual (summarised in [`synclavier-able-reference.md`](../synclavier-able-reference.md))
+The manual (summarised in [`docs/able-reference.md`](../../docs/able-reference.md))
 describes the **Sequencer** as:
 
 * an *Instruction Register* and a *Data Register*, both loaded from the data
@@ -240,7 +240,7 @@ carry a 34-pin J1 header. What J1 on the CPU cards connects to is still
 unknown.
 
 **What the manual says about the interface**
-([EZbuss table](../synclavier-able-reference.md#3-ezbuss-72-pin-two-sided-edge-connector-appendix-ii-table-1)):
+([EZbuss table](../../docs/able-reference.md#3-ezbuss-72-pin-two-sided-edge-connector-appendix-ii-table-1)):
 
 * **FPSM → FPRM** goes over the *shared* bus. The 8-bit ADR0–7 (pins 15–29
   odd) carries the register/ALU operation code, RD̅ (11) and WR̅ (9) give

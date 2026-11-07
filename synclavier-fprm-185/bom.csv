@@ -1,28 +1,28 @@
 RefDes,Qty,Part (as marked),Function,Package,Mfr (as marked),Confidence,Notes
-U1,1,74F153PC,Dual 4-to-1 multiplexer,DIP-16,Fairchild,High,Likely status/condition-code select onto host bus or sequencer
-U2,1,74F139PC,Dual 2-to-4 decoder,DIP-16,Fairchild,High,Register/port select decode from host address/control
-U3,1,74F245PC,Octal bus transceiver (3-state),DIP-20,Fairchild,High,Host data bus D0-D7 (inferred)
-U4,1,74F245PC,Octal bus transceiver (3-state),DIP-20,Fairchild,High,Host data bus D8-D15 (inferred)
-U5,1,74F373PC,Octal transparent latch (3-state),DIP-20,Fairchild,High,8 traces run straight to edge fingers - bus-side latch
-U6,1,74F373PC,Octal transparent latch (3-state),DIP-20,Fairchild,High,8 traces run straight to edge fingers - bus-side latch
-U7,1,SN74ALS244AN,Octal buffer/line driver (3-state),DIP-20,Texas Instruments (Malaysia),High,Host control/address line buffering (inferred)
-U8,1,74F112PC,Dual J-K flip-flop (neg-edge),DIP-16,Fairchild,Medium,Marking read as F112; busy/done or sequencer state flags
+U1,1,74F153PC,Dual 4-to-1 multiplexer,DIP-16,Fairchild,High,Likely condition/flag select sent to the FPSM sequencer
+U2,1,74F139PC,Dual 2-to-4 decoder,DIP-16,Fairchild,High,Decode of control fields into load/output enables
+U3,1,74F245PC,Octal bus transceiver (3-state),DIP-20,Fairchild,High,Backplane data bus D0-D7 (inferred)
+U4,1,74F245PC,Octal bus transceiver (3-state),DIP-20,Fairchild,High,Backplane data bus D8-D15 (inferred)
+U5,1,74F373PC,Octal transparent latch (3-state),DIP-20,Fairchild,High,8 traces run straight to edge fingers - probably memory address register (low/high byte)
+U6,1,74F373PC,Octal transparent latch (3-state),DIP-20,Fairchild,High,8 traces run straight to edge fingers - probably memory address register (low/high byte)
+U7,1,SN74ALS244AN,Octal buffer/line driver (3-state),DIP-20,Texas Instruments (Malaysia),High,Backplane control line buffering (inferred)
+U8,1,74F112PC,Dual J-K flip-flop (neg-edge),DIP-16,Fairchild,Medium,Marking read as F112; CPU flag bits (e.g. carry/link)
 U11,1,74F10PC,Triple 3-input NAND,DIP-14,Fairchild,High,Glue logic; bodge wire on solder side near this IC
 U12,1,74F374PC,Octal D flip-flop (3-state),DIP-20,Fairchild,High,Pipeline / operand register
 U13,1,74F374PC,Octal D flip-flop (3-state),DIP-20,Fairchild,High,Pipeline / operand register
 U14,1,74F374PC,Octal D flip-flop (3-state),DIP-20,Fairchild,High,Pipeline / operand register
 U15,1,74F373PC,Octal transparent latch (3-state),DIP-20,Fairchild,High,Result / readback latch
 U16,1,74F373PC,Octal transparent latch (3-state),DIP-20,Fairchild,High,Result / readback latch
-U17,1,74F374PC,Octal D flip-flop (3-state),DIP-20,Fairchild,High,Pipeline / microinstruction register
-U18,1,Programmed PROM (labelled),Control PROM / microcode,DIP-16 (socketed),Unknown - paper label,Medium,Label partly legible ('...1986...'); 16-pin suggests 82S129/82S126 (256x4) or 82S123 (32x8) class bipolar PROM - DUMP BEFORE SERVICE
+U17,1,74F374PC,Octal D flip-flop (3-state),DIP-20,Fairchild,High,Candidate instruction register or control pipeline register
+U18,1,Programmed PROM (labelled),Local decode PROM,DIP-16 (socketed),Unknown - paper label,Medium,Label partly legible ('...1986...'); 16-pin suggests 82S129/82S126 (256x4) or 82S123 (32x8) class bipolar PROM - DUMP BEFORE SERVICE
 U21,1,74F00PC,Quad 2-input NAND,DIP-14,Fairchild,High,Glue logic
 U23,1,74F04PC,Hex inverter,DIP-14,Fairchild,High,Glue logic / clock buffering
 U24,1,74F374PC,Octal D flip-flop (3-state),DIP-20,Fairchild,High,Pipeline register
 U25,1,74F373PC,Octal transparent latch (3-state),DIP-20,Fairchild,High,Operand / result latch
 U26,1,74F373PC,Octal transparent latch (3-state),DIP-20,Fairchild,High,Operand / result latch
 U27,1,74F373PC,Octal transparent latch (3-state),DIP-20,Fairchild,High,Operand / result latch
-U28,1,Programmed PROM/PAL 'FPRM 01 (c)1986 N.E.D.',Control PROM or PAL,DIP-20 (socketed),Unknown - paper label,Medium,20-pin: could be 82S135 (256x8 PROM) or PAL16xx - identify by part under label; DUMP BEFORE SERVICE
-U31,1,CY27S07APC,16x4 bipolar RAM (3-state),DIP-16,Cypress,High,Register file bits 0-3 (inferred ordering)
+U28,1,Programmed PROM/PAL 'FPRM 01 (c)1986 N.E.D.',Local decode PROM or PAL,DIP-20 (socketed),Unknown - paper label,Medium,20-pin: could be 82S135 (256x8 PROM) or PAL16xx - identify by part under label; DUMP BEFORE SERVICE
+U31,1,CY27S07APC,16x4 bipolar RAM (3-state),DIP-16,Cypress,High,CPU register file bits 0-3 (inferred ordering)
 U33,1,CY27S07APC,16x4 bipolar RAM (3-state),DIP-16,Cypress,High,Register file bits 4-7
 U34,1,74F373PC,Octal transparent latch (3-state),DIP-20,Fairchild,High,Register-file output / ALU A-B latch
 U35,1,74F373PC,Octal transparent latch (3-state),DIP-20,Fairchild,High,Register-file output / ALU A-B latch
@@ -44,7 +44,7 @@ R5,1,Resistor (bands not legible),Pull-up / termination,Axial 1/4W,,Low,Between 
 R6,1,Resistor (brown body - different type),Pull-up / termination,Axial,,Low,Between U26 and U16 columns
 R7,1,Resistor (bands not legible),Pull-up / termination,Axial 1/4W,,Low,Above U28
 R8,1,Resistor (bands not legible),Pull-up / termination,Axial 1/4W,,Low,Between U44 and U46
-J1,1,34-pin (2x17) shrouded IDC box header,Ribbon link to companion board,THT 0.1in,,Medium,Pin count estimated from photo (~17 rows); blue shroud
+J1,1,34-pin (2x17) shrouded IDC box header,Ribbon to FPSM-185 Sequencer Module,THT 0.1in,,Medium,Pin count estimated from photo (~17 rows); blue shroud
 P1,1,Card-edge fingers (~38 per side est.),Synclavier/ABLE backplane bus,Edge,,Low,Count fingers on the real board; pin-out unknown
 W1,1,Blue jumper wire (solder side),Factory/field rework,Wire,,Medium,Near U11/U12 on solder side - trace and record both ends
-PCB,1,NED FPRM-185,Bare board,2-layer FR4 (94V-1 marked),New England Digital Corp,High,
+PCB,1,NED FPRM-185,Bare board - CPU Register Module (partner: FPSM-185 Sequencer Module),2-layer FR4 (94V-1 marked),New England Digital Corp,High,

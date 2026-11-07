@@ -35,20 +35,39 @@ Files:
 * **Rework:** a blue jumper wire (W1) on the solder side near U11/U12. Record
   both ends; it may be a revision fix that a schematic redraw has to include.
 
-### What the board most likely does (inference)
+### What the board does
 
-Four 74F181 4-bit ALUs plus a 74S182 carry look-ahead give a **16-bit ALU**.
-Four 16×4 CY27S07 RAMs give a **16-word × 16-bit scratch register file**. Around
-these sit a dozen '373/'374 pipeline registers, two socketed control PROMs and
-a 16-bit host-bus interface ('245 ×2, '373 ×2, '244, '139, '153, '112). That is
-the shape of a **microcoded arithmetic co-processor** that plugs into the
-16-bit ABLE computer bus of the Synclavier.
+**FPRM-185 is the Register Module of the Synclavier's CPU** (the ABLE
+processor). The CPU is built on two cards:
 
-The name "FP…" together with the J1 ribbon to a second card points to one half
-of a **floating-point (or multiply/accumulate) unit**: this card would handle
-one data path (for example exponent and control) and the companion card on J1
-the other. This is unconfirmed. No public reference to "FPRM" was found, so
-check the name against NED service documentation if it can be found.
+| Card | Role |
+|---|---|
+| **FPRM-185, Register Module** (this board) | Data path: ALU, general registers, memory address/data interface |
+| **FPSM-185, Sequencer Module** (partner card) | Control: instruction fetch/decode, microcode sequencing, timing |
+
+*(Card roles supplied by the board owner. The block-level reading below follows
+from them plus the parts on the board.)*
+
+The data path on this card:
+
+* **ALU:** four 74F181 4-bit slices plus a 74S182 carry look-ahead make a
+  **16-bit ALU**.
+* **Register file:** four 16×4 CY27S07 RAMs make a **16-word × 16-bit**
+  register file. On a Register Module this is most likely the CPU's general
+  registers (plus any internal scratch registers) rather than a co-processor
+  scratchpad.
+* **Bus interface:** two '245s for the 16-bit data bus, and two '373s (U5/U6)
+  whose 16 traces run straight to the edge fingers. Those two latches are most
+  likely the **memory address register** driving the backplane address bus.
+* **Pipeline registers:** '373/'374 latches around the ALU and register file.
+* **Local programmed logic:** U18 and U28, socketed. Now that sequencing is
+  known to live on the FPSM, these are more likely local decode/steering logic
+  than the main microcode store. The 20-pin U28 could be a PAL, for example.
+* **Control link to the FPSM:** the 34-pin ribbon on J1 most likely carries
+  the control fields (ALU function S0–S3/M/Cn, register-file address and
+  write enable, latch and output enables). In the other direction it would
+  carry status (carry, zero, sign, A=B) and possibly the instruction or opcode
+  bits the sequencer needs for dispatch.
 
 ---
 
@@ -94,12 +113,12 @@ The full BOM, with notes and a confidence rating per line, is in [`bom.csv`](bom
 | 1 | 74F10 | Triple 3-input NAND | U11 |
 | 1 | 74F00 | Quad 2-input NAND | U21 |
 | 1 | 74F04 | Hex inverter | U23 |
-| 1 | PROM, 16-pin (82S129/82S123 class?) | Control store | U18 (socketed) |
+| 1 | PROM, 16-pin (82S129/82S123 class?) | Local decode | U18 (socketed) |
 | 1 | PROM or PAL, 20-pin (82S135 / PAL16xx?) | `FPRM 01` | U28 (socketed) |
 | 1 | 6.8 µF tantalum, axial | +5 V bulk | C1 |
 | ~30 | Dipped capacitor, probably 0.1 µF | Decoupling | C2–C36 |
 | 8 | Resistor, value TBD | Pull-up / termination | R1–R8 |
-| 1 | 34-pin (2×17) shrouded IDC header | Link to companion card | J1 |
+| 1 | 34-pin (2×17) shrouded IDC header | Ribbon to FPSM-185 Sequencer Module | J1 |
 | 1 | Card-edge, ~38 fingers per side (estimated) | Backplane | P1 |
 
 **Total: 35 ICs** (33 logic/RAM plus 2 programmed parts).
@@ -162,37 +181,43 @@ B0–B3 = 1, 22, 20, 18; F0–F3 = 9, 10, 11, 13.
   (5, 7, 9, 11) cover one nibble.
 * **[HYP]** The outputs go to the U34–U36 '373 latches, which feed the '181
   A/B inputs. The data inputs come from the ALU result latches or the internal
-  bus. The address comes from microcode fields (U17/U18/U28) or the host
-  address.
+  bus. The address A0–A3 comes from the FPSM over J1 (register fields of the
+  instruction or microinstruction), possibly through a local '374 or '153.
 * Check against the CY27S07 datasheet whether the outputs are inverting
   (some 27S0x/'189 parts are). Inverted outputs would explain a '181 used in
   active-low mode.
 
-### 4.4 Host bus interface (column 1) **[OBS] + [HYP]**
+### 4.4 Backplane (memory / I/O bus) interface (column 1) **[OBS] + [HYP]**
 
 * **[OBS]** U5 and U6 ('373): one bank of 8 traces runs from each part
-  straight to the edge fingers, 16 lines in total. These are latched outputs
-  driving the backplane, or address latches.
-* **[HYP]** U3/U4 ('245) connect the 16-bit backplane data bus to the board's
-  internal data bus (IDB). DIR comes from the bus read/write line and G̅ from
-  the U2 decode.
-* **[HYP]** U7 ('ALS244) buffers incoming control and address lines (strobe,
-  R/W, device-address bits, clock).
-* **[HYP]** U2 ('139) decodes the buffered address into 4+4 strobes: load
-  operand register(s), start operation, read result, read status.
-* **[HYP]** U1 ('153) puts status bits (busy, carry, zero, sign or overflow)
-  onto the bus during a status read, or selects the branch condition for the
-  microcode sequencer.
-* **[HYP]** U8 ('112): BUSY/DONE handshake flip-flops and/or sequencer state.
+  straight to the edge fingers, 16 lines in total. Because this is the CPU
+  data-path card, these are most likely the **memory address register**,
+  latched from the ALU or internal bus and driving the 16-bit address bus.
+* **[HYP]** U3/U4 ('245) connect the 16-bit backplane **data bus** to the
+  internal data bus (IDB). DIR and G̅ come from the read/write and enable
+  signals of the current bus cycle (from the FPSM).
+* **[HYP]** U7 ('ALS244) buffers incoming backplane control lines (clock,
+  reset, wait/ready, interrupt or DMA-related lines).
+* **[HYP]** U2 ('139) decodes control fields into individual enables:
+  register load strobes and output enables for the result latches.
+* **[HYP]** U1 ('153) is a condition/status multiplexer. It selects which
+  flag (carry, zero, sign, A=B …) is sent to the FPSM for conditional
+  branching.
+* **[HYP]** U8 ('112) holds CPU flag bits, for example the carry/link
+  flip-flop, updated from the '181 Cn+4 output.
 
-### 4.5 Control and sequencing (columns 2–3) **[HYP]**
+### 4.5 Data-path control (columns 2–3) **[HYP]**
 
-* U18 and U28 hold the control logic or microcode. U17 ('374) is likely the
-  microinstruction pipeline register: its outputs drive the '181 S/M/Cn pins,
-  the RAM address and WE̅, and the latch enables.
-* U12–U14 and U24 ('374) are operand and pipeline registers clocked from the
-  sequencer. U15/U16 and U25–U27 ('373) are result latches that read back onto
-  the IDB.
+* Control comes **from the FPSM sequencer over J1** (and possibly over
+  backplane lines). U18/U28 do local decoding of those fields, for example
+  turning a compact field into several latch/output enables, or forming the
+  register-file address and write pulse.
+* U17 ('374) is a candidate **instruction register**: it would capture the
+  fetched instruction word from the data bus and send opcode/register fields
+  to the FPSM and the register-file address lines. Alternatively it is a
+  local pipeline register for control fields.
+* U12–U14 and U24 ('374) are operand and pipeline registers. U15/U16 and
+  U25–U27 ('373) are ALU-result latches that read back onto the IDB.
 * U11/U21/U23 provide the glue logic: clock buffering and inversion, strobe
   gating, and write-pulse shaping for the 27S07s.
 
@@ -203,8 +228,10 @@ B0–B3 = 1, 22, 20, 18; F0–F3 = 9, 10, 11, 13.
   fingers with a meter against the VCC/GND pins in §4.1, then follow the 16 data
   lines from U3/U4 and the 16 lines from U5/U6.
 * **J1 2×17 IDC:** about 17 rows visible, so 34 pins (to be confirmed). The
-  traces from J1 run into the '181/'182 area, so it probably carries ALU
-  operands, carry or flags, and control to and from a companion card.
+  ribbon goes to the **FPSM-185 Sequencer Module**. It probably carries
+  data-path control fields from the FPSM and flags/instruction bits back to
+  it. Trace J1 together with the FPSM: each net should land on the ALU S/M/Cn
+  pins, the 27S07 address/WE̅ pins, or the latch/OE pins on this card.
 
 ---
 
@@ -227,15 +254,21 @@ B0–B3 = 1, 22, 20, 18; F0–F3 = 9, 10, 11, 13.
    parallel groups of traces, so one confirmed bit usually gives the other
    seven.
 6. **Control nets.** Trace the latch enables (pin 11), output enables (pin 1),
-   '181 S/M and RAM WE̅ back to U17/U18/U28 and the glue gates.
+   '181 S/M/Cn and RAM A0–A3/WE̅ back to J1, U17/U18/U28 and the glue gates.
+   A J1 pin-to-function table is the most useful single result, because it
+   documents the FPRM↔FPSM interface.
 7. **Record W1** and the resistor values (measure them; the colour bands can't
    be read in the photos).
-8. **Capture in KiCad.** Use one hierarchical sheet each for the host interface,
+8. **Capture in KiCad.** Use one hierarchical sheet each for the backplane interface,
    control, register file and ALU, using the RefDes from `bom.csv`.
 
 ## 6. Open questions
 
-* What does "FPRM" stand for, and what is the companion card on J1?
+* The J1 pin-out, which is the FPRM↔FPSM control interface. Ideally capture the
+  FPSM-185 as well so both ends of the ribbon can be matched.
+* Is U17 the instruction register, and are U5/U6 the memory address register?
+* Which ABLE model this CPU implements, and how the 16 register-file words
+  map to its architectural registers.
 * U18/U28: exact part numbers and contents.
 * U41 marking: read as `SN74S182N` with medium confidence (photo blur).
 * U8 marking: read as `74F112`; check that it is not a '109/'113.

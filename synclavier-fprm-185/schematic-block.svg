@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="900" viewBox="0 0 1400 900" font-family="Helvetica, Arial, sans-serif" font-size="13">
+<defs>
+<marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#222"/></marker>
+<style>
+.b{fill:#fff;stroke:#222;stroke-width:1.6}
+.u{fill:#f3f6ff;stroke:#2a4b9b;stroke-width:1.6}
+.p{fill:#fff4e0;stroke:#b06a00;stroke-width:1.6}
+.c{fill:#eef8ee;stroke:#2c7a2c;stroke-width:1.6}
+.w{stroke:#222;stroke-width:3;fill:none}
+.s{stroke:#666;stroke-width:1.4;fill:none;stroke-dasharray:6 4}
+.t{font-weight:bold;font-size:14px}
+.n{font-size:11px;fill:#444}
+.h{font-size:22px;font-weight:bold}
+</style>
+</defs>
+<rect width="1400" height="900" fill="#fff"/>
+<text x="20" y="34" class="h">NED Synclavier II — FPRM-185 — first-pass BLOCK schematic (inferred from photos)</text>
+<text x="20" y="56" class="n">Heavy lines = 16-bit data paths (inferred). Dashed = control. Bit-slice ordering and exact nets NOT verified — see README "Verification plan".</text>
+
+<!-- Edge connector -->
+<rect x="1310" y="90" width="60" height="760" class="b"/>
+<text x="1340" y="470" class="t" transform="rotate(90 1340 470)" text-anchor="middle">P1  CARD-EDGE  (ABLE / Synclavier bus)</text>
+
+<!-- Host interface column 1 -->
+<rect x="1090" y="90" width="180" height="90" class="u"/><text x="1100" y="112" class="t">U3, U4  74F245</text><text x="1100" y="130" class="n">16-bit bidirectional</text><text x="1100" y="145" class="n">host data transceiver</text><text x="1100" y="160" class="n">DIR/OE from decode</text>
+<rect x="1090" y="200" width="180" height="90" class="u"/><text x="1100" y="222" class="t">U5, U6  74F373</text><text x="1100" y="240" class="n">bus-side latches</text><text x="1100" y="255" class="n">(16 traces go directly</text><text x="1100" y="270" class="n">to edge fingers)</text>
+<rect x="1090" y="310" width="180" height="80" class="u"/><text x="1100" y="332" class="t">U7  74ALS244</text><text x="1100" y="350" class="n">control / address</text><text x="1100" y="365" class="n">line buffer from bus</text>
+<rect x="1090" y="410" width="180" height="80" class="u"/><text x="1100" y="432" class="t">U2  74F139</text><text x="1100" y="450" class="n">dual 2→4 decoder</text><text x="1100" y="465" class="n">register / port select</text>
+<rect x="1090" y="510" width="180" height="80" class="u"/><text x="1100" y="532" class="t">U1  74F153</text><text x="1100" y="550" class="n">dual 4→1 mux</text><text x="1100" y="565" class="n">status / flag select</text>
+<rect x="1090" y="610" width="180" height="80" class="u"/><text x="1100" y="632" class="t">U8  74F112</text><text x="1100" y="650" class="n">dual JK flip-flop</text><text x="1100" y="665" class="n">BUSY / DONE / state</text>
+<rect x="1090" y="710" width="180" height="70" class="c"/><text x="1100" y="732" class="t">C1 6.8µF tant.</text><text x="1100" y="750" class="n">+5 V bulk at P1</text><text x="1100" y="765" class="n">C2–C36 per-IC decoupling</text>
+
+<path d="M1270,135 H1310" class="w" marker-end="url(#a)" marker-start="url(#a)"/>
+<path d="M1270,245 H1310" class="w" marker-end="url(#a)"/>
+<path d="M1310,350 H1270" class="s" marker-end="url(#a)"/>
+<path d="M1180,390 V410" class="s" marker-end="url(#a)"/>
+<path d="M1270,550 H1310" class="s" marker-end="url(#a)"/>
+<path d="M1270,650 H1310" class="s" marker-end="url(#a)"/>
+<path d="M1310,745 H1270" class="s" marker-end="url(#a)"/>
+
+<!-- Internal data bus -->
+<path d="M1090,135 H1050 V820 H120" class="w"/>
+<text x="600" y="840" class="t" text-anchor="middle">INTERNAL 16-bit DATA BUS (IDB, inferred)</text>
+<path d="M1050,245 H1090" class="w" marker-end="url(#a)"/>
+
+<!-- Column 2: pipeline regs -->
+<rect x="830" y="90" width="190" height="110" class="u"/><text x="840" y="112" class="t">U12, U13, U14  74F374</text><text x="840" y="130" class="n">operand / pipeline regs</text><text x="840" y="145" class="n">(load from IDB, clocked)</text>
+<rect x="830" y="220" width="190" height="80" class="u"/><text x="840" y="242" class="t">U15, U16  74F373</text><text x="840" y="260" class="n">result / readback latch</text><text x="840" y="275" class="n">→ IDB → host</text>
+<rect x="830" y="320" width="190" height="80" class="u"/><text x="840" y="342" class="t">U17  74F374</text><text x="840" y="360" class="n">microinstruction /</text><text x="840" y="375" class="n">control pipeline reg</text>
+<rect x="830" y="420" width="190" height="100" class="p"/><text x="840" y="442" class="t">U18  PROM (socketed)</text><text x="840" y="460" class="n">16-pin, paper label</text><text x="840" y="475" class="n">82S129/82S123-class?</text><text x="840" y="490" class="n">control / microcode</text>
+<rect x="830" y="540" width="190" height="80" class="u"/><text x="840" y="562" class="t">U11 74F10 · U21 74F00</text><text x="840" y="580" class="t">U23 74F04</text><text x="840" y="598" class="n">glue / clock / strobes</text>
+<rect x="830" y="640" width="190" height="60" class="b"/><text x="840" y="662" class="t">W1 bodge wire</text><text x="840" y="680" class="n">solder side, near U11/U12</text>
+
+<path d="M1050,145 H1020" class="w" marker-end="url(#a)"/>
+<path d="M1020,260 H1050" class="w" marker-end="url(#a)"/>
+<path d="M925,520 V540" class="s"/>
+<path d="M925,420 V400" class="s" marker-end="url(#a)"/>
+<path d="M830,360 H780" class="s" marker-end="url(#a)"/>
+<text x="700" y="356" class="n">µ-control fields</text>
+
+<!-- Column 3 -->
+<rect x="560" y="90" width="200" height="80" class="u"/><text x="570" y="112" class="t">U24  74F374</text><text x="570" y="130" class="n">pipeline register</text>
+<rect x="560" y="190" width="200" height="110" class="u"/><text x="570" y="212" class="t">U25, U26, U27  74F373</text><text x="570" y="230" class="n">ALU result / operand</text><text x="570" y="245" class="n">latches → IDB</text>
+<rect x="560" y="420" width="200" height="100" class="p"/><text x="570" y="442" class="t">U28  PROM/PAL (socketed)</text><text x="570" y="460" class="n">"FPRM 01 ©1986 N.E.D."</text><text x="570" y="475" class="n">20-pin: 82S135 or PAL16xx?</text><text x="570" y="490" class="n">sequencer / decode</text>
+<rect x="560" y="560" width="200" height="60" class="b"/><text x="570" y="582" class="t">R1–R8</text><text x="570" y="600" class="n">pull-ups / terminations</text>
+<path d="M760,470 H830" class="s" marker-end="url(#a)" marker-start="url(#a)"/>
+<path d="M830,145 H760" class="w" marker-end="url(#a)"/>
+
+<!-- Column 4: register file -->
+<rect x="300" y="90" width="220" height="120" class="u"/><text x="310" y="112" class="t">U31, U33, U37, U38</text><text x="310" y="130" class="t">CY27S07  16×4 RAM</text><text x="310" y="150" class="n">→ 16 words × 16 bits</text><text x="310" y="165" class="n">scratch register file</text><text x="310" y="180" class="n">A0-A3 from µ-control</text>
+<rect x="300" y="240" width="220" height="100" class="u"/><text x="310" y="262" class="t">U34, U35, U36  74F373</text><text x="310" y="280" class="n">RAM output / ALU operand</text><text x="310" y="295" class="n">latches (A and B ports)</text>
+<path d="M410,210 V240" class="w" marker-end="url(#a)"/>
+<path d="M560,130 H520" class="w" marker-end="url(#a)"/>
+<path d="M700,360 H535 V180 H520" class="s" marker-end="url(#a)"/>
+
+<!-- Column 5: ALU -->
+<rect x="40" y="90" width="220" height="250" class="u"/><text x="50" y="112" class="t">U43, U44, U46, U48</text><text x="50" y="130" class="t">74F181 ×4</text><text x="50" y="150" class="n">16-bit ALU (4-bit slices)</text><text x="50" y="170" class="n">S0–S3, M, Cn from µ-control</text><text x="50" y="185" class="n">A = latched RF / IDB</text><text x="50" y="200" class="n">B = latched RF / IDB</text><text x="50" y="215" class="n">F → U25–U27 / IDB</text><text x="50" y="235" class="n">P̅, G̅ per slice → U41</text><text x="50" y="250" class="n">A=B (open-coll.) → R? pull-up</text>
+<rect x="40" y="370" width="220" height="90" class="u"/><text x="50" y="392" class="t">U41  SN74S182</text><text x="50" y="410" class="n">carry look-ahead</text><text x="50" y="425" class="n">Cn+x, Cn+y, Cn+z → slices</text><text x="50" y="440" class="n">P̅,G̅ (group) → flags</text>
+<rect x="40" y="490" width="220" height="110" class="b"/><text x="50" y="512" class="t">J1  34-pin IDC header</text><text x="50" y="530" class="n">ribbon to companion card</text><text x="50" y="545" class="n">(likely 2nd half of the</text><text x="50" y="560" class="n">FP unit / mantissa path)</text><text x="50" y="575" class="n">pin-out TBD</text>
+<path d="M300,290 H260" class="w" marker-end="url(#a)"/>
+<path d="M150,340 V370" class="s" marker-end="url(#a)" marker-start="url(#a)"/>
+<path d="M260,180 H280 V60 H540 V245 H560" class="w" marker-end="url(#a)"/>
+<text x="400" y="74" class="n">ALU F0–F15 → result latches</text>
+<path d="M120,820 V600" class="w" marker-end="url(#a)" marker-start="url(#a)"/>
+<path d="M150,460 V490" class="s"/>
+<path d="M260,415 H1000 V560" class="s"/>
+<text x="560" y="408" class="n">carry / zero / sign flags → glue &amp; U1 status mux</text>
+</svg>

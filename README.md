@@ -109,7 +109,7 @@ boards/
   EZbuss, starting with GND, +5 V and the Z/C/MIN pins (60, 62, 64).
 * What the **J1 34-pin ribbons** connect to.
 * Which FPSM chips drive ADR0–7: the '153 multiplexers or U2/U3. Are U32/U33 the Model C repeat counter?
-* SBB borrow convention; whether relative or untaken transfers load the D10 link; the exact Model C interrupt entry.
+* Whether relative or untaken transfers also update the D10 link (`ppc`). No NED software depends on it. Also the exact Model C interrupt-entry microsequence.
 * The MFC/D40Q boot ROM image (not in any source found) and how the Load button starts it.
 * Exact identity of a few chips (FPRM U41 and U8; FPSM U4, U52 and U73) and of
   the PROMs under their labels.

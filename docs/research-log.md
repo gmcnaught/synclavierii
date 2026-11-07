@@ -137,6 +137,18 @@ followed and checked. Newest information wins where entries disagree.
   * the loader sources document the D4567 multiply/divide, D24–D27 SCSI
     and D60–D63 external-memory protocols
 
+## 10. Closing the software-answerable ISA questions
+
+* **SBB:** the Model C runtime's floating-point divide uses `SUB1` then
+  `SBB0`. So SBB = acc − src − (1 − C), with C = NOT borrow like SUB. The
+  FPRM needs only a carry-in multiplexer.
+* **D10 and relative jumps:** the compiler makes every call an absolute
+  transfer. NED's interpreter state names the two D10 registers: `rpc`
+  (repeat counter) and `ppc` (prior program counter). Relative and untaken
+  transfers can't be checked from software, and nothing depends on them.
+* Every instruction-set question that software can answer is now closed.
+  The rest need hardware (see `bench-checklist.md`).
+
 ## Searched without useful results
 
 * archive.org full-text and metadata search for "synclavier", "new england

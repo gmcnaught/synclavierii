@@ -71,8 +71,24 @@ operand) in D10.** Procedure prologues push it with `D10 TO MR12D` (or
 `D10 TO MR12`). WHEN (interrupt) handlers do the same, so an interrupt
 entry must also load D10 with the interrupted PC.
 
-Still unknown: whether *relative* transfers also load D10, and whether a
-transfer that isn't taken (condition false) changes D10.
+**Does a relative transfer load D10?** The compiler (pass3 `case 1` and
+`create_object_emit_page_0_call`) emits **every call as an absolute
+transfer** (`PCI TO ATRA`, or `IM(n) TO ATRA` into the runtime). Relative
+transfers are used only for short local jumps, and long local jumps also
+use absolute transfers. The hardware therefore cannot tell a call from a
+jump: it must update the link on every taken absolute transfer. No NED code
+reads D10 after a relative transfer. All 63 D10 reads in the Model C
+runtime sit in routine prologues and returns that are entered only through
+the absolute call vector; none is reached by a relative jump inside the
+runtime.
+
+**NED's interpreter names it.** `AbleInterpreterStructs.h` (the
+Synclavier³ CPU emulator's state) has `rpc` "holds repeat counter" and
+**`ppc` "holds prior program counter"**, next to R0–R17 and the PC. So D10
+is two registers: write → `rpc`, read → `ppc`. Whether relative or untaken
+transfers also update `ppc` is the one detail that only hardware (or the
+unpublished interpreter core) could show. It does not matter for running
+NED software.
 
 ### 3.2 R12 is a hardware stack pointer; only R12 decrements (high confidence)
 
@@ -106,9 +122,31 @@ The runtime's 32-bit shift-left:
 ```
 
 and `IM(0) TO ADC0` propagates a carry into a high word. This confirms
-**ADC: acc ← acc + src + C**, with C as the carry out. SBB is assumed to be
-the mirror (acc − src − not C, with C = not borrow), by analogy with SUB.
-That is not yet checked against code.
+**ADC: acc ← acc + src + C**, with C as the carry out.
+
+**SBB** is used once in real code, in the floating-point mantissa divide
+(restoring division, 001775–002026):
+
+```
+002010  126304  R4       TO TSUB0    ; compare high words
+002011  157206  IM(6)    TO RTNC     ; no carry (= borrow): dividend < divisor → skip
+002012  156602  IM(2)    TO RTNZ     ; high words differ → subtract
+002013  126705  R5       TO TSUB1    ; equal: compare low words
+002014  157203  IM(3)    TO RTNC     ; borrow → skip
+002015  106705  R5       TO SUB1     ; low  -= divisor low;  C = NOT borrow
+002016  136304  R4       TO SBB0     ; high -= divisor high + borrow
+002017  115601  IM(1)    TO OR3      ; set quotient bit
+002020  104701  R1       TO ADD1     ; shift dividend left (32-bit) …
+002021  134300  R0       TO ADC0     ; … with carry
+```
+
+This only works if **SBB: acc ← acc − src − (1 − C)**, with C = NOT
+borrow, the same convention as SUB/TSUB. The `TSUB` + `RTNC` pairs above
+independently confirm that **C = 0 means borrow**.
+
+**In 74F181 terms:** ADD forces the carry-in to 0 and SUB forces it to 1;
+ADC and SBB instead **pass the C flag** into the slice-0 carry-in.
+That's one multiplexer on the FPRM.
 
 ### 3.5 Interrupts and the PCW
 

@@ -70,7 +70,7 @@ Mapping the [instruction set](../../docs/instruction-set.md) onto this card
 | dest 200–237 (arithmetic) | WR | acc ← acc *op* BDB through the '181s; update C/Z/M |
 | dest 240–257 (test) | WR | as arithmetic, but no register write |
 | dest 260–267 (swap/OR, shift/ADD) | WR | through the shift/swap latch stage |
-| dest 270–277 (ADC/SBB, Model C+) | WR | as ADD/SUB, with the **C flag fed into the '181 carry-in** |
+| dest 270–277 (ADC/SBB, Model C+) | WR | as ADD/SUB, but the **C flag goes into the slice-0 '181 carry-in** instead of the fixed 0/1. So the FPRM needs a carry-in multiplexer (constant or C flag). SBB uses C = NOT borrow, the same as SUB. |
 | dest 372 (`MR12D`, Model C+) | WR | **pre-decrement R12**, then gate it onto MA (hardware stack push). **R12 only**: other `MRnI` destinations still post-increment ([runtime analysis](../../docs/model-c-runtime-analysis.md)) |
 | dest 300–317 (load register) | WR | Rn ← BDB; flags unchanged |
 | dest 320–337 (conditional transfer) | WR, only if the condition is met | PC ← BDB (absolute) or PC + BDB (relative, through the ALU) |

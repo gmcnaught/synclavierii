@@ -137,9 +137,9 @@ FPSM slot *S_SM* (14) and one peripheral slot *S_X*. For every contact in
 - [ ] Note the microcycle clock frequency on the FPSM (after U93/U53).
 - [ ] If a HOP (D01) card is available, single-step instructions from
       [`instruction-set.md` §10](instruction-set.md#10-worked-examples) and
-      record the bus activity. Especially the Model C items: `IM(n) TO D10`
-      (repeat), the `SBB` borrow convention, and whether **relative** or
-      **untaken** transfers change D10 (the link register).
+      record the bus activity. The one Model C item software can't settle:
+      whether **relative** or **untaken** transfers change the D10 link
+      register (`ppc`).
       [`model-c-runtime-analysis.md`](model-c-runtime-analysis.md) settles the
       rest from NED's code.
 - [ ] Probe FPSM U32/U33 ('ALS161) during a `RPT`: do they load *n* and

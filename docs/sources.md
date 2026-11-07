@@ -69,6 +69,7 @@ no extension.
 |---|---|
 | `Able/ASM/ASM-2` (`39079b02…`): NED ABLE Series Assembler v2.07, 1 Apr 1989, `configuration modelC` | **Official mnemonics** (`LOA`, `RTL`, `LCM`, `TLOA`, `BSOR`, `SHRA`, **`ADC` 270**, **`SBB` 274**, `ATRA`…`RTPL`, `PCI`, `Rn`, `RnI`, `MRn`, `MRnI`, **`MR12D` = 372**, `Dn`, `IM`, `RE`) |
 | `Code/Includes/Able Interpreter/AbleInsructions.h` (`2f9f0f97…`) | Instruction field constants; BSOR/SHRA marked "(model B)"; `b_adc 0xB8`, `b_sbb 0xBC` |
+| `Code/Includes/Able Interpreter/AbleInterpreterStructs.h` (`87a11d236ab4`) | Interpreter CPU state: `rpc` "repeat counter", `ppc` "prior program counter" (the two D10 registers), `zflags` (Z/M from one result word), `carry`, `psw`, `d4567` |
 | `Code/Sources/XPLProcessors/pass2.cpp` (`faf98fe3…`), `pass3.cpp` (`b807143f…`) | Model C code generation: **`d10` repeat counter**, "save return (D10)" in WHEN, R12 stack with `mr12d`/`mr12i`, "zflags garbage after call on Model C"; Model D external-memory paging |
 | `Able/-XPL/SYSLITS` (`06313fdf…`) | `processor_type` (0 A, 1 B, 2 C, 3 D); `o#d4567` option bit |
 

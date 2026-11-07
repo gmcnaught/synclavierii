@@ -240,9 +240,9 @@ shr(options_word, 8) and 7`, where **0 = Model A, 1 = B, 2 = C, 3 = D**
 | Feature | Encoding | Evidence | Confidence |
 |---|---|---|---|
 | **Add with carry** | dest 270–273 (`ADC0–3`) | assembler symbol table; interpreter `b_adc 0xB8`; **Model C runtime uses it for 32-bit adds and shifts** (`R1 TO ADD1`, `R0 TO ADC0`) | **High:** acc ← acc + src + C |
-| **Subtract with borrow** | dest 274–277 (`SBB0–3`) | assembler; interpreter `b_sbb 0xBC` | Encoding certain. Semantics inferred: acc ← acc − src − (not C), C = not borrow |
+| **Subtract with borrow** | dest 274–277 (`SBB0–3`) | assembler; interpreter `b_sbb 0xBC`; **runtime 32-bit divide: `R5 TO SUB1` then `R4 TO SBB0`** | **High:** acc ← acc − src − (1 − C), with C = NOT borrow, the same convention as SUB |
 | **Repeat (`RPT`)** | **write I/O device 010 (`D10`)** with *n − 1*; the **next instruction executes *n* times** in microcode, uninterruptibly | compiler: `im(shift-1) to d10 - load repeat counter`, `r3 to d10 [repeat up ((R3 + 1) mod 256) times]`; *Synclavier Internals* `RPT` | High. Count is 8 bits (1–256 executions). |
-| **Link register (read D10)** | **read device 010** returns the return address of the last taken absolute transfer (or interrupt) | compiler (`pci to atra` calls; prologue `d10 to mrSPd`); runtime: save-regs routine returns with `D10 TO ATRA` after being entered by `IM(sreg) TO ATRA` | **High** for absolute transfers; relative transfers unknown |
+| **Link register (read D10)** | **read device 010** returns the **prior program counter** (`ppc` in NED's interpreter state): the return address of the last taken absolute transfer (or interrupt) | compiler (every call is `pci to atra` / `im(n) to atra`; prologue `d10 to mrSPd`); runtime: save-regs routine returns with `D10 TO ATRA`; interpreter struct fields `rpc` "repeat counter" and `ppc` "prior program counter" | **High** for absolute transfers. The compiler never uses a relative transfer for a call, so no NED code depends on D10 after a relative jump. |
 | **Hardware stack via R12** | memory destination **372 (`MR12D`) = pre-decrement R12**; memory source 372 = post-increment (pop) | assembler alias `MR12D`; compiler; runtime: 73 pushes; other `MRnI` destinations still count **up** (RAM trampoline `R0 TO MR1I`, `PCI TO MR1I`) | **High: R12 only** |
 | Register conventions | stack pointer **R12** on Model C and later (R15 on A/B); R13 free for the programmer; R0–R3 for in-line assembly | compiler; XPL manual | Software convention |
 | Flags after CALL | **Z/C/M are garbage after a procedure call on Model C** | compiler comment | High |
@@ -258,8 +258,8 @@ shr(options_word, 8) and 7`, where **0 = Model A, 1 = B, 2 = C, 3 = D**
   decode treating code 372 specially as a destination.
 
 ### Still unknown
-* SBB's exact borrow convention (assumed the mirror of ADC); ADC/SBB effect on Z/M.
-* Whether relative transfers and untaken transfers load the D10 link.
+* Whether relative or untaken transfers *also* update `ppc`. No NED software depends on it; only hardware or the unpublished interpreter core can tell. For an implementation, updating it on taken absolute transfers and interrupts is enough.
+* ADC/SBB effect on Z/M. Assumed to be from the 16-bit result, like every other operation (the interpreter keeps Z and M as one `zflags` result word).
 * The exact Model C interrupt sequence (R16 versus D10) and any other
   devices the FPSM implements in the 002–011 range.
 * The FPSM microcode, FPRM decode PROMs and DDE contents define the real

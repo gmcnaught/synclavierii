@@ -76,6 +76,35 @@ The data path on this card:
   Which cards, and what it carries, is still open. Its traces run into the
   '181/'182 ALU area, so it may extend the data path or flags off-card.
 
+### Documentation cross-check (ABLE Series Hardware Reference Manual)
+
+The NED manual (summarised in [`synclavier-able-reference.md`](../synclavier-able-reference.md))
+describes the CPU's **Register Module** as:
+
+* a 16-register stack
+* a 16-bit ALU (A input from the register side, B input from the data bus)
+* a C/Z/M flag register
+* a shift/swap/latch stage
+* a decode block driven by the **8-bit Instruction/Address bus (ADR0–7)**
+* gates onto the data bus and the Memory Address Bus
+
+That confirms several of the guesses on this board:
+
+| Manual | This board | Status |
+|---|---|---|
+| 16-register stack (R0–R17 octal) | U31/U33/U37/U38 CY27S07 (16×16) | **Matches** |
+| 16-bit ALU | 4× 74F181 + 74S182 | **Matches** |
+| Drives the Memory Address Bus | U5/U6 '373 → 16 edge fingers. **MA0–MA15 = EZbuss pins 46, 44 … 16** (even side). | **Matches** the photo |
+| Flags C, Z, M to the sequencer | **EZbuss pins 62 (C̅), 64 (Z̅), 60 (MIN̅), present only in slots 9–10** | Explains the adjacent-slot rule |
+| Decode from the 8-bit IAB | U7 74ALS244 (receives ADR0–7, pins 15–29 odd) → U18/U28 PROMs + U2 '139 | Hypothesis, now well supported |
+| Shift / swap / latch | '373 groups U25–U27 and U34–U36: three-state latches, possibly wired straight, shifted or byte-swapped | Hypothesis |
+
+So the sequencer controls this card mainly through the **shared** bus
+lines: ADR0–7, RD̅, WR̅, SYN̅ and BDB0–15. It is addressed like an I/O
+device, using the register-source/destination codes in the instruction
+format. Only the three flag lines are private to the CPU slots. U18/U28 are
+then most likely the **IAB-code → register/ALU control lookup**.
+
 ---
 
 ## 2. Physical layout (component side, connector on the right)
@@ -231,12 +260,17 @@ B0–B3 = 1, 22, 20, 18; F0–F3 = 9, 10, 11, 13.
 
 ### 4.6 Connectors
 
-* **P1 card edge:** about 38 fingers per side (estimated from the photo; count
-  on the real board). The pin-out is unknown. Start by finding the +5 V and GND
-  fingers with a meter against the VCC/GND pins in §4.1, then follow the 16 data
-  lines from U3/U4 and the 16 lines from U5/U6.
-  **The P1 pin-out is now the key unknown**, because the FPRM↔FPSM control
-  and status lines run through it. See the [FPSM README §5](../synclavier-fpsm-185/README.md#5-fprm--fpsm-interface-backplane-p1) for the edge-finger
+* **P1 card edge: the 72-pin EZbuss** (36 contacts per side). The full
+  pin-out is in [`synclavier-able-reference.md` §3](../synclavier-able-reference.md#3-ezbuss-72-pin-two-sided-edge-connector-appendix-ii-table-1).
+  Expected on this card:
+  * BDB0–15 (odd pins 63…33) ↔ U3/U4
+  * MA0–15 (even pins 46…16) ← U5/U6
+  * ADR0–7 (odd pins 15…29), RD̅ (11), WR̅ (9), SYN̅ (5) → U7 and glue
+  * Z̅/C̅/MIN̅ (64/62/60) ← flag logic
+  * GND on pins 1, 2, 14, 31, 48; +5 V on 71, 72
+
+  **Check this pin-out against the card** (manual is for the original ABLE
+  bin). See the [FPSM README §5](../synclavier-fpsm-185/README.md#5-fprm--fpsm-interface-backplane-p1) for the edge-finger
   table to fill in for both cards.
 * **J1 2×17 IDC:** about 17 rows visible, so 34 pins (to be confirmed). The
   ribbon goes to **other external cards, not the FPSM**. Its destination and

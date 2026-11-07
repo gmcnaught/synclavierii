@@ -56,7 +56,7 @@
 <rect x="720" y="560" width="180" height="90" class="u"/><text x="730" y="582" class="t">U31  74F151</text><text x="730" y="600" class="n">8→1 condition select</text><text x="730" y="615" class="n">flags from FPRM / bus</text><text x="730" y="630" class="n">→ branch / no-branch</text>
 <path d="M720,600 H620 V530" class="s" marker-end="url(#a)"/>
 <path d="M1310,700 H810 V650" class="s" marker-end="url(#a)"/>
-<text x="940" y="690" class="n">flags / condition from FPRM via P1</text>
+<text x="940" y="690" class="n">flags Z/C/M from FPRM: P1 pins 64/62/60</text>
 <path d="M800,330 V350 H915 V610 H900" class="s" marker-end="url(#a)"/>
 <text x="855" y="345" class="n">cond sel</text>
 
@@ -77,7 +77,7 @@
 <rect x="1310" y="90" width="60" height="760" class="b"/>
 <text x="1340" y="470" class="t" transform="rotate(90 1340 470)" text-anchor="middle">P1  CARD-EDGE  (ABLE backplane)</text>
 <rect x="1170" y="90" width="120" height="120" class="u"/><text x="1178" y="112" class="t">U14 74F245</text><text x="1178" y="130" class="t">U12, U13 F374</text><text x="1178" y="150" class="n">data-bus tap:</text><text x="1178" y="165" class="n">instruction</text><text x="1178" y="180" class="n">capture</text>
-<rect x="1170" y="240" width="120" height="150" class="u"/><text x="1178" y="262" class="t">U2, U3</text><text x="1178" y="280" class="t">74LS374</text><text x="1178" y="300" class="n">many traces to</text><text x="1178" y="315" class="n">edge fingers:</text><text x="1178" y="330" class="n">FPRM control</text><text x="1178" y="345" class="n">fields via P1?</text>
+<rect x="1170" y="240" width="120" height="150" class="u"/><text x="1178" y="262" class="t">U2, U3</text><text x="1178" y="280" class="t">74LS374</text><text x="1178" y="300" class="n">many traces to</text><text x="1178" y="315" class="n">edge fingers:</text><text x="1178" y="330" class="n">ADR0–7 (IAB) /</text><text x="1178" y="345" class="n">RD, WR? (TBD)</text>
 <rect x="1170" y="420" width="120" height="110" class="u"/><text x="1178" y="442" class="t">U1 74LS240</text><text x="1178" y="460" class="t">U4 74F240</text><text x="1178" y="480" class="n">inverting bus</text><text x="1178" y="495" class="n">buffers (IRQ /</text><text x="1178" y="510" class="n">status in?)</text>
 <rect x="1170" y="560" width="120" height="70" class="c"/><text x="1178" y="582" class="t">C1 tant.</text><text x="1178" y="600" class="n">+5 V bulk</text><text x="1178" y="615" class="n">C2–C43 0.1 µF</text>
 <path d="M1310,150 H1290" class="w" marker-end="url(#a)" marker-start="url(#a)"/>

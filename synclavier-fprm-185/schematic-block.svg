@@ -22,11 +22,11 @@
 <text x="1340" y="470" class="t" transform="rotate(90 1340 470)" text-anchor="middle">P1  CARD-EDGE  (memory / I/O backplane)</text>
 
 <!-- Host interface column 1 -->
-<rect x="1090" y="90" width="180" height="90" class="u"/><text x="1100" y="112" class="t">U3, U4  74F245</text><text x="1100" y="130" class="n">16-bit bidirectional</text><text x="1100" y="145" class="n">backplane DATA bus</text><text x="1100" y="160" class="n">DIR/OE from bus cycle</text>
-<rect x="1090" y="200" width="180" height="90" class="u"/><text x="1100" y="222" class="t">U5, U6  74F373</text><text x="1100" y="240" class="n">memory ADDRESS reg?</text><text x="1100" y="255" class="n">(16 traces go directly</text><text x="1100" y="270" class="n">to edge fingers)</text>
-<rect x="1090" y="310" width="180" height="80" class="u"/><text x="1100" y="332" class="t">U7  74ALS244</text><text x="1100" y="350" class="n">FPSM control fields</text><text x="1100" y="365" class="n">+ clk in from backplane?</text>
+<rect x="1090" y="90" width="180" height="90" class="u"/><text x="1100" y="112" class="t">U3, U4  74F245</text><text x="1100" y="130" class="n">16-bit bidirectional</text><text x="1100" y="145" class="n">BDB0–15 (pins 63–33)</text><text x="1100" y="160" class="n">DIR/OE from bus cycle</text>
+<rect x="1090" y="200" width="180" height="90" class="u"/><text x="1100" y="222" class="t">U5, U6  74F373</text><text x="1100" y="240" class="n">→ MA0–15 (pins 46–16)</text><text x="1100" y="255" class="n">(16 traces go directly</text><text x="1100" y="270" class="n">to edge fingers)</text>
+<rect x="1090" y="310" width="180" height="80" class="u"/><text x="1100" y="332" class="t">U7  74ALS244</text><text x="1100" y="350" class="n">ADR0–7 (IAB) + RD/WR</text><text x="1100" y="365" class="n">from sequencer (EZbuss)</text>
 <rect x="1090" y="410" width="180" height="80" class="u"/><text x="1100" y="432" class="t">U2  74F139</text><text x="1100" y="450" class="n">dual 2→4 decoder</text><text x="1100" y="465" class="n">load / output enables</text>
-<rect x="1090" y="510" width="180" height="80" class="u"/><text x="1100" y="532" class="t">U1  74F153</text><text x="1100" y="550" class="n">dual 4→1 mux</text><text x="1100" y="565" class="n">condition → FPSM via P1</text>
+<rect x="1090" y="510" width="180" height="80" class="u"/><text x="1100" y="532" class="t">U1  74F153</text><text x="1100" y="550" class="n">dual 4→1 mux</text><text x="1100" y="565" class="n">flags Z/C/M → pins 64/62/60</text>
 <rect x="1090" y="610" width="180" height="80" class="u"/><text x="1100" y="632" class="t">U8  74F112</text><text x="1100" y="650" class="n">dual JK flip-flop</text><text x="1100" y="665" class="n">CPU flags (carry/link)</text>
 <rect x="1090" y="710" width="180" height="70" class="c"/><text x="1100" y="732" class="t">C1 6.8µF tant.</text><text x="1100" y="750" class="n">+5 V bulk at P1</text><text x="1100" y="765" class="n">C2–C36 per-IC decoupling</text>
 
@@ -74,7 +74,7 @@
 <path d="M700,360 H535 V180 H520" class="s" marker-end="url(#a)"/>
 
 <!-- Column 5: ALU -->
-<rect x="40" y="90" width="220" height="250" class="u"/><text x="50" y="112" class="t">U43, U44, U46, U48</text><text x="50" y="130" class="t">74F181 ×4</text><text x="50" y="150" class="n">16-bit ALU (4-bit slices)</text><text x="50" y="170" class="n">S0–S3, M, Cn from FPSM (P1)</text><text x="50" y="185" class="n">A = latched RF / IDB</text><text x="50" y="200" class="n">B = latched RF / IDB</text><text x="50" y="215" class="n">F → U25–U27 / IDB</text><text x="50" y="235" class="n">P̅, G̅ per slice → U41</text><text x="50" y="250" class="n">A=B (open-coll.) → R? pull-up</text>
+<rect x="40" y="90" width="220" height="250" class="u"/><text x="50" y="112" class="t">U43, U44, U46, U48</text><text x="50" y="130" class="t">74F181 ×4</text><text x="50" y="150" class="n">16-bit ALU (4-bit slices)</text><text x="50" y="170" class="n">S0–S3, M, Cn ← IAB decode</text><text x="50" y="185" class="n">A = latched RF / IDB</text><text x="50" y="200" class="n">B = latched RF / IDB</text><text x="50" y="215" class="n">F → U25–U27 / IDB</text><text x="50" y="235" class="n">P̅, G̅ per slice → U41</text><text x="50" y="250" class="n">A=B (open-coll.) → R? pull-up</text>
 <rect x="40" y="370" width="220" height="90" class="u"/><text x="50" y="392" class="t">U41  SN74S182</text><text x="50" y="410" class="n">carry look-ahead</text><text x="50" y="425" class="n">Cn+x, Cn+y, Cn+z → slices</text><text x="50" y="440" class="n">P̅,G̅ (group) → flags</text>
 <rect x="40" y="490" width="220" height="110" class="b"/><text x="50" y="512" class="t">J1  34-pin IDC header</text><text x="50" y="530" class="n">ribbon to other</text><text x="50" y="545" class="n">external cards (not FPSM)</text><text x="50" y="560" class="n">near ALU — function</text><text x="50" y="575" class="n">TBD</text>
 <path d="M300,290 H260" class="w" marker-end="url(#a)"/>

@@ -45,6 +45,6 @@ R6,1,Resistor (brown body - different type),Pull-up / termination,Axial,,Low,Bet
 R7,1,Resistor (bands not legible),Pull-up / termination,Axial 1/4W,,Low,Above U28
 R8,1,Resistor (bands not legible),Pull-up / termination,Axial 1/4W,,Low,Between U44 and U46
 J1,1,34-pin (2x17) shrouded IDC box header,Ribbon to other external cards (not the FPSM),THT 0.1in,,Medium,Pin count estimated from photo (~17 rows); blue shroud
-P1,1,Card-edge fingers (~38 per side est.),Synclavier/ABLE backplane bus,Edge,,Low,Count fingers on the real board; pin-out unknown
+P1,1,72-pin EZbuss card edge (36 per side),ABLE backplane bus,Edge,,Medium,Pin-out per ABLE HW Ref Manual App. II Table 1 - verify on board; pin-out unknown
 W1,1,Blue jumper wire (solder side),Factory/field rework,Wire,,Medium,Near U11/U12 on solder side - trace and record both ends
 PCB,1,NED FPRM-185,Bare board - CPU Register Module (partner: FPSM-185 Sequencer Module),2-layer FR4 (94V-1 marked),New England Digital Corp,High,

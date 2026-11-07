@@ -6,6 +6,12 @@ block-level `schematic-block.svg`.
 
 ## NED Synclavier II CPU (two-card set)
 
+**Documentation:** [`synclavier-able-reference.md`](synclavier-able-reference.md)
+has notes from the NED ABLE Series Hardware Reference Manual and *Synclavier
+Internals* (archive.org): the CPU architecture, the instruction format and the
+full **72-pin EZbuss pinout**. The flag lines Z/C/MIN exist only in slots
+9–10, which is why the two CPU cards must sit in adjacent slots.
+
 | Board | Role | Folder |
 |---|---|---|
 | FPRM-185 | CPU **Register Module**: 16-bit ALU (4× 74F181 + 74S182), 16×16 register file (4× CY27S07), memory address/data bus interface | [`synclavier-fprm-185/`](synclavier-fprm-185/README.md) |

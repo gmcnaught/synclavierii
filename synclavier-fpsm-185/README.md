@@ -49,6 +49,33 @@ not to the FPRM.
 * **Rework:** two resistors are soldered on the solder side near U36–U38.
   Record their values and both ends.
 
+### Documentation cross-check (ABLE Series Hardware Reference Manual)
+
+The manual (summarised in [`synclavier-able-reference.md`](../synclavier-able-reference.md))
+describes the **Sequencer** as:
+
+* an *Instruction Register* and a *Data Register*, both loaded from the data
+  bus (the fetched word goes into both)
+* a decode/state block
+* a *Selector* that puts either the source half or the destination half of
+  the instruction on the **8-bit Instruction/Address bus (ADR0–7)**
+* the IRQ̅, HALT̅/HAK̅, SYN̅, RD̅ and WR̅ lines
+* the 3 flags C/Z/M as an input from the Register Module
+
+Every instruction runs as fetch → source READ → destination WRITE. The bus
+is **asynchronous** (handshaken with SYN̅), so there is no system clock.
+
+| Manual | This board (inferred) |
+|---|---|
+| Decode / state register | Microcode SMR00–03 + pipeline registers. This is a microcoded "Model C (or newer)" implementation (*Synclavier Internals*). |
+| Instruction decode | U22/U23 "DDE…" PROMs (opcode → microcode entry), U24 Am29823 |
+| Instruction Register and Data Register | U12/U13 74F374, U24, U14 74F245 on BDB0–15 (exact split TBD) |
+| Selector → IAB | Candidates: U43–U47 '153 (S field / D field / PC register code / device code) or U2/U3 'LS374 → edge (ADR0–7 = EZbuss odd pins 15–29) |
+| IRQ̅, HALT̅, SYN̅ inputs; HAK̅, RD̅, WR̅ outputs | U1 74LS240 / U4 74F240 inverting receivers (negative-logic bus); U38 74F38 / U54 7438 open-collector drivers (the manual recommends 7438-type drivers) |
+| Flags C/Z/M from the Register Module | EZbuss **pins 62/64/60, slots 9–10 only** → U31 '151 condition select |
+| "~180 ns from address to RD/WR command", no clock | **U93 delay line + JP1** set these delays and strobe widths |
+| Interrupt: IRQ̅ sampled at the end of each instruction; PC switches to R16; PSW read uses ACK̅ | U34/U35 'LS348, U36 'LS174, INITROM |
+
 ---
 
 ## 2. Physical layout (component side, J1 on the left, edge on the right)
@@ -201,15 +228,23 @@ Open point: these notes describe cabled peripherals, but both CPU cards also
 carry a 34-pin J1 header. What J1 on the CPU cards connects to is still
 unknown.
 
-* **[HYP]** FPSM → FPRM: microword control fields. Candidate drivers on this
-  card are U2/U3 ('LS374, 16 outputs fanning to the edge) and possibly U38/U54
-  (open collector). Candidate receivers on the FPRM are U7 ('ALS244) and then
-  U2 ('139) and U18/U28.
-* **[HYP]** FPRM → FPSM: ALU flags and a selected condition from the FPRM's
-  U1 ('153), landing on the FPSM's U31 ('151) condition select.
-* **[HYP]** The microcycle clock from U93/U53 probably goes out on a
-  backplane line too, so that the FPRM's latches and the 27S07 write pulses
-  stay in step.
+**What the manual says about the interface**
+([EZbuss table](../synclavier-able-reference.md#3-ezbuss-72-pin-two-sided-edge-connector-appendix-ii-table-1)):
+
+* **FPSM → FPRM** goes over the *shared* bus. The 8-bit ADR0–7 (pins 15–29
+  odd) carries the register/ALU operation code, RD̅ (11) and WR̅ (9) give
+  direction and timing, the FPRM answers on SYN̅ (5), and data moves on
+  BDB0–15. The FPRM is addressed the same way as any I/O device.
+* **FPRM → FPSM** has **three private lines: Z̅ (64), C̅ (62), MIN̅ (60),
+  wired only in slots 9–10**. That is the documented reason the two cards
+  must sit in adjacent slots.
+* There is no system clock line. Timing is generated on the FPSM (delay
+  line) and handshaken with SYN̅. Pin 69 carries a 1 MHz reference generated
+  on a card; which card drives it is still to be checked.
+
+The edge-finger table below can now be **pre-filled with the documented
+signal names**. What's left is to confirm the pin-out on the real cards and
+find which chip pin each signal reaches.
 
 **The most useful single measurement for both schematics** is an edge-finger
 table for each card. Measure with the card out and unpowered, and number the

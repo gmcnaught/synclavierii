@@ -50,5 +50,5 @@ R1,1,Resistor,Unknown,Axial,,Low,Near U54/U48
 D1,1,Diode (glass),Unknown (reset / clamp?),DO-35,,Low,Near R1
 RW1,2,Resistors on solder side,Rework,Axial,,Medium,Two resistors soldered on the back near U36-U38 - record values and both ends
 J1,1,34-pin (2x17) shrouded IDC box header,Ribbon to other external cards (not the FPRM),THT 0.1in,,Medium,Pin count estimated from photo
-P1,1,Card-edge fingers,ABLE backplane,Edge,,Low,Pin-out unknown
+P1,1,72-pin EZbuss card edge (36 per side),ABLE backplane,Edge,,Medium,Pin-out per ABLE HW Ref Manual App. II Table 1 - verify on board
 PCB,1,NED FPSM-185,Bare board - CPU Sequencer Module (partner: FPRM-185 Register Module),2-layer (94V-0 marked),New England Digital Corp,High,Handwritten '12-2' on component side

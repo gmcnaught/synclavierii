@@ -70,6 +70,8 @@ Mapping the [instruction set](../../docs/instruction-set.md) onto this card
 | dest 200–237 (arithmetic) | WR | acc ← acc *op* BDB through the '181s; update C/Z/M |
 | dest 240–257 (test) | WR | as arithmetic, but no register write |
 | dest 260–267 (swap/OR, shift/ADD) | WR | through the shift/swap latch stage |
+| dest 270–277 (ADC/SBB, Model C+) | WR | as ADD/SUB, with the **C flag fed into the '181 carry-in** |
+| dest 372 (`MR12D`, Model C+) | WR | **pre-decrement R12**, then gate it onto MA (hardware stack push) |
 | dest 300–317 (load register) | WR | Rn ← BDB; flags unchanged |
 | dest 320–337 (conditional transfer) | WR, only if the condition is met | PC ← BDB (absolute) or PC + BDB (relative, through the ALU) |
 | 000–177 (I/O) | — | not this card (except the HOP/PSW handshakes) |

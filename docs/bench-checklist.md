@@ -137,4 +137,8 @@ FPSM slot *S_SM* (14) and one peripheral slot *S_X*. For every contact in
 - [ ] Note the microcycle clock frequency on the FPSM (after U93/U53).
 - [ ] If a HOP (D01) card is available, single-step instructions from
       [`instruction-set.md` §10](instruction-set.md#10-worked-examples) and
-      record the bus activity.
+      record the bus activity. Especially the Model C items: `IM(n) TO D10`
+      (repeat), `ADC`/`SBB` flag results, `R4 TO MR12D` (does R12 decrement
+      before or after? only R12?), and reading D10 inside an interrupt.
+- [ ] Probe FPSM U32/U33 ('ALS161) during a `RPT`: do they load *n* and
+      count down?

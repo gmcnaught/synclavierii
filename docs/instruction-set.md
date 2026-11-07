@@ -5,10 +5,12 @@ pp. 2-5 to 2-31 (PDF pp. 15–41), and Appendix IV (PDF p. 58), working from
 page images rather than the OCR text. Page references are given as
 `[p. 2-nn]`. The PDF is identified in [`sources.md`](sources.md).
 
-This describes the architecture as documented for the original ABLE CPU
-(D1 + D300, Model B). The Model C (FPSM + FPRM) runs the same instruction
-set and adds extensions, for example `RPT n`, which are not documented here.
-See [§9](#9-model-c-extensions-and-unknowns).
+The manual documents the **Model B** CPU (D1 + D300). The Model C (FPSM +
+FPRM) runs the same instruction set plus the extensions in
+[§9](#9-model-c-and-model-d-extensions). Those come from NED's own
+assembler and XPL compiler sources (MIT-licensed, `jbemond/Software`; see
+[`sources.md`](sources.md)). The NED assembler mnemonics are given
+alongside the codes.
 
 Numbers are **octal** unless marked otherwise, as in all NED documentation.
 
@@ -59,7 +61,8 @@ and operations are encoded as special destination addresses
 | `1 0 1 0 T T r r` | 240–257 | **Test** on accumulator `r`; T = operation (table 4) | 2-19 |
 | `1 0 1 1 0 0 r r` | 260–263 | **Byte-swap with OR** | 2-20 |
 | `1 0 1 1 0 1 r r` | 264–267 | **Right-shift with ADD** | 2-20 |
-| `1 0 1 1 1 x r r` | 270–277 | *not defined in the manual* | — |
+| `1 0 1 1 1 0 r r` | 270–273 | **Add with carry** `ADCr` (not in the manual; see §9) | NED asm |
+| `1 0 1 1 1 1 r r` | 274–277 | **Subtract with borrow** `SBBr` (not in the manual; see §9) | NED asm |
 | `1 1 0 0 R R R R` | 300–317 | **Load register** R (any register; flags unchanged) | 2-22 |
 | `1 1 0 1 0 c c c` | 320–327 | **Conditional transfer, absolute**; c = condition (table 5) | 2-22 |
 | `1 1 0 1 1 c c c` | 330–337 | **Conditional transfer, relative** | 2-24 |
@@ -70,16 +73,16 @@ and operations are encoded as special destination addresses
 `acc` is the accumulator R0–R3 selected by bits 9–8. `src` is the 16-bit
 operand from the source cycle. The result is written back to `acc`.
 
-| A | Octal | Name | Operation | Z | C | M |
-|---|---|---|---|---|---|---|
-| 000 | 200–203 | **LOAD** (arithmetic load) | acc ← src | set | undefined | set |
-| 001 | 204–207 | **AND** | acc ← acc ∧ src | set | undefined | set |
-| 010 | 210–213 | **ADD** | acc ← acc + src | set | carry out | set |
-| 011 | 214–217 | **SUBTRACT** | acc ← acc − src | set | **NOT borrow** | set |
-| 100 | 220–223 | **XOR** ("add without carry") | acc ← acc ⊕ src | set | undefined | set |
-| 101 | 224–227 | **LEFT ROTATE** | acc ← acc rotated left 1 (bit 15 → bit 0); src ignored | **unchanged** | old bit 15 | set |
-| 110 | 230–233 | **OR** ("set bit") | acc ← acc ∨ src | set | undefined | set |
-| 111 | 234–237 | **LOAD COMPLEMENT** | acc ← ¬src (one's complement) | set | undefined | set |
+| A | Octal | NED mnemonic | Name | Operation | Z | C | M |
+|---|---|---|---|---|---|---|---|
+| 000 | 200–203 | `LOA0–3` | **LOAD** (arithmetic load) | acc ← src | set | undefined | set |
+| 001 | 204–207 | `AND0–3` | **AND** | acc ← acc ∧ src | set | undefined | set |
+| 010 | 210–213 | `ADD0–3` | **ADD** | acc ← acc + src | set | carry out | set |
+| 011 | 214–217 | `SUB0–3` | **SUBTRACT** | acc ← acc − src | set | **NOT borrow** | set |
+| 100 | 220–223 | `XOR0–3` | **XOR** ("add without carry") | acc ← acc ⊕ src | set | undefined | set |
+| 101 | 224–227 | `RTL0–3` | **LEFT ROTATE** | acc ← acc rotated left 1 (bit 15 → bit 0); src ignored | **unchanged** | old bit 15 | set |
+| 110 | 230–233 | `OR0–3` | **OR** ("set bit") | acc ← acc ∨ src | set | undefined | set |
+| 111 | 234–237 | `LCM0–3` | **LOAD COMPLEMENT** | acc ← ¬src (one's complement) | set | undefined | set |
 
 "set" means the flag is updated from the result: Z = (result = 0), M = result
 bit 15. Notes:
@@ -93,19 +96,22 @@ bit 15. Notes:
 These set Z, C and M exactly like the matching arithmetic destination, but
 **do not change the accumulator**.
 
-| T | Octal | Test as |
-|---|---|---|
-| 00 | 240–243 | LOAD |
-| 01 | 244–247 | AND |
-| 10 | 250–253 | ADD |
-| 11 | 254–257 | SUBTRACT (compare) |
+| T | Octal | NED mnemonic | Test as |
+|---|---|---|---|
+| 00 | 240–243 | `TLOA0–3` | LOAD |
+| 01 | 244–247 | `TAND0–3` | AND |
+| 10 | 250–253 | `TADD0–3` | ADD |
+| 11 | 254–257 | `TSUB0–3` | SUBTRACT (compare) |
 
 ## 5. Byte-swap and right-shift `[pp. 2-20, 2-21]`
 
-| Octal | Name | Operation | Z | C | M |
-|---|---|---|---|---|---|
-| 260–263 | **BYTE-SWAP with OR** | acc ← swap_bytes(acc) ∨ src | set | undefined | set |
-| 264–267 | **RIGHT-SHIFT with ADD** | acc ← (acc >> 1, 0 into bit 15) + src | set | old bit 0 | set |
+| Octal | NED mnemonic | Name | Operation | Z | C | M |
+|---|---|---|---|---|---|---|
+| 260–263 | `BSOR0–3` | **BYTE-SWAP with OR** | acc ← swap_bytes(acc) ∨ src | set | undefined | set |
+| 264–267 | `SHRA0–3` | **RIGHT-SHIFT with ADD** | acc ← (acc >> 1, 0 into bit 15) + src | set | old bit 0 | set |
+
+NED's interpreter header marks BSOR and SHRA as **Model B** additions; the
+Model A lacked them.
 
 With immediate 0 as the source, these become plain BYTE-SWAP and SHIFT
 RIGHT. A right *rotate* is done by shifting, then branching on C and adding
@@ -121,14 +127,14 @@ in use (R17, or R16 during interrupts) is an **unconditional absolute jump**.
 
 | c | Condition | Absolute | Relative |
 |---|---|---|---|
-| 000 | always (unconditional) | 320 | 330 |
-| 001 | Z | 321 | 331 |
-| 010 | C | 322 | 332 |
-| 011 | M | 323 | 333 |
-| 100 | never | 324 | 334 |
-| 101 | not Z | 325 | 335 |
-| 110 | not C | 326 | 336 |
-| 111 | not M (plus) | 327 | 337 |
+| 000 | always (unconditional) | 320 `ATRA` | 330 `RTRA` |
+| 001 | Z | 321 `ATZE` | 331 `RTZE` |
+| 010 | C | 322 `ATRC` | 332 `RTRC` |
+| 011 | M | 323 `ATMI` | 333 `RTMI` |
+| 100 | never | 324 `ATNV` | 334 `RTNV` |
+| 101 | not Z | 325 `ATNZ` | 335 `RTNZ` |
+| 110 | not C | 326 `ATNC` | 336 `RTNC` |
+| 111 | not M (plus) | 327 `ATPL` | 337 `RTPL` |
 
 * **Absolute:** if the condition holds, PC (whichever of R17/R16 is in use)
   ← src.
@@ -207,7 +213,7 @@ interrupts are enabled. The handler returns by writing the PCW with PCS = 1
 | 001 | PSW, PCW | 062–067 | Aux. D/A converters |
 | 002 | Reserved | 070, 071 | Scope interface |
 | 003 | Real-time clock | 072, 073 | Aux. scope interfaces |
-| 004–011 | Reserved | 074–077 | Reserved |
+| 004–011 | Reserved (Synclavier: **004–007 D4567 multiply/divide**; **010 = Model C repeat/return, D10**) | 074–077 | Reserved |
 | 012, 013 | A/D converter | 100–104 | Floppy disk controller |
 | 014, 015 | Aux. A/D converter | 105–107 | Tape drive |
 | 016–033 | Reserved | 110–117 | Disk drive |
@@ -221,36 +227,73 @@ interrupts are enabled. The handler returns by writing the PCW with PCS = 1
 Synclavier systems add many more devices (D16 timer, D24 SCSI, D57 poly,
 D160 FM, …). See *Synclavier Internals* §5.
 
-## 9. Model C extensions and unknowns
+## 9. Model C and Model D extensions
 
-* *Synclavier Internals* documents an XPL construct **`RPT n`** that works on
-  "Model-C (or newer)" processors only. It executes the next single-word
-  instruction *n* times "in micro-code" as one uninterruptible instruction
-  cycle (usually limited to `RPT 64`). How it is encoded is not documented
-  here; it is probably one of the undefined codes, or an I/O address
-  decoded by the FPSM.
-* Undefined destination codes **270–277**: possible Model C/D extensions.
-* Not documented: whether the Register Module flags or the Sequencer
-  latches C/Z/M; the exact carry behaviour of SUBTRACT with the 74F181;
-  and what happens with a register source of the current PC (which value of
-  R17 is read).
-* The Model C microcode (FPSM SMR00–03) and decode PROMs (FPRM U18/U28,
-  FPSM DDE) define the real behaviour. Dumping them would settle all of
-  the above.
+Not in the Hardware Reference Manual. These come from NED's **ABLE Series
+Assembler v2.07** (1989, `configuration modelC`), the **XPL compiler**
+sources, and the **ABLE interpreter** headers in `jbemond/Software` (MIT
+licence; exact files and commit in [`sources.md`](sources.md)). The
+processor model is stored in the system options word: `processor_type =
+shr(options_word, 8) and 7`, where **0 = Model A, 1 = B, 2 = C, 3 = D**
+(SYSLITS).
+
+| Feature | Encoding | Evidence | Confidence |
+|---|---|---|---|
+| **Add with carry** | dest 270–273 (`ADC0–3`) | assembler symbol table; interpreter `b_adc 0xB8` | Encoding certain. Semantics inferred from the name: acc ← acc + src + C |
+| **Subtract with borrow** | dest 274–277 (`SBB0–3`) | assembler; interpreter `b_sbb 0xBC` | Encoding certain. Semantics inferred: acc ← acc − src − (not C), C = not borrow |
+| **Repeat (`RPT`)** | **write I/O device 010 (`D10`)** with *n − 1*; the **next instruction executes *n* times** in microcode, uninterruptibly | compiler: `im(shift-1) to d10 - load repeat counter`, `r3 to d10 [repeat up ((R3 + 1) mod 256) times]`; *Synclavier Internals* `RPT` | High. Count is 8 bits (1–256 executions). |
+| **Interrupt return address in D10** | **read device 010** inside a WHEN handler | compiler: `on Model C and later, save return (D10)` → `d10 to mr12d` | Medium: the Model C interrupt entry saves the return PC where D10 can read it |
+| **Hardware stack via R12** | memory destination **372 (`MR12I`/`MR12D`) = pre-decrement R12**; memory source 372 = post-increment (pop) | assembler built-in `MR12D` = same code as `MR12I`; compiler pushes with `mr12d`, pops in reverse with `mr12i`; "Model C needs to predecrement stack pointer" | Medium. Unknown whether the decrement applies only to R12. |
+| Register conventions | stack pointer **R12** on Model C and later (R15 on A/B); R13 free for the programmer; R0–R3 for in-line assembly | compiler; XPL manual | Software convention |
+| Flags after CALL | **Z/C/M are garbage after a procedure call on Model C** | compiler comment | High |
+| Model D: code in external memory | compiler option `-f`, "force all code to external memory (e.g. model d)"; runtime "switch to page 0" / "exchange pages" vectors | compiler | Model D only (DSM + FPRM) |
+
+**Implications for the boards:**
+* **FPSM:** it must implement I/O device **010** (repeat counter and return
+  register). The two **74ALS161** counters (U32/U33, 8 bits) are a strong
+  candidate for the **repeat counter** rather than the micro-PC. Re-executing
+  the next instruction without a new fetch is microcode behaviour (SMR PROMs).
+* **FPRM:** ADC and SBB need the **C flag fed back into the '181 carry-in**.
+  The R12 pre-decrement needs a decrement path, either the ALU or the U18/U28
+  decode treating code 372 specially as a destination.
+
+### Still unknown
+* The exact ADC/SBB flag behaviour; whether other memory-destination codes
+  also decrement on Model C.
+* The exact Model C interrupt sequence (R16 versus D10) and any other
+  devices the FPSM implements in the 002–011 range.
+* The FPSM microcode, FPRM decode PROMs and DDE contents define the real
+  behaviour. Dumping them would settle all of the above.
+
+### Timing (Scientific XPL Reference Manual, 1987)
+* A typical instruction takes **about 1 µs**. Shifts and rotates move one or
+  eight bits per instruction in about 1 µs.
+* **D4567 hardware multiply/divide** (devices 004–007, option bit `o#d4567`):
+  multiply about 2 µs; divide and other operations about 10 µs, because of
+  sign correction. Without it, a software routine takes 100–300 µs.
+* **Reading or writing a device that doesn't exist halts the computer:** no
+  SYN̅ comes back, so the asynchronous bus waits forever. NED used this as a
+  diagnostic, with the HOP showing the stuck address.
 
 ## 10. Worked examples
 
-| Instruction (dest ← source) | Octal word | Effect |
-|---|---|---|
-| R1 ← immediate 5 (load register) | `301 205` | R1 = 5, flags unchanged |
-| R0 ADD ← R2 | `210 302` | R0 += R2; Z/C/M updated |
-| R1 ADD ← R1 | `211 301` | R1 <<= 1 |
-| R2 LEFT ROTATE ← immediate 0 | `226 200` | rotate R2 left |
-| R0 TEST-SUB ← mem[R17++] | `254 377` + literal | compare R0 with the in-line constant |
-| jump-if-zero absolute ← mem[R17++] | `321 377` + address | if Z, PC = address |
-| jump relative always ← immediate −3 | `330 275` | PC += −3 |
-| PCW ← R5 | `001 305` | set flags, PC select and interrupt state from R5 |
+NED assembler syntax is `SOURCE TO DESTINATION`. `IM(n)` is an immediate
+and `RE(label)` a relative operand. In XPL the same thing is written
+`write(dest) = read(source)`.
 
-*The octal words are written high byte first, then low byte, as NED
-printed 8-bit fields. They are worked out from the tables above; no
-assembler listing has been checked.*
+| NED assembler | Octal word (dest, src) | Effect |
+|---|---|---|
+| `IM(5) TO R1` | `301 205` | R1 = 5, flags unchanged |
+| `R2 TO ADD0` | `210 302` | R0 += R2; Z/C/M updated |
+| `R1 TO ADD1` | `211 301` | R1 <<= 1 |
+| `IM(0) TO RTL2` | `226 200` | rotate R2 left |
+| `PCI TO TSUB0` + `DATA n` | `254 377`, n | compare R0 with the in-line constant |
+| `PCI TO ATZE` + `DATA addr` | `321 377`, addr | if Z, PC = addr |
+| `IM(-3) TO RTRA` | `330 275` | PC += −3 |
+| `R5 TO D1` | `001 305` | write PCW from R5 |
+| `IM(7) TO D10` then `IM(0) TO SHRA1` | `010 207`, `265 200` | **Model C:** shift R1 right 8 times |
+| `R4 TO MR12D` | `372 304` | **Model C:** push R4 (pre-decrement R12) |
+
+*The words are written high byte (destination) first. The XPL manual's own
+example (`r0 = "300"`, `r1 = "301"`, `add0 = "210"`) and NED's assembler
+symbol table both agree with these codes.*

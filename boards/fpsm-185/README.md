@@ -87,6 +87,7 @@ immediate sources and failed conditional transfers shortening the cycle
 | C/Z/M flags from the FPRM | EZbuss **pins 62/64/60**, private to the CPU slot pair → U31 '151 condition select |
 | About 180 ns from address to RD/WR, no system clock | **U93 delay line + JP1** set the delays and strobe widths |
 | IRQ̅ sampled at the end of each instruction; PC switches to R16; ACK̅ on PSW read | U34/U35 'LS348, U36 'LS174, INITROM |
+| **Model C additions** (NED compiler and assembler): device **D10** (write = repeat counter, read = interrupt return address), R12 hardware stack (`MR12D` pre-decrement), ADC/SBB | device 010 decode, the repeat counter (U32/U33?) and microcode; see [instruction-set §9](../../docs/instruction-set.md#9-model-c-and-model-d-extensions) |
 
 ---
 
@@ -173,7 +174,11 @@ PROMs, check against the datasheet once the parts are identified.
   (5× '153) would allow up to 1K.
 
 ### 4.3 Micro-sequencer **[HYP]**
-* **U32/U33 ('ALS161)** form the micro-program counter (load and increment).
+* **U32/U33 ('ALS161, 8 bits)**: either the micro-program counter, **or
+  the Model C repeat counter** loaded by writing I/O device **010 (D10)**.
+  `RPT` repeats the next instruction 1–256 times, which needs exactly 8 bits
+  ([instruction-set §9](../../docs/instruction-set.md#9-model-c-and-model-d-extensions)).
+  The repeat counter now looks the more likely of the two.
 * **U43–U47 ('153 ×5)** form the **next-address multiplexer**, 10 bits. Each bit
   picks one of four sources:
   1. µPC (continue)

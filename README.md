@@ -13,7 +13,7 @@ Where to start:
 | Document | Contents |
 |---|---|
 | [`docs/able-reference.md`](docs/able-reference.md) | Architecture, the 72-pin EZbuss pinout, processor models and slots |
-| [`docs/instruction-set.md`](docs/instruction-set.md) | **Full ABLE instruction set** (every source/destination code, flags, PSW/PCW, device map) |
+| [`docs/instruction-set.md`](docs/instruction-set.md) | **Full ABLE instruction set** with NED mnemonics, plus the **Model C extensions** (ADC/SBB, `RPT` via D10, R12 stack) from NED's own assembler and compiler sources |
 | [`docs/bench-checklist.md`](docs/bench-checklist.md) | What to do when someone has a board or bin: PROM reads, measurements, photos |
 | [`docs/sources.md`](docs/sources.md) | Pinned sources: checksums, commit IDs, page map |
 | [`docs/research-log.md`](docs/research-log.md) | How we got here, including corrections and dead ends |
@@ -99,7 +99,8 @@ boards/
 * The **P1 edge pin-out** on these cards, compared with the documented ABLE
   EZbuss, starting with GND, +5 V and the Z/C/MIN pins (60, 62, 64).
 * What the **J1 34-pin ribbons** connect to.
-* Which FPSM chips drive ADR0–7: the '153 multiplexers or U2/U3.
+* Which FPSM chips drive ADR0–7: the '153 multiplexers or U2/U3. Are U32/U33 the Model C repeat counter?
+* Exact ADC/SBB flag behaviour; whether `MR12D` pre-decrement applies only to R12; the Model C interrupt sequence (D10).
 * Exact identity of a few chips (FPRM U41 and U8; FPSM U4, U52 and U73) and of
   the PROMs under their labels.
 
@@ -107,7 +108,7 @@ boards/
 
 | Option | Needs hardware? | Notes |
 |---|---|---|
-| **Behavioural / instruction-level model** of the ABLE CPU (spec + test vectors, then HDL, e.g. as an FPGA core) | No | `docs/instruction-set.md` gives the full ISA; `data/able-opcodes.csv` is a ready decode table. Cross-check against the existing ABLE VHDL re-implementation (see `docs/sources.md`). |
+| **Behavioural / instruction-level model** of the ABLE CPU (spec + test vectors, then HDL, e.g. as an FPGA core) | No | `docs/instruction-set.md` gives the full ISA including the Model C extensions; `data/able-opcodes.csv` is a ready decode table. NED's MIT-licensed assembler and XPL compiler (`jbemond/Software`) can generate test programs. |
 | **KiCad capture** of what's confirmed | No | Parts, the '181/'182 carry chain, the register file, and the EZbuss nets; guessed nets left as labelled stubs. |
 | **Read the PROMs** | Yes | The single most valuable step. Without them, a gate-accurate model of the boards isn't possible. |
 | **High-resolution photos** (≥600 dpi, both sides, square-on) | Yes | Most traces could then be followed from overlaid images. |

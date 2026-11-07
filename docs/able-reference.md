@@ -10,8 +10,9 @@ not copied into this repo.
 |---|---|---|
 | **ABLE Series Hardware Reference Manual** (60 pp.) | `ABLE Series Hardware Reference Manual/` | CPU architecture, instruction format, **EZbuss 72-pin pinout** (Appendix II, Table 1, PDF p. 45), timing |
 | **Synclavier Internals** (NED internal, 19-Jun-1987) | `Synclavier Internals Documentation/` | Synclavier device list; confirms a **microcoded "Model C (or newer)"** processor |
-| Creating Programs for ABLE Series Computers | `Creating Programs for ABLE Series Computers/` | Programming (not yet reviewed) |
-| Scientific XPL Reference Manual | `Scientific XPL Reference Manual/` | XPL language (not yet reviewed) |
+| Creating Programs for ABLE Series Computers (Oct 1978) | `Creating Programs for ABLE Series Computers/` | OS user guide: boot procedure (Load button), compiler memory map. No hardware detail. |
+| **NED software sources** (MIT licence) | GitHub `jbemond/Software` | **NED assembler** symbol table (official mnemonics, ADC/SBB, `MR12D`); **XPL compiler** (Model A/B/C/D code generation: D10 repeat, R12 stack); ABLE interpreter headers. See [`sources.md`](sources.md). |
+| Scientific XPL Reference Manual (June 1987) | `Scientific XPL Reference Manual/` | Instruction timing (about 1 µs), D4567 timing, in-line assembly (`write(dest) = read(src)`), interrupt identifiers, Model B/C module incompatibility |
 
 > **Caveat:** the Hardware Reference Manual describes the original ABLE CPU,
 > built from the **D1 Sequencer** and the **D300 Register Module** cards. The

@@ -94,11 +94,37 @@ followed and checked. Newest information wins where entries disagree.
   the IAB class from ADR7–3.
 * **Also added:** the bench checklist, the data CSVs and the pinned sources.
 
+## 8. The two remaining NED manuals and NED's own source code
+
+* **Creating Programs (1978):** an OS user guide. Only the boot procedure is
+  of interest.
+* **Scientific XPL Reference Manual (1987):**
+  * its in-line assembly example independently confirms the codes
+    (`r0 = "300"`, `add0 = "210"`)
+  * timings (about 1 µs per instruction; D4567 multiply about 2 µs)
+  * reading or writing a missing device halts the CPU (no SYN̅)
+  * Model B/C compiled modules are incompatible
+* **GitHub `jbemond/Software` (MIT):** NED's software tree, including the
+  ABLE **assembler**, the **XPL compiler**, the SYSLITS and the interpreter
+  headers. (GitHub code search had missed it because its files have no
+  extensions.) It yields:
+  * the official mnemonics
+  * the two "undefined" destination ranges: **ADC 270–273** and **SBB
+    274–277**
+  * Model C's **`RPT` = writing I/O device 010 (D10)**, an 8-bit repeat
+    count
+  * reading D10 returns the interrupt return address on Model C
+  * R12 as a hardware stack pointer (`MR12D` pre-decrement alias)
+  * the processor-type codes A=0 … D=3
+* **New board hypothesis:** FPSM U32/U33 ('ALS161 ×2, 8 bits) are the
+  repeat counter.
+
 ## Searched without useful results
 
 * archive.org full-text and metadata search for "synclavier", "new england
   digital" and "ABLE computer NED". The only relevant item is
   `Synclavier-docs`.
 * GitHub code search for FPRM, FPSM, D300, "model c", "microcode" and SMR00
-  across the Synclavier organisation and `jbemond/Software`. No hits.
+  across the Synclavier organisation and `jbemond/Software`. No hits, but
+  that repo's files have no extensions and are not indexed; see §8.
 * bitsavers.org: no NED directory.

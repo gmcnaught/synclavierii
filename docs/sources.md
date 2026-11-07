@@ -43,6 +43,38 @@ Page map (printed page → PDF page) for the parts used:
 | Size / MD5 / SHA-1 | 7,179,121 bytes / `16385665c5fab4fa0add2b9cfd261855` / `820fa84e65602e0c7b9086b6d977daeef24929cb` |
 | Used | §5 "Hardware overview": device list; glossary entry `RPT` (Model C microcode) |
 
+### Scientific XPL Reference Manual (NED, June 1987)
+
+| | |
+|---|---|
+| archive.org | `…/Technical%20Documentation/Scientific%20XPL%20Reference%20Manual/Public/Scientific%20XPL%20Reference%20Manual%20OCR%20Lo-Res.pdf` (OCR text `…_djvu.txt`) |
+| Used | §VIII "Hardware Manipulation" (READ/WRITE, in-line assembly example `r0 = "300"`, `add0 = "210"`; a missing device halts the CPU); §IX interrupts (WHEN identifiers); fixed-point timing (about 1 µs per instruction; D4567 multiply about 2 µs); shift timing; Model B/C module incompatibility (p. 79) |
+
+### Creating Programs for ABLE Series Computers (NED, Oct 1978)
+
+| | |
+|---|---|
+| archive.org | `…/Technical%20Documentation/Creating%20Programs%20for%20ABLE%20Series%20Computers/…` |
+| Used | Boot procedure (system disk, Load button, READY); compiler memory-map output. Otherwise an OS user guide. |
+
+## Primary: NED software sources (MIT licence)
+
+GitHub **`jbemond/Software`** ("Official Software for the Synclavier® Digital
+Audio System", © 2017 Synclavier Digital, MIT licence) @
+`a237bf2a6698bf7bc6c8282227fc22b627e512cc` (2018-07-21). The `Able/` tree
+was imported from a SCSI drive used at NED. Files are CR-terminated and have
+no extension.
+
+| File (blob) | Used for |
+|---|---|
+| `Able/ASM/ASM-2` (`39079b02…`): NED ABLE Series Assembler v2.07, 1 Apr 1989, `configuration modelC` | **Official mnemonics** (`LOA`, `RTL`, `LCM`, `TLOA`, `BSOR`, `SHRA`, **`ADC` 270**, **`SBB` 274**, `ATRA`…`RTPL`, `PCI`, `Rn`, `RnI`, `MRn`, `MRnI`, **`MR12D` = 372**, `Dn`, `IM`, `RE`) |
+| `Code/Includes/Able Interpreter/AbleInsructions.h` (`2f9f0f97…`) | Instruction field constants; BSOR/SHRA marked "(model B)"; `b_adc 0xB8`, `b_sbb 0xBC` |
+| `Code/Sources/XPLProcessors/pass2.cpp` (`faf98fe3…`), `pass3.cpp` (`b807143f…`) | Model C code generation: **`d10` repeat counter**, "save return (D10)" in WHEN, R12 stack with `mr12d`/`mr12i`, "zflags garbage after call on Model C"; Model D external-memory paging |
+| `Able/-XPL/SYSLITS` (`06313fdf…`) | `processor_type` (0 A, 1 B, 2 C, 3 D); `o#d4567` option bit |
+
+The ABLE interpreter's execution core (`AbleInterpreterCore` implementation)
+is **not** in this repo; only its headers are.
+
 ## Secondary: community
 
 ### "Cards and Components – Description.docx" (M. Waluga, 04/2023)

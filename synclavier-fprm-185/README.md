@@ -43,7 +43,7 @@ processor). The CPU is built on two cards:
 | Card | Role |
 |---|---|
 | **FPRM-185, Register Module** (this board) | Data path: ALU, general registers, memory address/data interface |
-| **FPSM-185, Sequencer Module** (partner card) | Control: instruction fetch/decode, microcode sequencing, timing |
+| **[FPSM-185, Sequencer Module](../synclavier-fpsm-185/README.md)** (partner card) | Control: instruction fetch/decode, microcode sequencing, timing |
 
 *(Card roles supplied by the board owner. The block-level reading below follows
 from them plus the parts on the board.)*
@@ -232,6 +232,11 @@ B0–B3 = 1, 22, 20, 18; F0–F3 = 9, 10, 11, 13.
   data-path control fields from the FPSM and flags/instruction bits back to
   it. Trace J1 together with the FPSM: each net should land on the ALU S/M/Cn
   pins, the 27S07 address/WE̅ pins, or the latch/OE pins on this card.
+* **Cross-check from the FPSM photos:** on the FPSM side, J1 is fed through two
+  8-resistor series-termination networks (U91/U92). That makes at least 16
+  lines driven FPSM → FPRM. See the
+  [FPSM README §5](../synclavier-fpsm-185/README.md#5-fprm--fpsm-interface-j1-on-both-cards)
+  for the J1 mapping table to fill in.
 
 ---
 

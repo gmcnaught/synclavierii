@@ -76,6 +76,16 @@ The data path on this card:
   Which cards, and what it carries, is still open. Its traces run into the
   '181/'182 ALU area, so it may extend the data path or flags off-card.
 
+### Identity (from the documentation search)
+
+**FPRM = "Fast Processor" Register Module.** It is the register/ALU card of
+the **Model C** processor (with the FPSM) and also of the **Model D**
+processor (with the DSM). It sits in **slot 13** of the 25-slot computer bin,
+next to the sequencer in slot 14. A forum repair report confirms that the
+FPRM-185 holds the registers and the 74F181 ALU. See
+[`synclavier-able-reference.md` §5](../synclavier-able-reference.md#5-processor-models-and-slot-placement-cards-and-components-2023).
+No public schematic or PROM dump was found.
+
 ### Documentation cross-check (ABLE Series Hardware Reference Manual)
 
 The NED manual (summarised in [`synclavier-able-reference.md`](../synclavier-able-reference.md))

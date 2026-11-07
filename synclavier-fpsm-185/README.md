@@ -49,6 +49,17 @@ not to the FPRM.
 * **Rework:** two resistors are soldered on the solder side near U36–U38.
   Record their values and both ends.
 
+### Identity (from the documentation search)
+
+**FPSM = "Fast Processor" Sequencer Module, the sequencer half of the Model
+C processor** (Model C = FPSM + FPRM). It was used in the PSMT, all
+Direct-to-Disk and Poly systems, and some Synclavier IIs. Model D replaces
+this card with the **DSM** and keeps the FPRM. It sits in **slot 14** of the
+25-slot computer bin, next to the FPRM in slot 13. See
+[`synclavier-able-reference.md` §5](../synclavier-able-reference.md#5-processor-models-and-slot-placement-cards-and-components-2023).
+No public schematic or microcode dump was found, so the SMR/DDE/INITROM
+contents can only come from reading a physical board.
+
 ### Documentation cross-check (ABLE Series Hardware Reference Manual)
 
 The manual (summarised in [`synclavier-able-reference.md`](../synclavier-able-reference.md))

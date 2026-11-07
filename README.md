@@ -14,8 +14,8 @@ full **72-pin EZbuss pinout**. The flag lines Z/C/MIN exist only in slots
 
 | Board | Role | Folder |
 |---|---|---|
-| FPRM-185 | CPU **Register Module**: 16-bit ALU (4× 74F181 + 74S182), 16×16 register file (4× CY27S07), memory address/data bus interface | [`synclavier-fprm-185/`](synclavier-fprm-185/README.md) |
-| FPSM-185 | CPU **Sequencer Module**: ≈28-bit pipelined microcode (SMR00–03), next-address sequencer, opcode dispatch PROMs, interrupt priority, clock delay line | [`synclavier-fpsm-185/`](synclavier-fpsm-185/README.md) |
+| FPRM-185 | **Fast Processor** Register Module (Model C and Model D CPU), bin slot 13: 16-bit ALU (4× 74F181 + 74S182), 16×16 register file (4× CY27S07), memory address/data bus interface | [`synclavier-fprm-185/`](synclavier-fprm-185/README.md) |
+| FPSM-185 | **Fast Processor** Sequencer Module (Model C CPU; Model D uses the DSM instead), bin slot 14: ≈28-bit pipelined microcode (SMR00–03), next-address sequencer, opcode dispatch PROMs, interrupt priority, clock delay line | [`synclavier-fpsm-185/`](synclavier-fpsm-185/README.md) |
 
 The two cards talk **through the backplane** (the P1 edge connector on each).
 The FPSM drives the FPRM's ALU function, register addresses and latch enables,

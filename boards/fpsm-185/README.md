@@ -87,7 +87,7 @@ immediate sources and failed conditional transfers shortening the cycle
 | C/Z/M flags from the FPRM | EZbuss **pins 62/64/60**, private to the CPU slot pair → U31 '151 condition select |
 | About 180 ns from address to RD/WR, no system clock | **U93 delay line + JP1** set the delays and strobe widths |
 | IRQ̅ sampled at the end of each instruction; PC switches to R16; ACK̅ on PSW read | U34/U35 'LS348, U36 'LS174, INITROM |
-| **Model C additions** (NED compiler and assembler): device **D10** (write = repeat counter, read = interrupt return address), R12 hardware stack (`MR12D` pre-decrement), ADC/SBB | device 010 decode, the repeat counter (U32/U33?) and microcode; see [instruction-set §9](../../docs/instruction-set.md#9-model-c-and-model-d-extensions) |
+| **Model C additions** (confirmed by [disassembling NED's Model C runtime](../../docs/model-c-runtime-analysis.md)): device **D10**: write = 8-bit repeat counter, read = **link register** (return address of the last taken absolute transfer or interrupt); R12 hardware stack (`MR12D` pre-decrement); ADC/SBB | device-010 decode, the repeat counter (U32/U33?), a link latch fed from the PC on every taken absolute transfer, and microcode |
 
 ---
 

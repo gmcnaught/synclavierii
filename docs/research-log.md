@@ -119,6 +119,24 @@ followed and checked. Newest information wins where entries disagree.
 * **New board hypothesis:** FPSM U32/U33 ('ALS161 ×2, 8 bits) are the
   repeat counter.
 
+## 9. Disassembly of NED's runtime and loaders
+
+* Wrote `tools/able_disasm.py`. It matches NED's own assembler listing
+  word-for-word (541/541) and on every relative-jump target (78/78).
+  Correction made along the way: NED immediates are **octal**.
+* Model C runtime (`*RTC-7`) findings:
+  * **D10 is a link register.** A taken absolute jump, even with an
+    immediate address, leaves the return address there; procedures push it
+    with `D10 TO MR12D`.
+  * **Only R12 pre-decrements.**
+  * `RPT` (writing D10) is confirmed in a buffer-clear loop.
+  * **ADC = acc + src + C**, confirmed by a 32-bit shift.
+* Loaders:
+  * the boot chain is Load → boot ROM on the MFC/D40Q (image not found) →
+    the 768-word `.LD-7` loader near the top of core → MONITOR
+  * the loader sources document the D4567 multiply/divide, D24–D27 SCSI
+    and D60–D63 external-memory protocols
+
 ## Searched without useful results
 
 * archive.org full-text and metadata search for "synclavier", "new england

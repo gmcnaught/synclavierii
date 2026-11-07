@@ -72,6 +72,10 @@ no extension.
 | `Code/Sources/XPLProcessors/pass2.cpp` (`faf98fe3…`), `pass3.cpp` (`b807143f…`) | Model C code generation: **`d10` repeat counter**, "save return (D10)" in WHEN, R12 stack with `mr12d`/`mr12i`, "zflags garbage after call on Model C"; Model D external-memory paging |
 | `Able/-XPL/SYSLITS` (`06313fdf…`) | `processor_type` (0 A, 1 B, 2 C, 3 D); `o#d4567` option bit |
 
+| `Able/*SYSTEM/*RTB-7.sdat` (`1cee93eab756`), `*RTC-7.sdat` (`1ff6069f459f`), `*RTD-7.sdat` (`7939477257eb`) | Compiled XPL runtime packages for Models B/C/D, disassembled in [`model-c-runtime-analysis.md`](model-c-runtime-analysis.md) |
+| `Able/LOADER/SCSI.LST` (`7ed9f580cc21`; SHA-256 `83149c2fbf42aeb0…`) | NED assembler listing; **disassembler validation fixture** (`tests/fixtures/NED-SCSI.LST`, redistributed under MIT) |
+| `Able/LOADER/FLPLOAD` (`f15efb098d69`), `SCSILOAD` (`229ac2c68340`), `WINLOAD` (`ccf40fd24b15`), `MRGLOAD` (`97887427fa70`) | High-memory loaders and the HIGHLOAD build ([`boot-and-loaders.md`](boot-and-loaders.md)) |
+
 The ABLE interpreter's execution core (`AbleInterpreterCore` implementation)
 is **not** in this repo; only its headers are.
 

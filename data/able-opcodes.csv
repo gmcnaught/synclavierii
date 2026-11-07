@@ -20,7 +20,7 @@ dst,250,253,101010 rr,test,TADD0-3,flags as ADD; acc unchanged,as ADD,as ADD,as 
 dst,254,257,101011 rr,test,TSUB0-3,flags as SUB; acc unchanged,as SUB,as SUB,as SUB,,2-19
 dst,260,263,101100rr,byte swap with OR,BSOR0-3,acc<-swap(acc)|src,Z,undef,M,#0 source = plain byte swap,2-20
 dst,264,267,101101rr,right shift with ADD,SHRA0-3,acc<-(acc>>1)+src,Z,old bit0,M,#0 source = plain shift right,"2-20,2-21"
-dst,270,273,101110rr,add with carry (Model C+),ADC0-3,acc<-acc+src+C (inferred),Z?,carry?,M?,not in HW manual; NED assembler + interpreter header,NED asm
+dst,270,273,101110rr,add with carry (Model C+),ADC0-3,acc<-acc+src+C (confirmed by runtime usage),Z,carry,M,not in HW manual; NED assembler + interpreter header,NED asm
 dst,274,277,101111rr,subtract with borrow (Model C+),SBB0-3,acc<-acc-src-borrow (inferred),Z?,not borrow?,M?,not in HW manual; NED assembler + interpreter header,NED asm
 dst,300,317,1100RRRR,load register,R0-R17,Rn<-src,unchanged,unchanged,unchanged,load of PC = absolute jump,2-22
 dst,320,320,11010000,cond. transfer absolute,ATRA,if cond: PC<-src,,,,cond false: dest WRITE skipped,"2-22,2-23"
@@ -40,5 +40,5 @@ dst,335,335,11011101,cond. transfer relative,RTNZ,if cond: PC<-PC+src (PC alread
 dst,336,336,11011110,cond. transfer relative,RTNC,if cond: PC<-PC+src (PC already advanced),,,,cond false: dest WRITE skipped,2-24
 dst,337,337,11011111,cond. transfer relative,RTPL,if cond: PC<-PC+src (PC already advanced),,,,cond false: dest WRITE skipped,2-24
 dst,340,357,1110RRRR,memory destination,MR0-MR17,mem[Rn]<-src,,,,,2-25
-dst,360,377,1111RRRR,"memory destination, post-inc",MR0I-MR17I (MR12D=372 on Model C+),mem[Rn]<-src then Rn<-Rn+1,,,,,2-25
-dst,010,010,00001000,I/O device D10 (Model C+),D10,write: repeat next instruction (n+1) times; read: interrupt return,,,,from XPL compiler source,compiler
+dst,360,377,1111RRRR,"memory destination, post-inc","MR0I-MR17I; 372=MR12D on Model C+ (pre-decrement, R12 only)",mem[Rn]<-src then Rn<-Rn+1,,,,,2-25
+dst,010,010,00001000,I/O device D10 (Model C+),D10,write: repeat next instruction (n+1) times; read: link register = return address of last taken absolute transfer/interrupt,,,,compiler source + Model C runtime disassembly,compiler

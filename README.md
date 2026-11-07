@@ -14,6 +14,9 @@ Where to start:
 |---|---|
 | [`docs/able-reference.md`](docs/able-reference.md) | Architecture, the 72-pin EZbuss pinout, processor models and slots |
 | [`docs/instruction-set.md`](docs/instruction-set.md) | **Full ABLE instruction set** with NED mnemonics, plus the **Model C extensions** (ADC/SBB, `RPT` via D10, R12 stack) from NED's own assembler and compiler sources |
+| [`docs/model-c-runtime-analysis.md`](docs/model-c-runtime-analysis.md) | Disassembly of NED's Model B/C/D runtime packages: **D10 link register**, R12-only stack, RPT and ADC confirmed |
+| [`docs/boot-and-loaders.md`](docs/boot-and-loaders.md) | Boot chain (Load → boot ROM → `.LD-7` loader → MONITOR), loader entry vector, the D4567/SCSI/external-memory device protocols |
+| [`tools/`](tools/README.md) | `able_disasm.py`: ABLE disassembler, validated 541/541 against an NED assembler listing (`tests/`) |
 | [`docs/bench-checklist.md`](docs/bench-checklist.md) | What to do when someone has a board or bin: PROM reads, measurements, photos |
 | [`docs/sources.md`](docs/sources.md) | Pinned sources: checksums, commit IDs, page map |
 | [`docs/research-log.md`](docs/research-log.md) | How we got here, including corrections and dead ends |
@@ -37,7 +40,13 @@ docs/
   instruction-set.md         full ABLE instruction set (from page images of the manual)
   bench-checklist.md         hardware tasks: PROM reads, edge/backplane maps, photos
   sources.md                 pinned sources: checksums, commits, page map
+  model-c-runtime-analysis.md  disassembly findings (D10 link, R12 stack, RPT, ADC)
+  boot-and-loaders.md        boot chain, loader vector, D4567 / SCSI / ext-memory protocols
   research-log.md            chronology of findings, corrections and sources
+tools/
+  able_disasm.py             ABLE disassembler (NED syntax, Model C aware)
+tests/
+  test_able_disasm.py        validation against NED's SCSI.LST listing (fixture, MIT)
 data/
   ezbuss-pinout.csv          72-pin pinout + expected chips + columns to fill in
   able-opcodes.csv           source/destination code map with flag effects
@@ -100,7 +109,8 @@ boards/
   EZbuss, starting with GND, +5 V and the Z/C/MIN pins (60, 62, 64).
 * What the **J1 34-pin ribbons** connect to.
 * Which FPSM chips drive ADR0–7: the '153 multiplexers or U2/U3. Are U32/U33 the Model C repeat counter?
-* Exact ADC/SBB flag behaviour; whether `MR12D` pre-decrement applies only to R12; the Model C interrupt sequence (D10).
+* SBB borrow convention; whether relative or untaken transfers load the D10 link; the exact Model C interrupt entry.
+* The MFC/D40Q boot ROM image (not in any source found) and how the Load button starts it.
 * Exact identity of a few chips (FPRM U41 and U8; FPSM U4, U52 and U73) and of
   the PROMs under their labels.
 

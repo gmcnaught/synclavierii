@@ -74,7 +74,7 @@ def test_term_display_panel():
     try:
         frame = os.path.join(tmp, "frame.pgm")
         _testbench("term_display", "hdl/core/term_display.sv", ["+frame=" + frame])
-        term, panel = frame_text(frame, inverted=True)
+        term, panel, inverted = frame_text(frame, skip={(6, 75)})   # (6, 75): under the pointer
         w, h, px = read_frame(frame)
     finally:
         shutil.rmtree(tmp)
@@ -89,7 +89,7 @@ def test_term_display_panel():
     for r in range(8):
         for c in range(16):
             assert panel[3 + r][5 * c:5 * c + 4].ljust(4) == lab[16 * r + c], (r, c)
-            assert _inverted[(3 + r, 5 * c)] == ((r, c) in lit), (r, c)
+            assert inverted[(3 + r, 5 * c)] == ((r, c) in lit), (r, c)
     # pointer: arrow tip at (600, 100), its row 4 is 5 pixels wide
     assert px[100 * w + 600] and not px[100 * w + 601]
     assert all(px[104 * w + 600 + i] for i in range(5)) and not px[104 * w + 605]
@@ -112,63 +112,15 @@ def test_midi_in():
 
 def read_frame(path):
     """(width, height, bytes) of a binary PGM."""
-    d = open(path, "rb").read()
-    magic, size, _maxval, px = d.split(b"\n", 3)
-    assert magic == b"P5"
-    w, h = map(int, size.split())
-    return w, h, px
+    from tools.screen_text import read_image
+    return read_image(path)
 
 
-_inverted = {}       # (panel row, column) -> read back as an inverted glyph
-
-
-def _match(font, g, row_label, inverted=False, key=None):
-    """The character whose glyph is g (row 7 may be inverted: the cursor;
-    with inverted=True a whole inverted glyph matches too)."""
-    m = [ch for ch in range(32, 127)
-         if font[ch][:7] == g[:7] and g[7] in (font[ch][7], font[ch][7] ^ 0xFF)]
-    inv = False
-    if not m and inverted:
-        gi = [v ^ 0xFF for v in g]
-        m = [ch for ch in range(32, 127) if font[ch] == gi]
-        inv = bool(m)
-    if not m and inverted:                                     # decimal point corner
-        m = [ch for ch in range(32, 127)
-             if font[ch][:6] == g[:6] and [v & 0x7F for v in g[6:]] == font[ch][6:]]
-    assert m, "%s: no character matches %r" % (row_label, g)
-    if key is not None:
-        _inverted[key] = inv
-    return chr(m[0])
-
-
-def frame_text(path, inverted=False):
-    """(terminal, panel) text in a frame from term_display.sv: 24 terminal
-    rows of 8 x 16-pixel cells (font rows doubled) from line 0, then 12
-    panel rows of 8 x 8 cells from line 384; matched against the font."""
-    from tools.gen_font import glyphs
-    w, h, px = read_frame(path)
-    assert (w, h) == (640, 480)
-    font = glyphs()
-
-    def cell(y0, c, step):
-        return [sum(1 << b for b in range(8) if px[(y0 + step * k) * w + 8 * c + b]) for k in range(8)]
-    term = []
-    for r in range(24):
-        line = ""
-        for c in range(80):
-            if inverted and 16 * r <= 100 < 16 * r + 16 and c == 75:
-                line += " "                                    # the pointer's cell
-                continue
-            g = cell(16 * r, c, 2)
-            assert g == cell(16 * r + 1, c, 2), "row %d col %d: font rows not doubled" % (r, c)
-            line += _match(font, g, "terminal row %d col %d" % (r, c))
-        term.append(line.rstrip())
-    panel = []
-    for r in range(12):
-        panel.append("".join(_match(font, cell(384 + 8 * r, c, 1), "panel row %d col %d" % (r, c),
-                                    inverted, (r, c))
-                             for c in range(80)).rstrip())
-    return term, panel
+def frame_text(path, skip=()):
+    """(terminal rows, panel rows, inverted cells) read back with the font
+    (tools/screen_text.py)."""
+    from tools.screen_text import screen_text
+    return screen_text(path, skip=skip)
 
 
 def expected_panel(display="    ", units=0):
@@ -205,8 +157,9 @@ def test_board_boots_release_l():
         assert ok, text
         assert "state matches" in text, text
         screen = [ln[1:] for ln in text.split("screen:\n", 1)[1].splitlines()[:24]]
-        term, panel = frame_text(frame)
+        term, panel, inverted = frame_text(frame)
         assert term == screen
+        assert not any(inverted.values())
         assert panel == expected_panel(), "\n".join(panel)
     finally:
         shutil.rmtree(tmp)

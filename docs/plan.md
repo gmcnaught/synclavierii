@@ -116,7 +116,7 @@ every device it touches has a documented register map.
 |---|---|
 | 3.1 | Turn the SS1–SS7 card analysis (*Synclavier FM.docx*) and NED patents US 4,279,185 and 4,345,500 into a voice spec, `docs/fm-voice.md`: phase accumulator, 256-point waveforms ×32, multiplier and shifter, envelope generator (prescaler + rate + up/down counter), 8-bit MDAC chain, pan law |
 | 3.2 | **Done** (`sim/voice.py`). Bit-accurate software model, driven by the D160 writes captured in M2 |
-| 3.3 | **Rendering done** (`sim.rtp --wav`). Render audio from the simulator. Compare against reference recordings (risk R1), tuning the clock, envelope rates and modulation-index scaling: **waits for recordings** |
+| 3.3 | **Rendering done** (`sim.rtp --wav`). Render audio from the simulator. Compare against reference recordings (risk R1), tuning the clock, envelope rates and modulation-index scaling: **waits for recordings**; secondary references (Synclavier³ Virtual, Arturia Synclavier V) and a capture plan in [`tuning-references.md`](tuning-references.md) |
 
 **Done when:** known Release L timbres render recognisably. Comparison with
 real-hardware recordings is the final acceptance step, once recordings exist.

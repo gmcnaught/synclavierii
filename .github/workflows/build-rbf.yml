@@ -54,15 +54,25 @@ jobs:
           large-packages: true
           swap-storage: true
 
+      # The sources go into the container and the results come back as tar
+      # streams (no bind mount), so the runner's work path need not exist on
+      # the Docker host (the TrueNAS runner uses the host's Docker).
       # Non-login `bash -c`: the image's entrypoint puts Quartus on PATH; a
       # login shell re-reads /etc/profile and loses it.
       - name: Compile
         id: compile
+        shell: bash
         env:
           SYNCLAVIER_SEED: ${{ github.event.inputs.seed }}
         run: |
-          docker run --rm -v "$PWD:/build" -e SYNCLAVIER_SEED raetro/quartus:17.0 \
-            bash -c "cd /build && mister/build.sh _out"
+          set -o pipefail
+          tar -cf - --exclude=./.git . |
+            docker run --rm -i -e SYNCLAVIER_SEED raetro/quartus:17.0 bash -c '
+              mkdir -p /build && cd /build && tar -xf - || exit 2
+              mister/build.sh _out 1>&2; status=$?
+              tar -cf - mister/_out mister/output_files mister/build.log 2>/dev/null
+              exit $status' |
+            tar -xf -
 
       - name: Upload Quartus reports
         if: always()

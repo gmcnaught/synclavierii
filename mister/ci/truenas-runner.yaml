@@ -12,11 +12,11 @@
 #                 only, with "Administration: Read and write" (the runner
 #                 uses it to register and to re-register after restarts)
 #   the dataset paths (here "/mnt/The Pool/github-runners/synclavierii"):
-#                 create work/ and state/ first. The work directory must have
-#                 the SAME path inside the runner and on the host (both sides
-#                 of its mount, and RUNNER_WORKDIR), because the job's
-#                 `docker run -v "$PWD:/build"` is resolved by the host's
-#                 Docker. Quote paths that contain spaces as whole strings.
+#                 create work/ and state/ first; quote paths that contain
+#                 spaces as whole strings. RUNNER_WORKDIR must be a path
+#                 without spaces (the runner runs its step scripts from
+#                 there unquoted); the workflow passes files to Quartus's
+#                 container as tar streams, so it need not exist on the host.
 #
 # Security: the runner has the host's Docker socket, i.e. root on the NAS,
 # and runs any workflow job of this repository. Keep the repository
@@ -31,10 +31,10 @@ services:
       ACCESS_TOKEN: "github_pat_REPLACE_ME"
       RUNNER_NAME: truenas-quartus
       LABELS: quartus,x64
-      RUNNER_WORKDIR: "/mnt/The Pool/github-runners/synclavierii/work"
+      RUNNER_WORKDIR: /runner-work
       CONFIGURED_ACTIONS_RUNNER_FILES_DIR: /runner-state
       DISABLE_AUTOMATIC_DEREGISTRATION: "true"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - "/mnt/The Pool/github-runners/synclavierii/work:/mnt/The Pool/github-runners/synclavierii/work"
+      - "/mnt/The Pool/github-runners/synclavierii/work:/runner-work"
       - "/mnt/The Pool/github-runners/synclavierii/state:/runner-state"

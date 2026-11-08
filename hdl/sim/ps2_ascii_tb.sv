@@ -41,10 +41,15 @@ module ps2_ascii_tb;
         key(1'b1, 8'h14, 1'b1); tap(8'h21); key(1'b1, 8'h14, 1'b0);
         key(1'b1, 8'h5a, 1'b1); key(1'b1, 8'h5a, 1'b0);
         key(1'b1, 8'h71, 1'b1); key(1'b1, 8'h71, 1'b0);
+        // arrows: up, down, left, right
+        key(1'b1, 8'h75, 1'b1); key(1'b1, 8'h75, 1'b0);
+        key(1'b1, 8'h72, 1'b1); key(1'b1, 8'h72, 1'b0);
+        key(1'b1, 8'h6b, 1'b1); key(1'b1, 8'h6b, 1'b0);
+        key(1'b1, 8'h74, 1'b1); key(1'b1, 8'h74, 1'b0);
         // a key with no character (F1) gives nothing
         tap(8'h05);
         repeat (4) @(negedge clk);
-        if (got != "CATALOG\rcat f1\010!A1a\003\r\177") begin
+        if (got != "CATALOG\rcat f1\010!A1a\003\r\177\013\012\010\014") begin
             $display("FAIL: got %p", got);
             $fatal(1);
         end

@@ -2,8 +2,10 @@
 // [8] extended, [7:0] set-2 scan code) to ASCII for the system terminal,
 // US layout. Shift, Caps Lock (letters only) and Ctrl (letter & 037) are
 // applied; Enter = CR, Backspace = BS (MONITOR also takes DEL and ^Z:
-// MONCAT 04-IOMOD), Tab = HT, Esc = ESC, Delete = DEL. One character per
-// key press, the clock after the event.
+// MONCAT 04-IOMOD), Tab = HT, Esc = ESC, Delete = DEL. The arrow keys send
+// the codes the real-time program maps arrows to (NED SYNLITS:ASCIILIT
+// U.ARR/D.ARR/L.ARR/R.ARR, as an ADM-3A sends them): up ^K, down ^J,
+// left ^H, right ^L. One character per key press, the clock after the event.
 module ps2_ascii (
     input  logic        clk,
     input  logic        rst,
@@ -21,6 +23,10 @@ module ps2_ascii (
                 8'h5a: keymap = {8'o015, 8'o015};    // keypad Enter
                 8'h71: keymap = {8'o177, 8'o177};    // Delete
                 8'h4a: keymap = {"/", "/"};          // keypad /
+                8'h75: keymap = {8'o013, 8'o013};    // up    (U.ARR)
+                8'h72: keymap = {8'o012, 8'o012};    // down  (D.ARR)
+                8'h6b: keymap = {8'o010, 8'o010};    // left  (L.ARR)
+                8'h74: keymap = {8'o014, 8'o014};    // right (R.ARR)
                 default: ;
             endcase
         end else begin

@@ -63,6 +63,78 @@ def test_audio_fifo():
     _testbench("audio_fifo", "hdl/core/audio_fifo.sv")
 
 
+# every sequence term_display handles (tools/vt100.py), in one stream
+VT100_STREAM = (
+    b"\x1b[H\x1b[2J"
+    b"\x1b[7;5H\x1b#3BIG TITLE\r\n\x1b#4\x1b[8;5HBIG TITLE\r\n"
+    b"\x1b[9;1H\x1b#6WIDE LINE"
+    b"\x1b[10;10H\x1b[7mREVERSE\x1b[0m normal \x1b[1;7mboth\x1b[m plain"
+    b"\x1b(0\x1b[11;2Hlqqwqqk\x1b[12;2Hx  x  x\x1b[13;2Htqqnqqu\x1b[14;2Hmqqvqqj `afgopqrsy{|}~\x1b(B"
+    b"\x1b[15;1Habcdefghijklmnop\x1b[15;5H\x1b[K\x1b[16;1Habcdefghij\x1b[16;5H\x1b[1K"
+    b"\x1b[17;1Hwhole line\x1b[2K"
+    b"\x1b[18;70H0123456789ABCDEFwrapped"
+    b"\x1b7\x1b[20;1Hsaved\x1b8!"
+    b"\x1d\x1b\x0cTEKTRONIX GRAPHICS SKIPPED\x18"
+    b"\r\n\tT1\tT2\t\x08b"
+    b"\x1b[21;40H\x1b[3Aup\x1b[2Bdn\x1b[5Crt\x1b[3Dlf\x1b[99;99HZ"
+    b"\x1b[?25l\x1b=\x1b>\x07\x0e\x0f"
+    b"\x1b[1;1H\x1bMtop\x1b[23;1H\x1bDindex\x1bEnext"
+    b"\x1b[24;1Hs1\r\ns2\x0bs3\x0cend")
+
+
+def _vt100_check(data, tag):
+    from tools.vt100 import Terminal
+    tmp = tempfile.mkdtemp()
+    try:
+        src = os.path.join(tmp, "in.bin")
+        frame = os.path.join(tmp, "frame.pgm")
+        open(src, "wb").write(data)
+        _testbench("term_display", "hdl/core/term_display.sv", ["+frame=" + frame, "+input=" + src])
+        w, h, px = read_frame(frame)
+    finally:
+        shutil.rmtree(tmp)
+    t = Terminal()
+    t.feed(data)
+    want = t.render()
+    wide = t.attr[t.row] != 0
+    cx0, cx1 = (16 * t.col, 16 * t.col + 16) if wide else (8 * t.col, 8 * t.col + 8)
+    bad = []
+    for y in range(384):
+        for x in range(640):
+            if 16 * t.row <= y < 16 * t.row + 16 and cx0 <= x < cx1:
+                continue                                   # the cursor (blinks)
+            if 600 <= x < 608 and 100 <= y < 108:
+                continue                                   # the pointer
+            if bool(px[y * w + x]) != bool(want[y * 640 + x]):
+                bad.append((x, y))
+    assert not bad, "%s: %d pixels differ from tools/vt100.py, first at %s (row %d)\n%s" % (
+        tag, len(bad), bad[0], bad[0][1] // 16, "\n".join(t.text()))
+    return t
+
+
+def test_term_display_vt100():
+    """The terminal's VT100 subset: the picture equals tools/vt100.py's,
+    for a stream with every handled sequence and (with the image) the
+    bytes ORK-LM sends for its welcome menu."""
+    if not HAVE_VERILATOR:
+        print("  skip test_term_display_vt100 (needs verilator)")
+        return
+    t = _vt100_check(VT100_STREAM, "synthetic")
+    # four lines scrolled: the titles are now rows 2-4
+    assert t.text()[2].startswith("    BIG TITLE") and t.attr[2:5] == [1, 2, 3], (t.text(), t.attr)
+    image = os.environ.get("SYNCLAVIER_RELEASE_L")
+    if not image:
+        print("  skip ORK-LM welcome menu (needs SYNCLAVIER_RELEASE_L)")
+        return
+    from sim.rtp import run_seconds, start_rtp
+    out = bytearray()
+    cpu, dbg, _ = start_rtp(image, "ORK-LM")
+    cpu.terminal.output = out.append
+    run_seconds(cpu, dbg, 10)
+    t = _vt100_check(bytes(out), "ORK-LM")
+    assert "Select screen with arrow keys" in "\n".join(t.text())
+
+
 def test_panel_mouse():
     """Mouse packets -> pointer (clamped) and panel button presses."""
     if not HAVE_VERILATOR:

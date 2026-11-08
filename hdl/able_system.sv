@@ -2,9 +2,11 @@
 // devices ported to HDL so far:
 //   D3 real-time clock, D4-D7 multiply/divide, D50/D51 terminal,
 //   D60-D63 external memory (words in an external RAM behind xm_*),
-//   D100-D104 floppy controller (floppy words in a RAM behind fd_*).
-// Every other device number goes out on the dev_* port (keyboard, FM
-// interface: still in Python; the lockstep bench replays them).
+//   D100-D104 floppy controller (floppy words in a RAM behind fd_*),
+//   D130/D131 original keyboard and panel (key/button state from the host),
+//   D160-D163 FM interface (registers, interpolators, wave memory),
+//   D164/D165 control voltages (write-only).
+// Every other device number goes out on the dev_* port.
 //
 // Device time is the CPU's simulated time (333 ns per bus transfer, see
 // able_cpu.sv), so device behaviour matches sim/devices/ exactly. On the
@@ -51,6 +53,14 @@ module able_system #(
     input  logic [15:0] fd_rdata,
     input  logic        fd_ack,
 
+    // keyboard/panel, host side
+    input  logic        kb_host_we,
+    input  logic        kb_host_panel,
+    input  logic [2:0]  kb_host_index,
+    input  logic [15:0] kb_host_value,
+    output logic [15:0] kb_lights [8],
+    output logic [15:0] kb_display [3],
+
     // terminal, host side
     input  logic        term_rx_valid,
     input  logic [7:0]  term_rx_data,
@@ -69,8 +79,8 @@ module able_system #(
     input  logic [4:0]  dbg_addr,
     input  logic [15:0] dbg_wdata,
     input  logic        ld_dev_we,         // device state: ld_dev_sel 0 rtc, 1 muldiv,
-    input  logic [2:0]  ld_dev_sel,        // 2 extmem, 3 terminal, 4 floppy
-    input  logic [4:0]  ld_dev_addr,
+    input  logic [2:0]  ld_dev_sel,        // 2 extmem, 3 terminal, 4 floppy, 5 FM,
+    input  logic [12:0] ld_dev_addr,       // 6 wave memory byte, 7 keyboard
     input  logic [31:0] ld_dev_data,
     output logic        instr_done,
     output logic [15:0] instr_pc,
@@ -122,11 +132,45 @@ module able_system #(
     wire sel_term = io && io_dev[6:1] == 6'b010100;           // 050-051
     wire sel_xm   = io && io_dev[6:2] == 5'b01100;            // 060-063
     wire sel_fd   = io && io_dev >= 7'o100 && io_dev <= 7'o104;
-    wire sel_ext  = io && !(sel_rtc || sel_md || sel_term || sel_xm || sel_fd);
+    wire sel_kb   = io && io_dev[6:1] == 6'b101100;           // 130-131
+    wire sel_fm   = io && io_dev[6:2] == 5'b11100;            // 160-163
+    wire sel_cv   = io && io_dev[6:1] == 6'b111010;           // 164-165
+    wire sel_ext  = io && !(sel_rtc || sel_md || sel_term || sel_xm || sel_fd ||
+                            sel_kb || sel_fm || sel_cv);
 
     logic [15:0] rtc_rdata, md_rdata, term_rdata, xm_rdata_cpu, fd_rdata_cpu;
     logic        rtc_irq, md_ack, md_nosyn, term_ack, term_hold, term_irq, xm_cpu_ack;
     logic        fd_cpu_ack, fd_nosyn;
+    logic [15:0] kb_rdata, fm_rdata;
+    logic        kb_ack, kb_nosyn, fm_ack, fm_nosyn;
+    logic        synth_strict;          // unknown D130/D131/D161/D162 reads: no SYN
+
+    always_ff @(posedge clk)
+        if (rst && ld_dev_we && ld_dev_sel == 3'd7 && ld_dev_addr == 13'd31)
+            synth_strict <= ld_dev_data[0];
+
+    dev_keyboard keyboard (
+        .clk, .rst, .sel(sel_kb), .rd(io_rd), .wr(io_wr), .reg_sel(io_dev[0]),
+        .wdata(io_wdata), .rdata(kb_rdata), .ack(kb_ack), .nosyn(kb_nosyn), .strict(synth_strict),
+        .host_we(kb_host_we), .host_panel(kb_host_panel), .host_index(kb_host_index),
+        .host_value(kb_host_value), .lights(kb_lights), .display(kb_display),
+        .ld_we(ld_dev_we && ld_dev_sel == 3'd7 && ld_dev_addr < 13'd27),
+        .ld_addr(ld_dev_addr[4:0]), .ld_data(ld_dev_data)
+    );
+
+    // FM interface; the voice engine (M5) will use the register outputs
+    logic [7:0] ch_inc [16], ch_nnu [16], ch_onu [16], ch_tim [16], ch_f13 [16], ch_env [16];
+    logic [7:0] wave_q;
+    logic       interp_clock;
+    dev_fm fm (
+        .clk, .rst, .sel(sel_fm), .rd(io_rd), .wr(io_wr), .reg_sel(io_dev[1:0]),
+        .wdata(io_wdata), .rdata(fm_rdata), .ack(fm_ack), .nosyn(fm_nosyn), .strict(synth_strict),
+        .tick, .tick_ns,
+        .ch_inc, .ch_nnu, .ch_onu, .ch_tim, .ch_f13, .ch_env,
+        .wave_addr(13'd0), .wave_q, .interp_clock,
+        .ld_we(ld_dev_we && (ld_dev_sel == 3'd5 || ld_dev_sel == 3'd6)),
+        .ld_wave(ld_dev_sel == 3'd6), .ld_addr(ld_dev_addr), .ld_data(ld_dev_data)
+    );
 
     dev_rtc rtc (
         .clk, .rst, .acc(sel_rtc), .wr(io_wr), .rdata(rtc_rdata),
@@ -161,7 +205,7 @@ module able_system #(
         .sectors1(fd_sectors1), .spt0(fd_spt0), .spt1(fd_spt1), .sides0(fd_sides0),
         .sides1(fd_sides1),
         .fd_addr, .fd_rd, .fd_wr, .fd_wdata, .fd_rdata, .fd_ack,
-        .ld_we(ld_dev_we && ld_dev_sel == 3'd4), .ld_addr(ld_dev_addr), .ld_data(ld_dev_data)
+        .ld_we(ld_dev_we && ld_dev_sel == 3'd4), .ld_addr(ld_dev_addr[4:0]), .ld_data(ld_dev_data)
     );
 
     assign dev_rd    = sel_ext && io_rd;
@@ -179,6 +223,9 @@ module able_system #(
         if (sel_term) begin io_rdata = term_rdata;   io_ack = term_ack;   io_hold = term_hold; end
         if (sel_xm)   begin io_rdata = xm_rdata_cpu; io_ack = xm_cpu_ack; end
         if (sel_fd)   begin io_rdata = fd_rdata_cpu; io_ack = fd_cpu_ack; io_nosyn = fd_nosyn; end
+        if (sel_kb)   begin io_rdata = kb_rdata;     io_ack = kb_ack;     io_nosyn = kb_nosyn; end
+        if (sel_fm)   begin io_rdata = fm_rdata;     io_ack = fm_ack;     io_nosyn = fm_nosyn; end
+        if (sel_cv)   begin io_rdata = 16'd0;        io_ack = io_wr;      io_nosyn = io_rd;    end
     end
 
     // PSW bits 8 (D3) and 6 (D50/D51); bits of devices outside from dev_irq

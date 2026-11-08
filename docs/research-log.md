@@ -426,6 +426,11 @@ Details in [`timbre-libraries.md`](timbre-libraries.md).
   floppy program with a sector write and read-back. A sector copy to or
   from the media RAM stalls floppy accesses without simulated time, which
   keeps it identical to Python's instant copy.
+* HDL D130/D131 and D160–D165: ORK-LM's timbre recall and note (attack
+  and release polled through D160 bit 0) agree with no device left to the
+  trace. One HDL bug found by lockstep: the 192 kHz clock remainder
+  (`rem + 24 × ns`, up to 148,975) overflowed 17 bits and dropped
+  interpolator clocks; the release then ended late.
 
 ## Searched without useful results
 

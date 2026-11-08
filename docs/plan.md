@@ -242,8 +242,12 @@ ORK-LM ([`hdl.md`](hdl.md)). The HDL system with D3, D4567, D50/D51
 and D60–D63 agrees with Python in values and simulated time on MONITOR's
 boot, 6M instructions of ORK-LM and a device test program. The D100
 floppy controller in HDL agrees too, including a timbre recall and a
-held note in ORK-LM. Next: the MiSTer framework (D4) and board I/O
-(SDRAM, image loading, terminal display, clock throttle).
+held note in ORK-LM. **M5 started:** the D130/D131 keyboard/panel and
+D160–D165 FM interface (interpolators, wave memory) are in HDL and agree
+too, so ORK-LM runs in HDL with no device answered from the trace. Next:
+the HDL voice engine checked against `sim/voice.py`; board work (MiSTer
+framework D4, SDRAM, image loading, terminal display, clock throttle)
+needs Quartus and hardware.
 Groundwork: [`timbre-libraries.md`](timbre-libraries.md)
 (Release L bank layout; later NED banks load partly in Release L; FM-only
 entries with parameters in physical units for calibration once the timbre

@@ -6,10 +6,10 @@ stops at the first difference. Two HDL tops:
 
   cpu     hdl/able_cpu.sv alone: every device read is answered with the
           value the Python devices returned, every write must match.
-  system  hdl/able_system.sv: CPU plus the devices ported to HDL (D3,
-          D4-D7, D50/D51, D60-D63, D100-D104), whose values, interrupt
-          bits and timing are compared; other devices (keyboard, FM) are
-          answered from the trace.
+  system  hdl/able_system.sv: CPU plus the devices in HDL (D3, D4-D7,
+          D50/D51, D60-D63, D100-D104, D130/D131, D160-D165), whose
+          values, interrupt bits and timing are compared; any other device
+          is answered from the trace.
 
 Trace format v2 (little-endian):
   b"ABLT2\\0\\0\\0"
@@ -17,11 +17,13 @@ Trace format v2 (little-endian):
   65536 x u16 internal memory
   header sections, then 'B':
     'X' u32 sectors, sectors x 256 x u16   external memory contents
-    'V' u8 device u8 index u32 value       HDL device state (system top):
+    'V' u8 device u16 index u32 value      HDL device state (system top):
           device 0 D3 (0 elapsed ns, 1 pending), 1 D4567 (0 D4, 1 D5),
           2 D60 (0 sector, 1 word), 3 D50 (0 baud index, 1 rx char,
           2 char_rdy, 3 rx_wait ns, 4 tx_busy ns, 5 xmit_irq), 4 D100
-          (fields as hdl/dev/dev_floppy.sv's state load)
+          (fields as hdl/dev/dev_floppy.sv's state load), 5 D160 (as
+          dev_fm.sv), 6 wave memory byte (index = memory x 256 + point),
+          7 D130 (as dev_keyboard.sv; index 31 = strict)
     'F' u8 drive u16 sectors u8 spt u8 sides u8 protected, words
                                            a floppy in that drive
   events, in the order the instruction performs them:
@@ -36,6 +38,8 @@ Trace format v2 (little-endian):
                   after the preceding instruction
     'T' u32 u16 bytes   terminal input, fed after this many held steps of
                   the current read (0: before the next instruction)
+    'K' u8 u8 u16 host key/button change before the next instruction: 0
+                  clavier octave or 1 panel, index, new word
     'H' u8        halted: 1 no SYN on read, 2 no SYN on write, 3 HALT
     'E'           end of trace
 
@@ -122,14 +126,38 @@ def _device_header(cpu):
                                  fd.time % REV_NS, fd.busy_ns, fd.pending is not None,
                                  kind == "write", lsn is None, lsn or 0, wait, False,
                                  fd._kind == "write", fd.head[0], fd.head[1], fd.step_dir < 0)):
-            out += struct.pack("<cBBI", b"V", 4, idx, int(v) & 0xFFFFFFFF)
+            out += struct.pack("<cBHI", b"V", 4, idx, int(v) & 0xFFFFFFFF)
+    fm, kb = getattr(cpu, "fm", None), getattr(cpu, "keyboard", None)
+    if fm is not None and kb is not None:
+        from .fm import wave_memory_number
+        nch = 2 * fm.voices
+        g = [fm.channel_word, fm.function, fm.switches, fm.ext_clock_in, fm.ext_clock_out,
+             fm.adc_select, (fm.time_ns * 24) % 125000, 0] + list(fm.adc)
+        for idx, v in enumerate(g):
+            out += struct.pack("<cBHI", b"V", 5, idx, int(v) & 0xFFFFFFFF)
+        for ch in range(nch):
+            it = fm.interpolator(ch)            # advanced to now (lazy in Python)
+            r = lambda fn: fm.channels.get((ch, fn), 0) & 0o377
+            for k, v in enumerate((it.div, it.add, it.limit, it.value, it.prescale, it.acc,
+                                   fm.mar.get(ch, 0),
+                                   r(0) << 24 | r(1) << 16 | r(2) << 8 | r(4), r(0o13))):
+                out += struct.pack("<cBHI", b"V", 5, 32 + 16 * ch + k, int(v) & 0xFFFFFFFF)
+        for m, mem in enumerate(fm.wave):
+            for i, b in enumerate(mem):
+                if b:
+                    out += struct.pack("<cBHI", b"V", 6, m * 256 + i, b)
+        for idx, v in enumerate([kb.creg, kb.dreg] + kb.clavier + kb.buttons + kb.lights
+                                + kb.display):
+            out += struct.pack("<cBHI", b"V", 7, idx, int(v) & 0xFFFFFFFF)
+        out += struct.pack("<cBHI", b"V", 7, 31, bool(kb.strict and fm.strict))
+        assert kb.strict == fm.strict
     for dev, idx, v in ((0, 0, rtc.elapsed), (0, 1, rtc.pending),
                         (1, 0, md.d4), (1, 1, md.d5),
                         (2, 0, xm.sector), (2, 1, xm.word),
                         (3, 0, BAUDS.index(term.baud)), (3, 1, term.rx_char),
                         (3, 2, term.char_rdy), (3, 3, term.rx_wait), (3, 4, term.tx_busy),
                         (3, 5, term.xmit_irq)):
-        out += struct.pack("<cBBI", b"V", dev, idx, int(v) & 0xFFFFFFFF)
+        out += struct.pack("<cBHI", b"V", dev, idx, int(v) & 0xFFFFFFFF)
     return out
 
 
@@ -162,6 +190,20 @@ def record(cpu, path, instructions, snapshot_every=256, max_steps=None, max_wait
             ev.extend(struct.pack("<cIH", b"T", rbus.waits, len(b)) + b)
             feed(b)
         term.feed = recorded_feed
+
+    kb = getattr(cpu, "keyboard", None)
+    if kb is not None:
+        press_key, press_button = kb.press_key, kb.press_button
+
+        def recorded_key(key, down=True):
+            press_key(key, down)
+            octave = (key - 12) // 12
+            ev.extend(struct.pack("<cBBH", b"K", 0, octave, kb.clavier[octave]))
+
+        def recorded_button(pbn, down=True):
+            press_button(pbn, down)
+            ev.extend(struct.pack("<cBBH", b"K", 1, pbn // 16, kb.buttons[pbn // 16]))
+        kb.press_key, kb.press_button = recorded_key, recorded_button
 
     def snapshot(time_ns=None):
         t = cpu.time_ns if time_ns is None else time_ns
@@ -227,6 +269,8 @@ def record(cpu, path, instructions, snapshot_every=256, max_steps=None, max_wait
         del cpu.read_psw
         if term is not None:
             del term.feed
+        if kb is not None:
+            del kb.press_key, kb.press_button
     return n
 
 
@@ -285,7 +329,8 @@ TOPS = {
     "cpu": ("able_sim_top", ["hdl/able_cpu.sv", "hdl/sim/able_sim_top.sv"], []),
     "system": ("able_sys_top", ["hdl/able_cpu.sv", "hdl/dev/dev_rtc.sv", "hdl/dev/dev_muldiv.sv",
                                 "hdl/dev/dev_extmem.sv", "hdl/dev/dev_terminal.sv",
-                                "hdl/dev/dev_floppy.sv",
+                                "hdl/dev/dev_floppy.sv", "hdl/dev/dev_keyboard.sv",
+                                "hdl/dev/dev_fm.sv",
                                 "hdl/able_system.sv", "hdl/sim/able_sys_top.sv"], ["-DSYSTEM"]),
 }
 

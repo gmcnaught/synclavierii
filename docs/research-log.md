@@ -405,6 +405,18 @@ Details in [`timbre-libraries.md`](timbre-libraries.md).
   FM sidebands vs index, the Release L chord. The sine ROM, DAC laws, pan
   law and analog reconstruction are choices (`fm-voice.md`).
 
+## 24. HDL CPU in lockstep (M4.2, M4.3)
+
+* `hdl/able_cpu.sv`: Model B CPU, FETCH/DECODE/SRC/EXEC/END, about 4.5
+  clocks per instruction. Verilator replays traces recorded by
+  `sim/lockstep.py` (device values, interrupt timing) and compares every
+  instruction.
+* Agreement: 300 random programs (all 256 source and 256 destination codes
+  executed, 1,263 interrupt entries), MONITOR cold boot +
+  `CATALOG` (1,363,060 instructions), ORK-LM start-up and main loop
+  (6,000,000). Single-bit HDL mutations (carry rules, ION clearing, PC
+  post-increment) are caught. [`hdl.md`](hdl.md).
+
 ## Searched without useful results
 
 * archive.org full-text and metadata search for "synclavier", "new england

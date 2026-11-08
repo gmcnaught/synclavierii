@@ -125,8 +125,8 @@ real-hardware recordings is the final acceptance step, once recordings exist.
 | # | Task |
 |---|---|
 | 4.1 | Choose the framework: a plain MiSTer template or JTFRAME (see the MiSTer skill in `misterfpga-skill`) |
-| 4.2 | ABLE CPU in HDL: three-step micro-cycle state machine, register file, ALU (a '181-style function set is enough), flags |
-| 4.3 | **Lockstep verification:** run the same image in an HDL simulator (Verilator) and the software simulator; compare instruction traces |
+| 4.2 | **Done** (`hdl/able_cpu.sv`, [`hdl.md`](hdl.md)). ABLE CPU in HDL: three-step micro-cycle state machine, register file, ALU (a '181-style function set is enough), flags |
+| 4.3 | **Done** (`sim/lockstep.py`, `hdl/sim/`): random programs, MONITOR boot + `CATALOG` (1.36M instructions) and ORK-LM (6M) agree. **Lockstep verification:** run the same image in an HDL simulator (Verilator) and the software simulator; compare instruction traces |
 | 4.4 | Memory in BRAM/SDRAM; external memory in SDRAM/DDR |
 | 4.5 | Terminal: a character display on the video output plus PS/2/USB keyboard, or a UART |
 | 4.6 | Disk images from the SD card (the M1 high-level boot first, D100 emulation later) |
@@ -235,7 +235,10 @@ interpolator is modelled (ORK-LM now ends notes as on hardware).
 integer voice model driven by the logged D162 writes, and `sim.rtp --wav`
 renders what ORK-LM plays (Release L timbre 0 renders as a pure sine at
 the right pitches). Tuning against hardware recordings (M3.3) waits for
-recordings (risk R1). Next: **M4**, the FPGA core.
+recordings (risk R1). **M4.2/M4.3 are done:** the HDL CPU
+(`hdl/able_cpu.sv`) agrees with the simulator instruction by instruction
+on random programs, MONITOR's boot and `CATALOG`, and 6M instructions of
+ORK-LM ([`hdl.md`](hdl.md)). Next: the devices in HDL (M4.4–4.6).
 Groundwork: [`timbre-libraries.md`](timbre-libraries.md)
 (Release L bank layout; later NED banks load partly in Release L; FM-only
 entries with parameters in physical units for calibration once the timbre

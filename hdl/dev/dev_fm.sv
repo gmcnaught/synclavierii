@@ -172,9 +172,10 @@ module dev_fm #(
         wave_q <= wave[wave_addr];
     end
 
-    for (genvar k = 0; k < NCH; k++) begin : g_env
+    genvar k;
+    generate for (k = 0; k < NCH; k++) begin : g_env
         assign ch_env[k] = val[k];
         assign ch_env_next[k] = val_n[k];
-    end
+    end endgenerate
     assign fm_rem = rem;
 endmodule

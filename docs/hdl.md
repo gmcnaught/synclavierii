@@ -177,7 +177,7 @@ driven by the D160 registers, interpolators and wave memory of `dev_fm.sv`:
 * The sine ROM is generated from `voice.SINE_ROM` (`tools/gen_sine_rom.py`
   → `hdl/dev/sine_rom.svh`), a choice until the SS2 ROMs are dumped.
 
-`hdl/dev/audio_out.sv` turns the 192 kHz sums into 48 kHz 16-bit PCM
+`hdl/dev/pcm_out.sv` turns the 192 kHz sums into 48 kHz 16-bit PCM
 with the arithmetic of `render()` + `write_wav()`: mean of 4, gain ¼,
 round half to even, clip; pcm = round(sum of 4 × 32767 / 2³⁵). Every
 step of Python's float path is exact at these magnitudes, so the WAV
@@ -191,7 +191,7 @@ the bench compares every HDL sample with them.
 |---|---:|---|
 | ORK-LM `ork-lm-note` (timbre 0, C4 for 0.5 s: 96,238 nonzero samples) | 804,572 | identical |
 | Voice test program (FM index ramp with shift 2, pan, `VOL`, loaded wave memory, pitch and octave change while sounding, release) | 21,032 (20,954 nonzero) | identical |
-| 48 kHz WAV from `audio_out.sv` vs `render()` + `write_wav()`: ORK-LM C4 (201,143 frames), voice test program | — | byte-identical |
+| 48 kHz WAV from `pcm_out.sv` vs `render()` + `write_wav()`: ORK-LM C4 (201,143 frames), voice test program | — | byte-identical |
 
 Each of these engine faults is caught: no reduction after a pitch write,
 envelope taken after a clock that lands exactly on the sample instant,
@@ -221,7 +221,7 @@ DDR3 and the video/audio outputs.
 | Terminal display | `hdl/core/term_display.sv` | D50 output as 80 × 24 text in a 640 × 480 picture (25 MHz pixels from 50 MHz, 59.5 Hz), public-domain 8 × 8 font (`third_party/font8x8`, rows doubled), CR/LF/BS/HT/FF, VT100-style pending wrap, scrolling, blinking cursor; green, amber or white. |
 | Keyboard | `hdl/core/ps2_ascii.sv` | hps_io `ps2_key` → ASCII (US layout, Shift, Caps Lock, Ctrl); Backspace sends BS, which MONITOR takes as delete (`MONCAT/04-IOMOD`). |
 | MIDI | `hdl/core/midi_in.sv` | MIDI in on the UART (MidiLink, `UART31250,MIDI`) to the D130/D131 host port. Channels 1–15: notes 36–96 are the ORK's 61 keys (others moved by octaves). Channel 16: note n presses panel button n (physical button number, `ORK_BUTTONS`). Program change p: `bank.(p/8)` for 100 ms, then 1.5 s later `timb.(p%8)` for 100 ms. CC 120/123: all keys up. |
-| Audio | core | `audio_out.sv`'s 48 kHz samples held on `AUDIO_L/R` (signed). |
+| Audio | core | `pcm_out.sv`'s 48 kHz samples held on `AUDIO_L/R` (signed). |
 
 OSD: F0 and F1 image slots, text colour, aspect ratio, real-time pacing
 (the throttle; off runs as fast as the clock allows), reset. LED: disk

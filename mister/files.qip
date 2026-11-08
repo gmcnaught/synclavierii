@@ -11,7 +11,7 @@ set_global_assignment -name SYSTEMVERILOG_FILE ../hdl/dev/dev_floppy.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../hdl/dev/dev_keyboard.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../hdl/dev/dev_fm.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../hdl/dev/fm_voices.sv
-set_global_assignment -name SYSTEMVERILOG_FILE ../hdl/dev/audio_out.sv
+set_global_assignment -name SYSTEMVERILOG_FILE ../hdl/dev/pcm_out.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../hdl/core/sd_floppy.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../hdl/core/boot_loader.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../hdl/core/term_display.sv

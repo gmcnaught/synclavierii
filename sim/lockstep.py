@@ -386,7 +386,7 @@ SYSTEM_RTL = ["hdl/able_cpu.sv", "hdl/dev/dev_rtc.sv", "hdl/dev/dev_muldiv.sv",
               "hdl/dev/dev_extmem.sv", "hdl/dev/dev_terminal.sv",
               "hdl/dev/dev_floppy.sv", "hdl/dev/dev_keyboard.sv",
               "hdl/dev/dev_fm.sv", "hdl/dev/fm_voices.sv",
-              "hdl/dev/audio_out.sv", "hdl/throttle.sv", "hdl/able_system.sv"]
+              "hdl/dev/pcm_out.sv", "hdl/throttle.sv", "hdl/able_system.sv"]
 CORE_RTL = ["hdl/core/sd_floppy.sv", "hdl/core/boot_loader.sv", "hdl/core/term_display.sv",
             "hdl/core/ps2_ascii.sv", "hdl/core/midi_in.sv", "hdl/core/synclavier_core.sv",
             "hdl/board/ddram_word.sv"]
@@ -422,7 +422,7 @@ def build(top="cpu", force=False):
 
 def check(path, max_instructions=None, top="cpu", wav=None, realtime=False, frame=None):
     """Run a trace on the HDL. Returns (ok, output text). wav: write the
-    system's 48 kHz PCM output (audio_out.sv) to this WAV file. realtime:
+    system's 48 kHz PCM output (pcm_out.sv) to this WAV file. realtime:
     run the system with the throttle on (50 MHz); behaviour must not change
     and simulated time must track the clock. frame (board): write a video
     frame (PGM) taken after the run."""

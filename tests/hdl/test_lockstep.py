@@ -495,7 +495,7 @@ def test_system_voice_engine():
             if os.path.exists(p):
                 os.unlink(p)
     assert ok, text
-    assert frames > 5000 and hdl_wav == py_wav       # audio_out.sv = render() + write_wav()
+    assert frames > 5000 and hdl_wav == py_wav       # pcm_out.sv = render() + write_wav()
     assert ok_rt and "simulated - real" in text_rt, text_rt
     assert cpu.halted and cpu.halted.device == 0o161, cpu.halted
     assert nonzero > 5000 and n > 100_000, (nonzero, n)

@@ -39,8 +39,8 @@ module ps2_ascii (
                 8'h3d: keymap = {"7", "&"}; 8'h3e: keymap = {"8", "*"}; 8'h46: keymap = {"9", "("};
                 8'h45: keymap = {"0", ")"};
                 8'h0e: keymap = {"`", "~"}; 8'h4e: keymap = {"-", "_"}; 8'h55: keymap = {"=", "+"};
-                8'h54: keymap = {"[", "{"}; 8'h5b: keymap = {"]", "}"}; 8'h5d: keymap = {"\\", "|"};
-                8'h4c: keymap = {";", ":"}; 8'h52: keymap = {"'", "\""}; 8'h41: keymap = {",", "<"};
+                8'h54: keymap = {"[", "{"}; 8'h5b: keymap = {"]", "}"}; 8'h5d: keymap = {8'h5c, "|"};    // backslash (hex: Quartus 17 strings)
+                8'h4c: keymap = {";", ":"}; 8'h52: keymap = {"'", 8'h22}; 8'h41: keymap = {",", "<"};
                 8'h49: keymap = {".", ">"}; 8'h4a: keymap = {"/", "?"};
                 8'h29: keymap = {" ", " "};
                 8'h5a: keymap = {8'o015, 8'o015};    // Enter

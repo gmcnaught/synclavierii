@@ -442,7 +442,7 @@ int main(int argc, char** argv) {
     std::deque<uint8_t> rx;            // terminal input still to push
     std::deque<std::pair<int64_t, int64_t>> want_audio;   // Python samples not yet matched
     uint64_t samples = 0;
-    std::vector<int16_t> pcm;          // 48 kHz stereo from audio_out (LOCKSTEP_WAV)
+    std::vector<int16_t> pcm;          // 48 kHz stereo from pcm_out (LOCKSTEP_WAV)
     char buf[64];
 #ifdef SYSTEM_DEVICES
     auto audio_check = [&](uint64_t at) {

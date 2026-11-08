@@ -50,9 +50,14 @@ docs/
   plan.md                    detailed project plan (milestones, verification, risks)
   roadmap.md                 one-page summary of the plan
   research-log.md            chronology of findings, corrections and sources
-sim/                         software simulator (M1): Model B CPU, devices, test assembler
-  cpu.py  bus.py  decode.py  asm.py  system.py
-  devices/                   D60-D63 external memory, D50/D51 terminal, D3 clock, D4567
+  fm-voice.md                FM voice spec (M3); hdl.md: the FPGA core (M4)
+sim/                         software simulator (M1-M3): Model B CPU, devices, test assembler
+  cpu.py  bus.py  decode.py  asm.py  system.py  boot.py  rtp.py
+  fm.py  voice.py            FM register semantics; voice model and WAV rendering
+  lockstep.py                traces for checking the HDL CPU against the simulator
+  devices/                   D60-D63 external memory, D50/D51 terminal, D3 clock, D4567,
+                             D100 floppy, D130/D131 keyboard, D160-D165 FM interface
+hdl/                         FPGA core (M4): able_cpu.sv; sim/ Verilator lockstep bench
 tools/
   able_disasm.py             ABLE disassembler (NED syntax, Model C aware)
   ned_disk.py                NED .simg catalog lister / extractor

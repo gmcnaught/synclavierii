@@ -19,6 +19,7 @@ Milestone M1 in [`plan.md`](plan.md). This page covers what exists so far:
 | `sim/boot.py` | Boot: `MONITOR` staged in external memory, started through the `.LD-6` loader's ECOPY entry; floppies from the `.simg` in F0/F1; console CLI `python3 -m sim.boot IMAGE` |
 | `sim/rtp.py` | Starts a Release L real-time program (`ORK-LM`, `ORK-LFM`) through MONITOR's RUN hand-off and the loader; logs device accesses (`python3 -m sim.rtp IMAGE --log out.csv`) (M2.1) |
 | `sim/fm.py` | FM register semantics: pitch, envelope/index interpolators, `ISHC`, wave memory ([`fm-voice.md`](fm-voice.md)) |
+| `sim/lockstep.py` | Records traces for checking the HDL CPU against this simulator, and runs the Verilator check ([`hdl.md`](hdl.md)) (M4.3) |
 | `sim/voice.py` | Integer FM voice model: replays the D162 write log and renders stereo audio (`render`, `write_wav`; `python3 -m sim.voice LOG.csv OUT.wav`) (M3.2) |
 | `sim/trace.py` | `Debugger`: instruction history, device-access log, breakpoints, stop on input wait, halt report, memory inspect (M1.7) |
 | `sim/asm.py` | Small assembler in NED syntax (`SRC TO DST`, `DATA`, `IM()`, `RE(label)`), for tests and experiments |

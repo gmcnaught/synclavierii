@@ -11,10 +11,12 @@
 #   ACCESS_TOKEN  a fine-grained personal access token for this repository
 #                 only, with "Administration: Read and write" (the runner
 #                 uses it to register and to re-register after restarts)
-#   /mnt/POOL/github-runner   a dataset path on the NAS (both places: the
-#                 job's working directory must have the same path inside the
-#                 runner and on the host, because the job's `docker run -v
-#                 "$PWD:/build"` is resolved by the host's Docker)
+#   the dataset paths (here "/mnt/The Pool/github-runners/synclavierii"):
+#                 create work/ and state/ first. The work directory must have
+#                 the SAME path inside the runner and on the host (both sides
+#                 of its mount, and RUNNER_WORKDIR), because the job's
+#                 `docker run -v "$PWD:/build"` is resolved by the host's
+#                 Docker. Quote paths that contain spaces as whole strings.
 #
 # Security: the runner has the host's Docker socket, i.e. root on the NAS,
 # and runs any workflow job of this repository. Keep the repository
@@ -29,10 +31,10 @@ services:
       ACCESS_TOKEN: "github_pat_REPLACE_ME"
       RUNNER_NAME: truenas-quartus
       LABELS: quartus,x64
-      RUNNER_WORKDIR: /mnt/POOL/github-runner/work
-      CONFIGURED_ACTIONS_RUNNER_FILES_DIR: /mnt/POOL/github-runner/state
+      RUNNER_WORKDIR: "/mnt/The Pool/github-runners/synclavierii/work"
+      CONFIGURED_ACTIONS_RUNNER_FILES_DIR: /runner-state
       DISABLE_AUTOMATIC_DEREGISTRATION: "true"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - /mnt/POOL/github-runner/work:/mnt/POOL/github-runner/work
-      - /mnt/POOL/github-runner/state:/mnt/POOL/github-runner/state
+      - "/mnt/The Pool/github-runners/synclavierii/work:/mnt/The Pool/github-runners/synclavierii/work"
+      - "/mnt/The Pool/github-runners/synclavierii/state:/runner-state"

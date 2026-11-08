@@ -1,6 +1,13 @@
-// System terminal display: the characters the program sends to D50 shown
-// as 80 x 24 text on a 640 x 480 picture (8 x 8 font, rows doubled, the
-// text area centred: lines 48-431).
+// System terminal and original panel on a 640 x 480 picture:
+//   lines 0-383    the characters the program sends to D50, 80 x 24 text
+//                  (8 x 8 font, rows doubled);
+//   lines 384-479  the original keyboard's panel, 12 rows of 8 lines: a
+//                  rule; the 4-digit display (its 7-segment codes read back
+//                  as characters, the decimal point drawn in the cell's
+//                  corner) and the units bits in hex; the 128 buttons, 16 a
+//                  row (row r = panel word r), each a 4-character label shown
+//                  inverted while its light is on; a help line;
+//   and the mouse pointer (panel_mouse.sv) once the mouse has moved.
 //
 // Character handling (what Release L MONITOR sends is printable ASCII plus
 // CR and LF): bit 7 is ignored; 040-176 are written at the cursor, with a
@@ -22,6 +29,11 @@ module term_display #(
     input  logic        in_valid,
     input  logic [7:0]  in_data,
     input  logic [1:0]  color,          // 0 green, 1 amber, 2 white
+    input  logic [15:0] lights [8],     // panel lights, display words (clk domain;
+    input  logic [15:0] display [3],    // read on vclk as they are)
+    input  logic        ptr_on,
+    input  logic [9:0]  ptr_x,
+    input  logic [8:0]  ptr_y,
 
     output logic        ce_pix,
     output logic [7:0]  r,
@@ -37,6 +49,7 @@ module term_display #(
     output logic [4:0]  top_row         // physical row shown at the top
 );
     `include "font8x8.svh"
+    `include "panel_labels.svh"
 
     localparam int COLS = 80, ROWS = 24;
 
@@ -173,41 +186,138 @@ module term_display #(
         end else h <= h + 10'd1;
     end
 
-    // text RAM read, then font read; the output register holds pixel h1
-    wire        in_text = v >= 10'd48 && v < 10'd432;
-    wire [8:0]  ty = 9'(v - 10'd48);
-    wire [4:0]  lrow = ty[8:4];
-    wire [2:0]  line = ty[3:1];
-    logic [7:0] ch_q, glyph_q;
-    logic [2:0] line_q;
-    always_ff @(posedge vclk) begin
-        ch_q <= tram[{phys(top, lrow), h[9:3]}];
-        line_q <= line;
-        glyph_q <= font8x8({ch_q[6:0], line_q});
+    // ------------------------------------------------- panel strip characters
+    localparam logic [8*80-1:0] HELP =       // exactly 80 characters
+        " Click a button to press it.   MIDI: ch 1-15 keys, ch 16 buttons, prog = timbre ";
+    localparam int HELP_LEN = 80;
+
+    // a 7-segment code (bit 0 = segment a ... bit 6 = g) as a character
+    function automatic logic [7:0] seg_char(input logic [6:0] sg);
+        case (sg)
+            7'o077: seg_char = "0"; 7'o006: seg_char = "1"; 7'o133: seg_char = "2";
+            7'o117: seg_char = "3"; 7'o146: seg_char = "4"; 7'o155: seg_char = "5";
+            7'o174, 7'o175: seg_char = "6"; 7'o047, 7'o007: seg_char = "7";
+            7'o177: seg_char = "8"; 7'o147, 7'o157: seg_char = "9";
+            7'o100: seg_char = "-"; 7'o000: seg_char = " ";
+            7'o171: seg_char = "E"; 7'o120: seg_char = "r"; 7'o163: seg_char = "P";
+            7'o070: seg_char = "L"; 7'o166: seg_char = "H"; 7'o167: seg_char = "A";
+            7'o071: seg_char = "C"; 7'o136: seg_char = "d"; 7'o161: seg_char = "F";
+            7'o134: seg_char = "o"; 7'o124: seg_char = "n"; 7'o034: seg_char = "u";
+            7'o170: seg_char = "t"; 7'o156: seg_char = "y"; 7'o076: seg_char = "U";
+            default: seg_char = "?";
+        endcase
+    endfunction
+
+    function automatic logic [7:0] hex_char(input logic [3:0] n);
+        hex_char = n < 4'd10 ? 8'h30 + 8'(n) : 8'h37 + 8'(n);
+    endfunction
+
+    // the character, inverse flag and decimal point at panel row pr, column c
+    logic [7:0] p_ch;
+    logic       p_inv, p_dp;
+    logic [7:0] seg_byte;
+    always_comb begin
+        logic [3:0] bcell;
+        logic [2:0] k;
+        p_ch = 8'h20; p_inv = 1'b0; p_dp = 1'b0;
+        bcell = 4'(h[9:3] / 7'd5);
+        k = 3'(h[9:3] % 7'd5);
+        seg_byte = 8'd0;
+        case (pr)
+            4'd0: p_ch = 8'h2d;                                   // rule
+            4'd1: begin                                           // display, units
+                case (h[9:3])
+                    7'd1: p_ch = "D"; 7'd2: p_ch = "i"; 7'd3: p_ch = "s"; 7'd4: p_ch = "p";
+                    7'd5: p_ch = "l"; 7'd6: p_ch = "a"; 7'd7: p_ch = "y";
+                    7'd10: p_ch = "["; 7'd15: p_ch = "]";
+                    7'd11: seg_byte = display[1][15:8];
+                    7'd12: seg_byte = display[1][7:0];
+                    7'd13: seg_byte = display[0][15:8];
+                    7'd14: seg_byte = display[0][7:0];
+                    7'd19: p_ch = "U"; 7'd20: p_ch = "n"; 7'd21: p_ch = "i"; 7'd22: p_ch = "t";
+                    7'd23: p_ch = "s";
+                    7'd25: p_ch = hex_char(display[2][15:12]);
+                    7'd26: p_ch = hex_char(display[2][11:8]);
+                    7'd27: p_ch = hex_char(display[2][7:4]);
+                    7'd28: p_ch = hex_char(display[2][3:0]);
+                    default: ;
+                endcase
+                if (h[9:3] >= 7'd11 && h[9:3] <= 7'd14) begin
+                    p_ch = seg_char(seg_byte[6:0]);
+                    p_dp = seg_byte[7];
+                end
+            end
+            4'd3, 4'd4, 4'd5, 4'd6, 4'd7, 4'd8, 4'd9, 4'd10:     // buttons
+                if (k < 3'd4) begin
+                    p_ch = panel_label({3'(pr - 4'd3), bcell, k[1:0]});
+                    p_inv = lights[3'(pr - 4'd3)][bcell];
+                end
+            4'd11: p_ch = HELP[8*(HELP_LEN - 1 - int'(h[9:3])) +: 8];
+            default: ;
+        endcase
+    end
+
+    // ------------------------------------------------------- pixel pipeline
+    // stage 0 (counters h, v): region and addresses; stage 1: the character
+    // (text RAM or panel); stage 2: its glyph row; stage 3: the output.
+    // Every stage advances on ce, so the alignment is the same for any CE_DIV.
+    wire        in_text  = v < 10'd384;
+    wire        in_panel = v >= 10'd384 && v < 10'd480;
+    wire [4:0]  lrow = v[8:4];
+    wire [3:0]  pr = 4'((v - 10'd384) >> 3);
+    wire [2:0]  line = in_text ? v[3:1] : v[2:0];
+    wire        cursor_here = in_text && lrow == row && h[9:3] == col && line == 3'd7 && frame[5];
+
+    logic [7:0] tq, pq, glyph;
+    logic [2:0] line1;
+    logic       text1, inv1, dp1, cur1, vis1, inv2, dp2, cur2, vis2;
+    logic [9:0] h1, h2;
+    logic [9:0] v1, v2;
+    always_ff @(posedge vclk) if (ce) begin
+        tq <= tram[{phys(top, lrow), h[9:3]}];               // text RAM: one read port
+        pq <= p_ch;
+        text1 <= in_text;
+        inv1 <= in_panel && p_inv;
+        dp1 <= in_panel && p_dp;
+        cur1 <= cursor_here;
+        vis1 <= (in_text || in_panel) && h < 10'd640;
+        line1 <= line;
+        h1 <= h; v1 <= v;
+        // stage 2
+        glyph <= font8x8({(text1 ? tq[6:0] : pq[6:0]), line1}) |
+                 (dp1 && line1 >= 3'd6 ? 8'h80 : 8'h00);       // decimal point
+        inv2 <= inv1;
+        cur2 <= cur1;
+        vis2 <= vis1;
+        h2 <= h1; v2 <= v1;
     end
     // simulation only (a second read port would keep the RAM out of M10K)
     // synthesis translate_off
     always_ff @(posedge clk) peek_data <= tram[peek_addr];
     // synthesis translate_on
 
-    // glyph_q holds the glyph of the pixel one behind the counters (h1)
-    logic [9:0] h1, v1;
-    logic       t1, cur1;
-    wire        cursor_here = in_text && lrow == row && h[9:3] == col && line == 3'd7 && frame[5];
-    always_ff @(posedge vclk) if (ce) begin
-        h1 <= h;
-        v1 <= v;
-        t1 <= in_text && h < 10'd640;
-        cur1 <= cursor_here;
-    end
+    // mouse pointer: an 8 x 8 arrow with its tip at (ptr_x, ptr_y)
+    function automatic logic [7:0] arrow(input logic [2:0] r_);
+        case (r_)
+            3'd0: arrow = 8'b0000_0001; 3'd1: arrow = 8'b0000_0011;
+            3'd2: arrow = 8'b0000_0111; 3'd3: arrow = 8'b0000_1111;
+            3'd4: arrow = 8'b0001_1111; 3'd5: arrow = 8'b0000_0111;
+            3'd6: arrow = 8'b0000_1101; default: arrow = 8'b0001_1000;
+        endcase
+    endfunction
+    wire [9:0] pdx = h2 - ptr_x;
+    wire [9:0] pdy = v2 - {1'b0, ptr_y};
+    wire [7:0] arow = arrow(pdy[2:0]);
+    wire       ptr_px = ptr_on && pdx < 10'd8 && pdy < 10'd8 && arow[pdx[2:0]];
 
-    wire on = t1 && (glyph_q[h1[2:0]] ^ cur1);
+    wire on = vis2 && (glyph[h2[2:0]] ^ inv2 ^ cur2);
     always_ff @(posedge vclk) if (ce) begin
-        hblank <= h1 >= 10'd640;
-        vblank <= v1 >= 10'd480;
-        hs <= h1 >= 10'd656 && h1 < 10'd752;
-        vs <= v1 >= 10'd490 && v1 < 10'd492;
-        case (color)
+        hblank <= h2 >= 10'd640;
+        vblank <= v2 >= 10'd480;
+        hs <= h2 >= 10'd656 && h2 < 10'd752;
+        vs <= v2 >= 10'd490 && v2 < 10'd492;
+        if (ptr_px && h2 < 10'd640 && v2 < 10'd480) {r, g, b} <= 24'hffffff;
+        else case (color)
             2'd1:    {r, g, b} <= on ? 24'hffb000 : 24'h000000;
             2'd2:    {r, g, b} <= on ? 24'he0e0e0 : 24'h000000;
             default: {r, g, b} <= on ? 24'h33ff66 : 24'h000000;

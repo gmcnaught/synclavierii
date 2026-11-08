@@ -45,6 +45,12 @@ Copy them to `games/Synclavier/` on the SD card. In the OSD, mount
 from F0 and prints `Ready >`. Type `CATALOG` to list F1. Writes go back to
 the image files (mount read-only to protect them).
 
+The bottom of the screen shows the original panel: the 4-digit display and
+the 128 buttons, lit ones inverted. Click a button with the mouse to press
+it. The real-time program (ORK-LM) cannot be started on the core yet: on
+Release L it needs a Winchester disk; the simulator stages it by hand
+(`sim/rtp.py`).
+
 MIDI: set the UART to MidiLink (USB MIDI) in the MiSTer menu. Channels
 1–15 play the keyboard (MIDI notes 36–96 = the ORK's 61 keys); channel 16
 note n presses panel button n; program change p recalls timbre p (bank

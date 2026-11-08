@@ -218,7 +218,7 @@ void board_start(Trace& t, bool& audio_trace) {
     }
     top->rst_hard = 1; top->rst = 1; top->rt_enable = 0;
     top->dev_ack = top->dev_nosyn = top->dev_hold = top->halt_req = 0;
-    top->dev_irq = 0; top->ps2_key = 0; top->img_mounted = 0;
+    top->dev_irq = 0; top->ps2_key = 0; top->ps2_mouse = 0; top->img_mounted = 0;
     top->sd_ack = 0; top->sd_buff_wr = 0; top->DDRAM_BUSY = 0; top->DDRAM_DOUT_READY = 0;
     for (int i = 0; i < 8; i++) board_tick();
     top->rst_hard = 0;

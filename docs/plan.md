@@ -129,7 +129,7 @@ real-hardware recordings is the final acceptance step, once recordings exist.
 | 4.3 | **Done** (`sim/lockstep.py`, `hdl/sim/`): random programs, MONITOR boot + `CATALOG` (1.36M instructions) and ORK-LM (6M) agree. **Lockstep verification:** run the same image in an HDL simulator (Verilator) and the software simulator; compare instruction traces |
 | 4.4 | **HDL done** (`hdl/able_system.sv`, `hdl/dev/dev_extmem.sv`; also D3 and D4567), lockstep-checked; SDRAM controller open. Memory in BRAM/SDRAM; external memory in SDRAM/DDR |
 | 4.5 | **Device done** (`hdl/dev/dev_terminal.sv`), lockstep-checked; host side open. Terminal: a character display on the video output plus PS/2/USB keyboard, or a UART |
-| 4.6 | Disk images from the SD card (the M1 high-level boot first, D100 emulation later) |
+| 4.6 | **Controller done** (`hdl/dev/dev_floppy.sv`), lockstep-checked; image loading open. Disk images from the SD card (the M1 high-level boot first, D100 emulation later) |
 
 **Done when:** the core on real MiSTer hardware boots Release L to `Ready >`
 and lists the catalog.
@@ -240,8 +240,10 @@ recordings (risk R1). **M4.2/M4.3 are done:** the HDL CPU
 on random programs, MONITOR's boot and `CATALOG`, and 6M instructions of
 ORK-LM ([`hdl.md`](hdl.md)). The HDL system with D3, D4567, D50/D51
 and D60–D63 agrees with Python in values and simulated time on MONITOR's
-boot, 6M instructions of ORK-LM and a device test program. Next: the D100
-floppy in HDL (M4.6), then the MiSTer framework (D4) and board I/O.
+boot, 6M instructions of ORK-LM and a device test program. The D100
+floppy controller in HDL agrees too, including a timbre recall and a
+held note in ORK-LM. Next: the MiSTer framework (D4) and board I/O
+(SDRAM, image loading, terminal display, clock throttle).
 Groundwork: [`timbre-libraries.md`](timbre-libraries.md)
 (Release L bank layout; later NED banks load partly in Release L; FM-only
 entries with parameters in physical units for calibration once the timbre

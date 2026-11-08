@@ -7,9 +7,9 @@ stops at the first difference. Two HDL tops:
   cpu     hdl/able_cpu.sv alone: every device read is answered with the
           value the Python devices returned, every write must match.
   system  hdl/able_system.sv: CPU plus the devices ported to HDL (D3,
-          D4-D7, D50/D51, D60-D63), whose values, interrupt bits and timing
-          are compared; other devices (floppy, keyboard, FM) are answered
-          from the trace.
+          D4-D7, D50/D51, D60-D63, D100-D104), whose values, interrupt
+          bits and timing are compared; other devices (keyboard, FM) are
+          answered from the trace.
 
 Trace format v2 (little-endian):
   b"ABLT2\\0\\0\\0"
@@ -20,7 +20,10 @@ Trace format v2 (little-endian):
     'V' u8 device u8 index u32 value       HDL device state (system top):
           device 0 D3 (0 elapsed ns, 1 pending), 1 D4567 (0 D4, 1 D5),
           2 D60 (0 sector, 1 word), 3 D50 (0 baud index, 1 rx char,
-          2 char_rdy, 3 rx_wait ns, 4 tx_busy ns, 5 xmit_irq)
+          2 char_rdy, 3 rx_wait ns, 4 tx_busy ns, 5 xmit_irq), 4 D100
+          (fields as hdl/dev/dev_floppy.sv's state load)
+    'F' u8 drive u16 sectors u8 spt u8 sides u8 protected, words
+                                           a floppy in that drive
   events, in the order the instruction performs them:
     'P' u16       interrupt bits returned by a PSW read (device 001)
     'w' u32       the next read was held (BUS_WAIT) for this many steps
@@ -40,6 +43,7 @@ Usage:
   python3 -m sim.lockstep random OUT.trace [--instructions N] [--seed S]
   python3 -m sim.lockstep monitor IMAGE OUT.trace [--instructions N]
   python3 -m sim.lockstep ork-lm IMAGE OUT.trace [--instructions N]
+  python3 -m sim.lockstep ork-lm-note IMAGE OUT.trace   (timbre recall + C4 held)
   python3 -m sim.lockstep check OUT.trace [--top cpu|system]
 """
 import os
@@ -104,6 +108,21 @@ def _device_header(cpu):
         return out
     rtc, md, xm, term = devs
     out += struct.pack("<cI", b"X", xm.sectors) + xm.data.tobytes()
+    fd = getattr(cpu, "floppy", None)
+    if fd is not None:
+        from .devices.floppy import REV_NS
+        if fd.buf is not None:
+            raise ValueError("floppy is in the middle of a sector transfer")
+        for drive, m in enumerate(fd.media):
+            if m is not None:
+                out += struct.pack("<cBHBBB", b"F", drive, m.sectors, m.spt, m.sides, m.protected)
+                out += struct.pack("<%dH" % len(m.words), *m.words)
+        kind, lsn, wait = fd.pending or ("read", None, 0)
+        for idx, v in enumerate((fd.select, fd.track, fd.sector, fd.data, fd.status, fd.type1,
+                                 fd.time % REV_NS, fd.busy_ns, fd.pending is not None,
+                                 kind == "write", lsn is None, lsn or 0, wait, False,
+                                 fd._kind == "write", fd.head[0], fd.head[1], fd.step_dir < 0)):
+            out += struct.pack("<cBBI", b"V", 4, idx, int(v) & 0xFFFFFFFF)
     for dev, idx, v in ((0, 0, rtc.elapsed), (0, 1, rtc.pending),
                         (1, 0, md.d4), (1, 1, md.d5),
                         (2, 0, xm.sector), (2, 1, xm.word),
@@ -115,12 +134,15 @@ def _device_header(cpu):
 
 
 def record(cpu, path, instructions, snapshot_every=256, max_steps=None, max_wait=10_000,
-           on_wait=None):
+           on_wait=None, actions=()):
     """Run `cpu` for `instructions` completed instructions, writing a trace
     to `path`. Stops early if the CPU halts, or if a read stays held for
     `max_wait` steps (a program waiting for terminal input) and
     `on_wait(cpu)` is absent or returns False (it may feed input and
-    return True to go on). Returns the number recorded."""
+    return True to go on). `actions`: (ns after the start, callable(cpu))
+    host actions on devices the HDL does not model (panel buttons, keys),
+    run between instructions. Returns the number recorded."""
+    actions = sorted(actions, key=lambda a: a[0])
     out = bytearray(MAGIC)
     out += struct.pack("<16HB", *cpu.r, _flags(cpu))
     out += struct.pack("<65536H", *cpu.mem)
@@ -162,6 +184,8 @@ def record(cpu, path, instructions, snapshot_every=256, max_steps=None, max_wait
         with open(path, "wb") as f:
             f.write(out)
             while n < instructions and steps < max_steps:
+                while actions and cpu.time_ns - t0 >= actions[0][0]:
+                    actions.pop(0)[1](cpu)
                 steps += 1
                 pc = cpu.pc
                 word = cpu.mem[pc]
@@ -261,6 +285,7 @@ TOPS = {
     "cpu": ("able_sim_top", ["hdl/able_cpu.sv", "hdl/sim/able_sim_top.sv"], []),
     "system": ("able_sys_top", ["hdl/able_cpu.sv", "hdl/dev/dev_rtc.sv", "hdl/dev/dev_muldiv.sv",
                                 "hdl/dev/dev_extmem.sv", "hdl/dev/dev_terminal.sv",
+                                "hdl/dev/dev_floppy.sv",
                                 "hdl/able_system.sv", "hdl/sim/able_sys_top.sv"], ["-DSYSTEM"]),
 }
 
@@ -290,12 +315,32 @@ def check(path, max_instructions=None, top="cpu"):
     return p.returncode == 0, p.stdout + p.stderr
 
 
+def ork_lm_note_actions(cpu, dbg, image):
+    """Run ORK-LM to its main loop (not recorded), put the timbre floppy in
+    F0, and return the panel/key actions: recall bank 0 timbre 0, hold C4
+    for 0.5 s. The floppy, FM and keyboard accesses all land in the trace."""
+    from .boot import insert_floppy
+    from .devices.synth import button_number
+    from .rtp import run_seconds
+    if run_seconds(cpu, dbg, 8):
+        raise RuntimeError("ORK-LM stopped:\n" + dbg.report())
+    insert_floppy(cpu, image, 0, "06-TIMBD")
+    kb = cpu.keyboard
+    ms = 1_000_000
+    return [(0, lambda c: kb.press_button(button_number("bank.0"))),
+            (100 * ms, lambda c: kb.press_button(button_number("bank.0"), False)),
+            (1600 * ms, lambda c: kb.press_button(button_number("timb.0"))),
+            (1700 * ms, lambda c: kb.press_button(button_number("timb.0"), False)),
+            (3200 * ms, lambda c: kb.press_key(48)),
+            (3700 * ms, lambda c: kb.press_key(48, False))]
+
+
 def main(argv=None):
     import argparse
     import sys
     import time
     ap = argparse.ArgumentParser(description="Record / check HDL lockstep traces (M4.3)")
-    ap.add_argument("mode", choices=("random", "monitor", "ork-lm", "check"))
+    ap.add_argument("mode", choices=("random", "monitor", "ork-lm", "ork-lm-note", "check"))
     ap.add_argument("args", nargs="+", help="[IMAGE] TRACE")
     ap.add_argument("--instructions", type=int, default=1_000_000)
     ap.add_argument("--seed", type=int, default=1)
@@ -322,9 +367,13 @@ def main(argv=None):
         path = a.args[1]
     else:
         from .rtp import start_rtp
-        cpu, _, _ = start_rtp(a.args[0], "ORK-LM")
+        cpu, dbg, _ = start_rtp(a.args[0], "ORK-LM")
         path = a.args[1]
-    n = record(cpu, path, a.instructions, on_wait=on_wait if a.mode == "monitor" else None)
+    actions = []
+    if a.mode == "ork-lm-note":
+        actions = ork_lm_note_actions(cpu, dbg, a.args[0])
+    n = record(cpu, path, a.instructions, on_wait=on_wait if a.mode == "monitor" else None,
+               actions=actions)
     if a.mode == "monitor":
         print(cpu.terminal.text()[-300:], file=sys.stderr)
     print("recorded %d instructions in %.1f s -> %s%s" % (

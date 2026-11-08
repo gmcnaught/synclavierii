@@ -75,6 +75,9 @@ no extension.
 
 | `Able/*SYSTEM/*RTB-7.sdat` (`1cee93eab756`), `*RTC-7.sdat` (`1ff6069f459f`), `*RTD-7.sdat` (`7939477257eb`) | Compiled XPL runtime packages for Models B/C/D, disassembled in [`model-c-runtime-analysis.md`](model-c-runtime-analysis.md) |
 | `Able/LOADER/SCSI.LST` (`7ed9f580cc21`; SHA-256 `83149c2fbf42aeb0…`) | NED assembler listing; **disassembler validation fixture** (`tests/fixtures/NED-SCSI.LST`, redistributed under MIT) |
+| `Able/W0X/*SYSTEM/*LD-7.sdat` (`0d20fd48681d`; same as `Able/LOADER/HIGHLOAD`) | Compiled `.LD-7` high-memory loader (3 × 768 words) |
+| `Able/UTILCAT/WINBOOT` | "loaded by the ROM loader" when F0 + LOAD: the boot ROM loads the file `MONITOR` |
+| `Code/Sources/AbleRunTime/XPLRunTimeOSX.cpp` (`set_up_able_core`) | Host runtime synthesises the post-boot low-core/high-core state (no ROM) |
 | `Able/LOADER/FLPLOAD` (`f15efb098d69`), `SCSILOAD` (`229ac2c68340`), `WINLOAD` (`ccf40fd24b15`), `MRGLOAD` (`97887427fa70`) | High-memory loaders and the HIGHLOAD build ([`boot-and-loaders.md`](boot-and-loaders.md)) |
 
 The ABLE interpreter's execution core (`AbleInterpreterCore` implementation)

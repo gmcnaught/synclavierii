@@ -160,6 +160,20 @@ followed and checked. Newest information wins where entries disagree.
   as backward-compatibility test programs.
 * **Not present:** the MFC/D40Q boot ROM and any CPU diagnostic.
 
+## 12. Emulator software (Synclavier³) and the boot ROM
+
+* NED's public source has **no boot ROM**. The host runtime builds the
+  post-boot memory state in C, which amounts to high-level emulation of the
+  boot. The Synclavier³ PCI product replaces the CPU, so it doesn't need the
+  ROM either.
+* `WINBOOT` documents the ROM's job: load `MONITOR` from the F0 catalog and
+  start it.
+* The compiled `.LD-7` (= HIGHLOAD, 3 × 768 words) is now available under
+  MIT.
+* Commercial Synclavier³ and other emulator binaries were deliberately not
+  examined (proprietary). The CPU-interpreter core and any ROM images would
+  have to come from Synclavier Digital.
+
 ## Searched without useful results
 
 * archive.org full-text and metadata search for "synclavier", "new england

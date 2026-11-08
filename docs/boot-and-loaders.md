@@ -32,8 +32,45 @@ manuals. File IDs are in [`sources.md`](sources.md).
 * *Cards and Components* says the load button "activates firmware on the
   MFC or D40Q 'maxi' or 'mini' ROMs, or a hard-wired boot ROM". **That ROM is
   not part of the CPU cards, and its source or image has not been found.**
+* **What the ROM does** (NED's `Able/UTILCAT/WINBOOT` source): *"When this
+  diskette is placed into F0 and the LOAD button is pressed, this program
+  will be loaded by the ROM loader."* The program is saved under the name
+  `MONITOR`. **So the boot ROM reads the F0 floppy catalog, loads the file
+  named `MONITOR` and starts it.** MONITOR (or the `.LD-x` it relies on)
+  takes over from there. WINBOOT is NED's trick to boot a Winchester via a
+  floppy `MONITOR` that chains to `W0:MONITOR`.
+
+### Synclavier³ / emulator software
+
+* NED's MIT-licensed source tree (`jbemond/Software`) contains **no boot ROM
+  image** and no ROM emulation. The host-side XPL runtime
+  (`AbleRunTime/XPLRunTimeOSX.cpp`, `set_up_able_core`) builds the
+  **post-boot state directly in C**:
+  * a low-core configuration table, with the processor type set to Model D
+    plus multiply/divide
+  * high-core MONITOR variables: catalog pointers for `W0:`, `loc_magic` =
+    12345, run status 2, prompt `Ready > `
+
+  That is high-level emulation of the boot, so a re-implementation can do
+  the same instead of needing the ROM.
+* The Synclavier³ product replaces the CPU entirely ("D0 PCI Synclavier³
+  interface card … replaces the computer in the bin"; the FPRM, DSM and D4567
+  can be removed), so it has **no reason to contain the MFC/D40Q ROM**. Its
+  CPU-interpreter core is not in the public source; only the headers are.
+* The commercial binaries were **not** examined: they are proprietary, and
+  extracting from them may breach their licence. If ROM images or the
+  interpreter core are wanted, the clean route is to ask Synclavier Digital,
+  who MIT-licensed the rest of the software in 2017.
 
 ## 2. The loader image
+
+> **Compiled `.LD-7`:** `jbemond/Software/Able/W0X/*SYSTEM/*LD-7.sdat` (MIT;
+> byte-identical to `Able/LOADER/HIGHLOAD`) is 2165 words: three 768-word
+> loaders (floppy at 0, IMI at 1400, SCSI at 3000 octal), each starting with
+> the relative-jump vector. Its SCSI slot is an **older revision** than the
+> `SCSI.LST` listing (which includes a 1994 change). The words match up to
+> offset 262, apart from two in-line offsets, then shift because of inserted
+> code.
 
 > **Real binary check:** Release L's `.LD-6` (1986, three 512-word loaders
 > for floppy, IMI and SCSI at offsets 0/1000/2000) disassembles to exactly

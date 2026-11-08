@@ -17,7 +17,7 @@ Evidence:
 """
 from collections import deque
 
-from ..bus import Device
+from ..bus import BUS_WAIT, Device
 
 XMIT_IRQ = 0o1
 CHAR_RDY = 0o2
@@ -80,7 +80,12 @@ class Terminal(Device):
     def read(self, dev):
         if dev == 0o51:
             return self.status()
-        # CHOICE: reading D50 with no character waiting returns the last one.
+        # [HYP] Reading D50 with no character waiting holds the bus until one
+        # arrives: MONITOR's input routine (Release L 015276-015301) and NED
+        # XPL code ("i = read("50") & 127; /* get input character */") read
+        # D50 without testing CHAR_RDY first.
+        if not self.char_rdy:
+            return BUS_WAIT
         self.char_rdy = False
         self._receive()
         return self.rx_char

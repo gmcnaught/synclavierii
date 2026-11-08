@@ -76,17 +76,26 @@ def test_boot_runs_loader_ecopy_and_starts_program():
     assert cpu.terminal.out == bytearray([7])
 
 
-def test_release_l_monitor_banner():
+def test_release_l_monitor_ready_and_catalog():
     image = os.environ.get("SYNCLAVIER_RELEASE_L")
     if not image:
-        print("  skip test_release_l_monitor_banner (SYNCLAVIER_RELEASE_L not set)")
+        print("  skip test_release_l_monitor_ready_and_catalog (SYNCLAVIER_RELEASE_L not set)")
         return
-    cpu, lay = boot_from_image(image)
-    assert lay["mem_siz"] == 0o170000
-    cpu.run(5_000_000)
-    assert "N.E.D. ABLE Series System Monitor" in cpu.terminal.text()
-    # cold boot restores the F0 head next: needs the D100 floppy (step B)
-    assert cpu.halted and cpu.halted.device == 0o100
+    from sim.trace import STOP_INPUT, Debugger
+    cpu, lay = boot_from_image(image, "03-SYSTD", f1="18-UTILS")
+    assert lay["mem_siz"] == 0o160000            # 03-SYSTD is configured for 56K
+    dbg = Debugger(cpu)
+    assert dbg.run(20_000_000, until_input=True) == STOP_INPUT
+    text = cpu.terminal.text()
+    assert "N.E.D. ABLE Series System Monitor - 1 December 1985" in text
+    assert text.endswith("Ready > ")
+    cpu.terminal.feed("CATALOG\r")
+    assert dbg.run(50_000_000, until_input=True) == STOP_INPUT
+    out = cpu.terminal.text()[len(text):]
+    for name in ("CONFIGUR", "FIND", "FORMCOPY", "LISTING", "RECOVER", "SHUFFLE", "TAPECAT"):
+        assert name in out, name
+    assert "Catalog contains 7 entries, 375 sectors used, 25 sectors remaining" in out
+    assert out.endswith("Ready > ")
 
 
 if __name__ == "__main__":

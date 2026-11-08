@@ -252,6 +252,38 @@ Sources: Release L image (user-supplied, SHA-256 checked against
   post-boot state the way the Mac runtime does is not needed; the loader +
   MONITOR cold boot do it.
 
+## 16. MONITOR to `Ready >` (M1.6 step B)
+
+Sources: Release L image; NED `Able/RTP/DISKREAD`, `DISKSEEK`,
+`Able/XPL/DEVUTIL`, `Able/MONCAT/MON`, `Able/-XPL/SYSLITS` (MIT,
+`jbemond/Software` @ `a237bf2`). Device details in
+[`simulator.md`](simulator.md#devices).
+
+* **D100 is programmed like an FD1771/179x** (command/status, track,
+  sector, data; D104 drive select). The command bytes and status masks in
+  FLPLOAD and DISKREAD match the WD command set (restore 0–3, seek 20,
+  step in 100, read 210/214, force interrupt 320; not ready 200, RNF 20,
+  CRC/lost data/not ready 214).
+* **No floppy detection uses the index pulse:** `d100_disk_check` forces
+  an interrupt and counts index edges in status bit 1 against D3 ticks, so
+  the model needs a rotating index and a readable D3 (pending tick → 1).
+* **D62 is the non-incrementing external-memory data port**, used by
+  MONITOR's `POLL` to size the memory (store 0, read it back, per half
+  card).
+* **D50 reads wait for a character.** MONITOR's input routine reads D50
+  with no CHAR_RDY test; returning the previous character made every key
+  repeat about 11 times. Holding the read until a character arrives fixes
+  it. **[HYP]** for the hardware mechanism (SYN withheld).
+* **Correction** (to §15 and an earlier note in
+  [`release-l-image.md`](release-l-image.md)): the boot disks' `MONITOR`
+  files do not differ only in the options word. `01-BOOTD`/`02-BOOTF` are
+  configured for a SCSI Winchester system device (they stop in a bell loop
+  without a SCSI card); `03-SYSTD` is the floppy-system disk.
+* **Result:** `03-SYSTD` boots to `Ready >` in about 883,000 instructions;
+  `CATALOG` of `18-UTILS` in F1 lists 7 entries, 375 sectors used, 25
+  remaining, matching `tools/ned_disk.py`. `OLD CONFIGUR` / `RUN` loads a
+  program through the `.LD-6` floppy loader and returns to MONITOR.
+
 ## Searched without useful results
 
 * archive.org full-text and metadata search for "synclavier", "new england

@@ -15,7 +15,7 @@ restores the CPU's original hooks.
 """
 from collections import Counter, deque
 
-from .bus import NO_SYN
+from .bus import BUS_WAIT, NO_SYN
 
 try:  # shared decode tables / mnemonics (tools/ is a sibling package)
     from tools.able_disasm import disassemble as _disassemble
@@ -24,6 +24,7 @@ except ImportError:  # pragma: no cover - tools/ not on the path
 
 STOP_BREAKPOINT = "breakpoint"
 STOP_HALTED = "halted"
+STOP_INPUT = "input"        # holding a D50 read with no host input queued
 
 
 def disassemble(words, base=0, model="B"):
@@ -47,6 +48,7 @@ class Debugger:
         self.io_counts = Counter()   # (device, "R"/"W") -> transfers
         self.breakpoints = set()
         self.last_pc = None
+        self._waiting = False       # last read was held (BUS_WAIT)
         self._prev_trace = cpu.trace
         self._bus = cpu.bus
         self._bus_read = cpu.bus.read
@@ -64,6 +66,9 @@ class Debugger:
     # ------------------------------------------------------------- hooks
 
     def _on_fetch(self, cpu, pc, word):
+        if self._waiting and pc == self.last_pc:
+            return                  # same instruction retried: record once
+        self._waiting = False
         self.last_pc = pc
         self.history.append((pc, word))
         if self._prev_trace:
@@ -71,6 +76,9 @@ class Debugger:
 
     def _read(self, dev):
         v = self._bus_read(dev)
+        if v is BUS_WAIT:
+            self._waiting = True    # logged once the device answers
+            return v
         self.io.append((self.last_pc, "R", dev, v))
         self.io_counts[(dev, "R")] += 1
         return v
@@ -83,15 +91,18 @@ class Debugger:
 
     # ----------------------------------------------------------- running
 
-    def run(self, max_instructions=None):
+    def run(self, max_instructions=None, until_input=False):
         """Run until a breakpoint (checked before fetch), a halt, or the
-        instruction budget runs out. A breakpoint at the starting PC is
-        stepped over, so run() can resume from one.
+        budget (steps, including held reads) runs out. A breakpoint at the
+        starting PC is stepped over, so run() can resume from one.
+        until_input: also stop when the program waits on the terminal (D50
+        read held) and no host input is queued.
 
-        Returns STOP_BREAKPOINT, STOP_HALTED or None (budget used up).
+        Returns STOP_BREAKPOINT, STOP_HALTED, STOP_INPUT or None (budget).
         """
         cpu = self.cpu
         bps = self.breakpoints
+        term = getattr(cpu, "terminal", None) if until_input else None
         n = 0
         first = True
         while max_instructions is None or n < max_instructions:
@@ -100,6 +111,9 @@ class Debugger:
             first = False
             if not cpu.step():
                 return STOP_HALTED
+            if (term is not None and cpu.waiting == 0o50
+                    and not term.input and not term.char_rdy):
+                return STOP_INPUT
             n += 1
         return None
 

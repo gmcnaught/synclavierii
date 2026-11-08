@@ -9,7 +9,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 from sim.asm import assemble  # noqa: E402
 from sim.system import make_system  # noqa: E402
-from sim.trace import STOP_BREAKPOINT, STOP_HALTED, Debugger  # noqa: E402
+from sim.trace import STOP_BREAKPOINT, STOP_HALTED, STOP_INPUT, Debugger  # noqa: E402
 
 PROG = """
         IM(3) TO R1
@@ -63,6 +63,23 @@ def test_budget_and_detach():
     assert "read" not in vars(cpu.bus)               # bus methods restored
     cpu.run(1000)
     assert len(dbg.history) == 2                     # nothing recorded after detach
+
+
+def test_stop_when_waiting_for_input():
+    cpu = make_system()
+    words, labels = assemble("""
+    LOOP:   D50 TO R0
+            R0 TO D50           ; echo
+            RE(LOOP) TO RTRA
+    """)
+    cpu.load(words, 0)
+    dbg = Debugger(cpu)
+    assert dbg.run(100_000, until_input=True) == STOP_INPUT
+    assert len(dbg.history) == 1                 # held read recorded once
+    cpu.terminal.feed("HI")
+    assert dbg.run(100_000, until_input=True) == STOP_INPUT
+    assert cpu.terminal.text() == "HI"
+    assert [k for _, k, _, _ in dbg.io] == ["R", "W", "R", "W"]
 
 
 def test_memory_inspect():

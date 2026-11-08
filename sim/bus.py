@@ -9,6 +9,12 @@ Device 001 (PSW/PCW) is part of the CPU and never reaches the bus.
 
 NO_SYN = None  # returned by a read when no device answers
 
+#: Returned by a read whose device has not asserted SYN *yet* (for example
+#: D50 with no character waiting). The transfer is held: the CPU repeats
+#: the instruction while device time runs on, as the asynchronous bus
+#: would wait for SYN.
+BUS_WAIT = object()
+
 
 class Device:
     """Base class for I/O devices.
@@ -21,7 +27,7 @@ class Device:
     numbers = ()
 
     def read(self, dev):
-        """Return a 16-bit value, or NO_SYN."""
+        """Return a 16-bit value, NO_SYN, or BUS_WAIT (retry later)."""
         return NO_SYN
 
     def write(self, dev, value):

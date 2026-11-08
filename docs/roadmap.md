@@ -16,7 +16,7 @@ and boot ROM image are useful references but not prerequisites.
 |---|---|---|
 | CPU instruction set (Model B; Model C extensions) | Complete; disassembler matches NED listings | [`instruction-set.md`](instruction-set.md), [`model-c-runtime-analysis.md`](model-c-runtime-analysis.md) |
 | Software | Release L disks (Model B binaries); MIT-licensed NED source and tools (later releases) | [`release-l-image.md`](release-l-image.md), [`sources.md`](sources.md) |
-| Boot | High-level boot in the simulator: `MONITOR` staged in external memory, started by the real `.LD-6` loader; MONITOR prints its banner and runs its cold boot up to the first floppy access | [`boot-and-loaders.md`](boot-and-loaders.md) §4 |
+| Boot | Simulator boots Release L `MONITOR` (staged in external memory, started by the real `.LD-6` loader) with an emulated D100 floppy controller to `Ready >`; `CATALOG` works (milestone 1 acceptance) | [`boot-and-loaders.md`](boot-and-loaders.md) §4, [`simulator.md`](simulator.md) |
 | Bus and devices | EZbuss pinout; D4567, D24–D27, D60–D63, PSW/PCW protocols | [`able-reference.md`](able-reference.md), [`boot-and-loaders.md`](boot-and-loaders.md) |
 | FM voice hardware | Card-level analysis (SS1–SS7): 8-bit paths, 256-point waveforms, multiplier and shifter, envelope generator, 8-bit MDACs; NED patents US 4,279,185 and 4,345,500 | `Synclavier/Documentation`: *Synclavier FM.docx* (community analysis) |
 

@@ -114,6 +114,11 @@ module term_display #(
         phys = s >= 6'(ROWS) ? 5'(s - 6'(ROWS)) : 5'(s);
     endfunction
 
+    // physical rows of the erase position and the cursor (as wires: a function
+    // call in a non-blocking LHS index trips Verilator 5.032)
+    wire [4:0] er_prow  = phys(top, er_row);
+    wire [4:0] cur_prow = phys(top, row);
+
     wire [7:0] c = fifo[f_head] & 8'h7f;
     wire [6:0] ch7 = gfx && c >= 8'h5f && c <= 8'h7e ? 7'(c - 8'h5f) : c[6:0];
     wire [6:0] er_row_end = er_row == er_end_row ? er_end_col : 7'(COLS - 1);
@@ -156,7 +161,7 @@ module term_display #(
                 w_we <= 1'b1;
                 if (er_col == er_row_end) begin
                     if (er_rs == 7'd0 && er_row_end == 7'(COLS - 1))
-                        rattr[phys(top, er_row)] <= 2'd0;          // whole row erased
+                        rattr[er_prow] <= 2'd0;          // whole row erased
                     if (er_row == er_end_row) wstate <= W_IDLE;
                     else begin
                         er_row <= er_row + 5'd1;
@@ -207,10 +212,10 @@ module term_display #(
                 S_HASH: begin
                     ps <= S_NORM;
                     case (c)
-                        8'h33: rattr[phys(top, row)] <= 2'd1;       // 3: double height, top
-                        8'h34: rattr[phys(top, row)] <= 2'd2;       // 4: bottom
-                        8'h36: rattr[phys(top, row)] <= 2'd3;       // 6: double width
-                        8'h35: rattr[phys(top, row)] <= 2'd0;       // 5: single
+                        8'h33: rattr[cur_prow] <= 2'd1;       // 3: double height, top
+                        8'h34: rattr[cur_prow] <= 2'd2;       // 4: bottom
+                        8'h36: rattr[cur_prow] <= 2'd3;       // 6: double width
+                        8'h35: rattr[cur_prow] <= 2'd0;       // 5: single
                         default: ;
                     endcase
                 end

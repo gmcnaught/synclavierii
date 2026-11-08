@@ -70,6 +70,7 @@ jobs:
           path: |
             mister/output_files/*.rpt
             mister/output_files/*.summary
+            mister/output_files/worst_paths*.txt
             mister/build.log
           if-no-files-found: warn
 

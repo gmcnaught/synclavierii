@@ -12,6 +12,7 @@
 // machine.
 module synclavier_core #(
     parameter longint CLK_HZ = 50_000_000,
+    parameter int VID_CE_DIV = 2,                    // clk_vid cycles per pixel (MiSTer: 1, 25 MHz)
     parameter logic [16:0] EXT_SECTORS = 17'd1024,   // sim/system.py default
     parameter logic [3:0] FD_SPT = 4'd5,             // Release L F0/F1: 5 sectors per
     parameter logic [1:0] FD_SIDES = 2'd1            // track, single sided
@@ -20,6 +21,7 @@ module synclavier_core #(
     input  logic        rst_hard,       // power-on: also forgets mounted images
     input  logic        rst,            // user reset: boot again
     input  logic        rt_enable,      // hold the CPU to real time
+    input  logic        clk_vid,        // video: 25 MHz x VID_CE_DIV
 
     input  logic [10:0] ps2_key,
     input  logic [1:0]  color,
@@ -218,8 +220,8 @@ module synclavier_core #(
     // ------------------------------------------------------ terminal, video
     ps2_ascii keys (.clk, .rst, .ps2_key, .valid(kb_rx_valid), .ascii(kb_rx_data));
 
-    term_display display (
-        .clk, .rst,
+    term_display #(.CE_DIV(VID_CE_DIV)) display (
+        .clk, .rst, .vclk(clk_vid),
         .in_valid(cpu_rst ? msg_valid : term_tx_valid),
         .in_data(cpu_rst ? msg_data : term_tx_data),
         .color,

@@ -98,12 +98,15 @@ hps_io #(.CONF_STR(CONF_STR), .VDNUM(2)) hps_io
 
 ///////////////////////   CLOCKS   ///////////////////////////////
 
-wire clk_sys;          // 50 MHz (rtl/pll); synclavier_core CLK_HZ must match
+// rtl/pll: clk_sys 16 MHz (core; synclavier_core CLK_HZ must match),
+// clk_vid 25 MHz (terminal video, 640 x 480)
+wire clk_sys, clk_vid;
 pll pll
 (
 	.refclk(CLK_50M),
 	.rst(0),
-	.outclk_0(clk_sys)
+	.outclk_0(clk_sys),
+	.outclk_1(clk_vid)
 );
 
 reg rst_hard = 1, rst_user = 1;
@@ -122,9 +125,10 @@ wire  [7:0] r, g, b;
 wire        led_disk, booting, boot_error, halted;
 wire signed [15:0] audio_l, audio_r;
 
-synclavier_core #(.CLK_HZ(50_000_000)) core
+synclavier_core #(.CLK_HZ(16_000_000), .VID_CE_DIV(1)) core
 (
 	.clk(clk_sys),
+	.clk_vid(clk_vid),
 	.rst_hard(rst_hard),
 	.rst(rst_user),
 	.rt_enable(~status[3]),
@@ -226,7 +230,7 @@ ddram_word ext_memory
 	.DDRAM_WE(DDRAM_WE)
 );
 
-assign CLK_VIDEO = clk_sys;
+assign CLK_VIDEO = clk_vid;
 assign CE_PIXEL  = ce_pix;
 assign VGA_DE = ~(hblank | vblank);
 assign VGA_HS = hs;

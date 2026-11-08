@@ -40,6 +40,11 @@ fit=output_files/$PROJECT.fit.summary
 [ -f "$fit" ] && cat "$fit"
 grep -hE "uninferred|can't infer memory|Error \(" build.log 2>/dev/null | sort -u | head -40 || true
 
+if [ -f output_files/$PROJECT.sta.rpt ]; then
+    "$QBIN/quartus_sta" -t sta_paths.tcl >/dev/null 2>&1 || echo "(worst-path report failed)"
+    [ -f output_files/worst_paths.txt ] && head -80 output_files/worst_paths.txt
+fi
+
 echo
 echo "== Timing =="
 sta=output_files/$PROJECT.sta.summary

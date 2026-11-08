@@ -8,13 +8,17 @@
 // scrolling at the bottom; BS = left one; HT = next multiple of 8; FF =
 // clear and home. Everything else is ignored.
 //
-// Video: 800 x 525 clocks per frame at one pixel per `ce` (clk/2: 25 MHz
-// from 50 MHz, 59.5 Hz). Sync pulses are active high (MiSTer convention).
+// Video: 800 x 525 pixels per frame, one pixel per `ce` of vclk (on MiSTer
+// vclk = 25 MHz and CE_DIV = 1: 59.5 Hz). Sync pulses are active high
+// (MiSTer convention). The writer runs on clk; the text RAM is written on
+// clk and read on vclk. The cursor and scroll position are read across
+// the clock domains as they are: a change may show one frame late.
 module term_display #(
-    parameter int CE_DIV = 2              // clocks per pixel
+    parameter int CE_DIV = 1              // vclk cycles per pixel
 ) (
     input  logic        clk,
     input  logic        rst,
+    input  logic        vclk,
     input  logic        in_valid,
     input  logic [7:0]  in_data,
     input  logic [1:0]  color,          // 0 green, 1 amber, 2 white
@@ -154,13 +158,14 @@ module term_display #(
     end
 
     // ----------------------------------------------------------------- video
-    logic [$clog2(CE_DIV)-1:0] div;
-    always_ff @(posedge clk) div <= div == ($clog2(CE_DIV))'(CE_DIV - 1) ? '0 : div + 1'b1;
-    wire ce = div == '0;
+    localparam int DW = CE_DIV > 1 ? $clog2(CE_DIV) : 1;
+    logic [DW-1:0] div;
+    always_ff @(posedge vclk) div <= div == DW'(CE_DIV - 1) ? '0 : div + 1'b1;
+    wire ce = CE_DIV == 1 || div == '0;
 
     logic [9:0] h, v;
     logic [5:0] frame;
-    always_ff @(posedge clk) if (ce) begin
+    always_ff @(posedge vclk) if (ce) begin
         if (h == 10'd799) begin
             h <= '0;
             if (v == 10'd524) begin v <= '0; frame <= frame + 6'd1; end
@@ -175,18 +180,21 @@ module term_display #(
     wire [2:0]  line = ty[3:1];
     logic [7:0] ch_q, glyph_q;
     logic [2:0] line_q;
-    always_ff @(posedge clk) begin
+    always_ff @(posedge vclk) begin
         ch_q <= tram[{phys(top, lrow), h[9:3]}];
         line_q <= line;
         glyph_q <= font8x8({ch_q[6:0], line_q});
-        peek_data <= tram[peek_addr];
     end
+    // simulation only (a second read port would keep the RAM out of M10K)
+    // synthesis translate_off
+    always_ff @(posedge clk) peek_data <= tram[peek_addr];
+    // synthesis translate_on
 
     // glyph_q holds the glyph of the pixel one behind the counters (h1)
     logic [9:0] h1, v1;
     logic       t1, cur1;
     wire        cursor_here = in_text && lrow == row && h[9:3] == col && line == 3'd7 && frame[5];
-    always_ff @(posedge clk) if (ce) begin
+    always_ff @(posedge vclk) if (ce) begin
         h1 <= h;
         v1 <= v;
         t1 <= in_text && h < 10'd640;
@@ -194,7 +202,7 @@ module term_display #(
     end
 
     wire on = t1 && (glyph_q[h1[2:0]] ^ cur1);
-    always_ff @(posedge clk) if (ce) begin
+    always_ff @(posedge vclk) if (ce) begin
         hblank <= h1 >= 10'd640;
         vblank <= v1 >= 10'd480;
         hs <= h1 >= 10'd656 && h1 < 10'd752;

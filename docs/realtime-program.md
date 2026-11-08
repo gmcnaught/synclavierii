@@ -96,5 +96,18 @@ against this log:
 
 With these models ORK-LM detects 8 voices ("9 VOICES" on its screen),
 loads four 256-point wave memories and runs with no unmodelled device
-access. **A key press does not yet produce FM writes**; the next step is
-recalling a timbre, which needs the panel's logical button map.
+access.
+
+## Playing a note
+
+```bash
+python3 -m sim.rtp IMAGE.simg --seconds 8 --swap-f0 06-TIMBD \
+    --buttons bank.0,timb.0 --keys 48 --fm-log out/ork-lm-c4.csv
+```
+
+After start-up the timbre library floppy goes into F0 (as a user would
+swap disks); `bank.0` reads the bank and `timb.0` recalls timbre 0; key 48
+(C4) then starts four FM voices: 3,832 FM writes for a 1 s note. Button
+names: [`devices/d130-original-keyboard.md`](devices/d130-original-keyboard.md#button-map).
+The note-on sequence is in
+[`devices/d160-fm-interface.md`](devices/d160-fm-interface.md#a-note-release-l-ork-lm-timbre-0-of-bank-0-key-c4).

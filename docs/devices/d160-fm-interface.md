@@ -62,8 +62,33 @@ count plus one ("9 VOICES" for 8).
 * the main loop reads D160 about 117,000 times a second (bit 1, the
   external clock) and the switches every scan.
 
-D160 is also written `4001` (bit 11 set) before the clock polls; its
-meaning is open.
+**Channel words.** ORK-LM writes whole "channel words" to D160 (NED
+`SYNLITS:QUELITS`): `[4 bits state][4 bits wave memory 8–15 used for
+splicing][8 bits channel 0–255]`. Free channels are stored as
+`I \ SHL(8 + (SHR(I,1) & 7), 8)`, so voice n's channels carry wave memory
+8 + n: e.g. `4001` = channel 1, `5407` = channel 7 (memory 13). The model
+takes the low 8 bits as the channel and logs the whole word; whether the
+hardware uses bits 8–11 is open.
+
+## A note (Release L ORK-LM, timbre 0 of bank 0, key C4)
+
+Each of the timbre's 4 partials gets a voice (carrier channels 1, 3, 5, 7
+or 11, 13, 15, 17 alternately). Note-on, per carrier: `TIM` = 44, then
+`ONU`, `NNU`, `INC`, then `EDIV` = 177777, `EADD` = 377, `ELIM` = 372; the
+modulator gets `ISHC`. While the key is held, `VOL` is rewritten about 345
+times a second per voice (software envelope steps). **D162 data is 16-bit
+here** (e.g. C4, partial 1: `ONU` 0, `NNU` 10471, `INC` 7004), not 8-bit as
+FCODLITS' comment says; the hardware's use of the high byte is for M3.
+
+| Key | Partial 1 carrier: `ONU` / `NNU` / `INC` | Partial 4 carrier |
+|---|---|---|
+| 36 (C3) | 0 / 177471 / 177404 | 7 / 177777 / 177777 |
+| 48 (C4) | 0 / 10471 / 7004 | 7 / 10647 / 7150 |
+| 49 (C♯4) | 0 / 24071 / 6004 | 7 / 24225 / 6037 |
+| 60 (C5) | 0 / 116071 / 404 | 0 / 116071 / 404 |
+
+`python3 -m sim.rtp IMAGE --swap-f0 06-TIMBD --buttons bank.0,timb.0
+--keys 48 --fm-log out.csv` records every write with its time.
 
 ## Evidence
 
@@ -84,5 +109,5 @@ meaning is open.
   the index and envelope interpolators, timbre bits) is milestone M3, from
   the SS1–SS7 card analysis.
 * D160 write `4001`; switch assignments of the six switch bits.
-* No key press has produced FM writes yet: ORK-LM presumably needs a timbre
-  recalled from the panel (button map not decoded).
+* How `ONU`/`NNU`/`INC` (16-bit) set the frequency, and what `TIM` = 44
+  selects (M3).

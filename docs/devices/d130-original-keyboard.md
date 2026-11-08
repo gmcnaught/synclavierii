@@ -35,9 +35,32 @@ Model: `sim/devices/synth.py` `OriginalKeyboard`. Tests:
 | Keyboard type (MONITOR) | `105` | read `1` = original keyboard (it is octave 5, idle) |
 
 Key number = 12 × octave + bit + 12, i.e. 12–72 (C1–C6); middle C (C3) is
-36 in NED's numbering (`076-OLDI`). Physical button number = 16 × panel +
-bit (0–127); the mapping to logical buttons is a table in external memory
-(`ORK.PTR`), not yet decoded.
+36 in NED's numbering (`076-OLDI`). Physical button number (PBN) = 16 ×
+panel + bit (0–127).
+
+## Button map
+
+`075-OLDL` (5/15/86) maps each PBN to a logical parameter (`ORK.LOOKUP`;
+`ORK.PTR` in external memory is the reverse table, used to light buttons).
+The simulator has it as `sim.devices.synth.ORK_BUTTONS` (names below are
+NED's, `x.n` = `x.l+n`); `button_number("timb.0")` gives 104.
+
+| PBN | Row 1 (bits 0–7) | Row 2 (bits 8–15) |
+|---|---|---|
+| 0–15 | `psel.0 psel.1` partial select; volume envelope `ve.del atk idec fdec peak sust` | `psel.2 psel.3`; harmonic envelope `he.del … he.sust` |
+| 16–31 | `hgs1 hgs2`, harmonic coefficients `coef.0–5` | `scale.a ttben`, `coef.6–11` |
+| 32–47 | sequencer `start stop record punch cont rew ff erase` | `eloop transp speed bounce smt skt click ext` |
+| 48–63 | tracks `trak.0–7` | `trak.8–15` |
+| 64–79 | `ptun vwave vrate vdepth vatk ponoff plogl prate` | `ratio decay repeat arpeg rrate chorus tbase oratio` |
+| 80–95 | `vkvel vkpre vkpe1 vkpe2 vkmod vkrib vkkcv vkbth` | `smpte smin scon midi vkper vkrec vkove vkclr` |
+| 96–111 | **banks** `bank.0–7` | **timbre recall** `timb.0–7` |
+| 112–127 | sequence recall `seqr.0–5`, `bnkovwrt entrywrt` | filters `lpt lpfc hpt hpfc bpt bpfc bwdth dsel` |
+
+**Recalling a timbre (Release L ORK-LM, simulator):** with the timbre
+library floppy (`06-TIMBD`, file `.NEWDATA`) in F0, `bank.0` reads the
+bank (34 sectors) and `timb.0` loads the timbre (258 FM writes); a key then
+plays. At start-up bank 0 / timbre 0 are lit (D130 lights word 6 = `401`)
+but no bank has been read, so keys are silent. **[OBS]**
 
 ## Evidence
 

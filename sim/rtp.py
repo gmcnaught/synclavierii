@@ -106,18 +106,39 @@ def start_rtp(image, name="ORK-LM", ext_sectors=2048, strict=False, history_len=
     return cpu, dbg, lay
 
 
+def run_seconds(cpu, dbg, seconds):
+    """Run for `seconds` of simulated time. Returns a stop reason or None."""
+    t0 = cpu.time_ns
+    while cpu.time_ns - t0 < seconds * 1e9:
+        stop = dbg.run(1_000_000)
+        if stop:
+            return stop
+    return None
+
+
 def main(argv=None):
     import argparse
     import csv
     import sys
+    from .boot import insert_floppy
+    from .devices.synth import button_number
 
-    ap = argparse.ArgumentParser(description="Run a Release L RTP and log its device accesses (M2.1)")
+    ap = argparse.ArgumentParser(
+        description="Run a Release L RTP, play it from the simulated panel and log device accesses (M2)")
     ap.add_argument("image", help="Release L .simg (user-supplied)")
     ap.add_argument("--rtp", default="ORK-LM", help="ORK-LM or ORK-LFM")
-    ap.add_argument("--seconds", type=float, default=10.0, help="simulated seconds to run")
+    ap.add_argument("--seconds", type=float, default=10.0,
+                    help="simulated seconds to run before any panel actions")
     ap.add_argument("--log", help="CSV file for every device access of the RTP")
     ap.add_argument("--quiet-devices", default="50,51,60,61,62,63",
                     help="octal devices left out of the CSV (default: terminal, ext memory)")
+    ap.add_argument("--swap-f0", metavar="FLOPPY",
+                    help="after start, put this floppy in F0 (e.g. 06-TIMBD, the timbre library)")
+    ap.add_argument("--buttons", default="",
+                    help="panel buttons to press in order, names or numbers (e.g. bank.0,timb.0)")
+    ap.add_argument("--keys", default="", help="keys to hold together, 12-72 (e.g. 48 = C4)")
+    ap.add_argument("--hold", type=float, default=1.0, help="simulated seconds to hold the keys")
+    ap.add_argument("--fm-log", help="CSV of every FM register write (D162) during the actions")
     a = ap.parse_args(argv)
 
     quiet = {int(x, 8) for x in a.quiet_devices.split(",") if x}
@@ -137,17 +158,44 @@ def main(argv=None):
                               output=lambda b: (out.write(chr(b & 0o177)), out.flush()))
     print("\n[rtp] %s staged (%d words); starting at %06o" % (a.rtp, lay["rtp_words"], cpu.pc))
     t0 = cpu.time_ns
-    stop = None
-    while cpu.time_ns - t0 < a.seconds * 1e9:
-        stop = dbg.run(1_000_000)
+    stop = run_seconds(cpu, dbg, a.seconds)
+    fm0 = len(cpu.fm.log)
+    if not stop and a.swap_f0:
+        insert_floppy(cpu, a.image, 0, a.swap_f0)
+        print("\n[rtp] F0 <- %s" % a.swap_f0)
+    for b in [x for x in a.buttons.split(",") if x]:
         if stop:
             break
+        pbn = button_number(b)
+        print("\n[rtp] button %s (PBN %d)" % (b, pbn))
+        cpu.keyboard.press_button(pbn)
+        stop = run_seconds(cpu, dbg, 0.1)
+        cpu.keyboard.press_button(pbn, False)
+        stop = stop or run_seconds(cpu, dbg, 1.5)
+    keys = [int(k) for k in a.keys.split(",") if k]
+    if keys and not stop:
+        print("\n[rtp] keys %s for %.2f s" % (keys, a.hold))
+        k0 = len(cpu.fm.log)
+        for k in keys:
+            cpu.keyboard.press_key(k)
+        stop = run_seconds(cpu, dbg, a.hold)
+        for k in keys:
+            cpu.keyboard.press_key(k, False)
+        stop = stop or run_seconds(cpu, dbg, 0.5)
+        print("\n[rtp] FM writes while playing: %d" % (len(cpu.fm.log) - k0))
     if f:
         f.close()
+    if a.fm_log:
+        with open(a.fm_log, "w", newline="") as g:
+            w = csv.writer(g)
+            w.writerow(["time_ns", "channel_word", "channel", "function", "value"])
+            for t, word, fn, v in cpu.fm.log[fm0:]:
+                w.writerow([t, "%06o" % word, "%03o" % (word & 0o377), "%02o" % fn, "%06o" % v])
     print("\n" + "=" * 60)
     print("[rtp] stop: %s after %.2f simulated s, %d instructions"
-          % (stop or "time limit", (cpu.time_ns - t0) / 1e9, cpu.instructions))
-    print(dbg.report(history=16, io=16))
+          % (stop or "end of script", (cpu.time_ns - t0) / 1e9, cpu.instructions))
+    if stop:
+        print(dbg.report(history=16, io=16))
     return 1 if stop == "halted" else 0
 
 

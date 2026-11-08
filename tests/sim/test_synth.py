@@ -84,7 +84,10 @@ def test_fm_channels_and_voice_detection():
     fm.write(0o160, 3)                       # odd channel: carrier
     fm.write(0o161, 0o13)                    # VOL
     fm.write(0o162, 200)
-    assert fm.channels[(3, 0o13)] == 200 and fm.log[-1] == (3, 0o13, 200)
+    assert fm.channels[(3, 0o13)] == 200 and fm.log[-1] == (0, 3, 0o13, 200)
+    fm.write(0o160, 0o5407)                  # ORK-LM channel word: splice memory 13, channel 7
+    fm.write(0o162, 1)
+    assert fm.channel == 7 and fm.channels[(7, 0o13)] == 1 and fm.log[-1][1] == 0o5407
     assert FMInterface.ODD_FUNCTIONS[0o13] == "volume"
 
 
@@ -105,6 +108,13 @@ def test_switches_clock_and_adc():
     fm.write(0o163, 1)
     fm.write(0o163, 1)
     assert fm.ext_clock_out
+
+
+def test_button_table():
+    from sim.devices.synth import ORK_BUTTONS, button_number
+    assert len(ORK_BUTTONS) == 128 and len(set(ORK_BUTTONS)) == 128
+    assert button_number("bank.0") == 96 and button_number("timb.0") == 104
+    assert button_number("start") == 32 and button_number("17") == 17
 
 
 def test_control_voltages():

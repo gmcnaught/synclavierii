@@ -45,6 +45,7 @@ module term_display #(
     input  logic [15:0] midi_count,     // MIDI bytes received, the last, framing errors
     input  logic [7:0]  midi_last,
     input  logic [15:0] midi_errs,
+    input  logic        midi_alt,       // MIDI line at 9600 rather than 31250
 
     output logic        ce_pix,
     output logic [7:0]  r,
@@ -382,6 +383,9 @@ module term_display #(
                     7'd63: p_ch = "E"; 7'd64: p_ch = "r"; 7'd65: p_ch = "r";
                     7'd67: p_ch = hex_char(midi_errs[15:12]);  7'd68: p_ch = hex_char(midi_errs[11:8]);
                     7'd69: p_ch = hex_char(midi_errs[7:4]);    7'd70: p_ch = hex_char(midi_errs[3:0]);
+                    7'd72: p_ch = midi_alt ? "9" : "3";
+                    7'd73: p_ch = midi_alt ? "k" : "1";
+                    7'd74: p_ch = midi_alt ? "6" : "k";
                     default: ;
                 endcase
             end

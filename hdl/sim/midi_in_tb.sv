@@ -7,7 +7,7 @@ module midi_in_tb;
     logic        host_we, host_panel;
     logic [2:0]  host_index;
     logic [15:0] host_value;
-    logic        byte_valid, frame_err;
+    logic        byte_valid, frame_err, alt;
     logic [7:0]  byte_data;
     longint      cyc = 0;
 
@@ -26,10 +26,11 @@ module midi_in_tb;
         end
     end
 
+    int bit_clocks = 32;                     // 31250 baud at 1 MHz; 104 for 9600
     task automatic send(input logic [7:0] b);
-        rxd = 0; repeat (32) @(negedge clk);
-        for (int i = 0; i < 8; i++) begin rxd = b[i]; repeat (32) @(negedge clk); end
-        rxd = 1; repeat (40) @(negedge clk);
+        rxd = 0; repeat (bit_clocks) @(negedge clk);
+        for (int i = 0; i < 8; i++) begin rxd = b[i]; repeat (bit_clocks) @(negedge clk); end
+        rxd = 1; repeat (bit_clocks + 8) @(negedge clk);
     endtask
 
     function automatic logic [19:0] w(input logic p, input int i, input logic [15:0] v);
@@ -89,6 +90,20 @@ module midi_in_tb;
             errors++;
         end
         expect_writes('{w(1, 6, 16'h0002), w(1, 6, 16'h0000), w(1, 6, 16'h0800), w(1, 6, 16'h0000)});
+        if (alt) begin $display("FAIL: switched off 31250 on a 31250 line"); errors++; end
+        // the line falls back to 9600 (MiSTer ttyS1): MIDI clock bytes, then a note
+        bit_clocks = 104;
+        repeat (12) send(8'hf8);
+        if (!alt) begin $display("FAIL: did not switch to 9600"); errors++; end
+        got.delete(); at.delete();
+        send(8'h90); send(8'd60); send(8'd100); send(8'd60); send(8'd0);
+        expect_writes('{w(0, 2, 16'h0ffe), w(0, 2, 16'h0fff)});
+        // and back to 31250
+        bit_clocks = 32;
+        repeat (12) send(8'hf8);
+        if (alt) begin $display("FAIL: did not return to 31250"); errors++; end
+        send(8'h90); send(8'd64); send(8'd100);
+        expect_writes('{w(0, 2, 16'h0fef)});
         if (errors != 0) $fatal(1);
         $display("midi_in OK");
         $finish;

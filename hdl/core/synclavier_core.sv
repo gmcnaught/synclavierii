@@ -225,10 +225,10 @@ module synclavier_core #(
     midi_in #(.CLK_HZ(CLK_HZ)) midi (
         .clk, .rst, .rxd(midi_rxd),
         .host_we(midi_we), .host_panel(midi_panel), .host_index(midi_index), .host_value(midi_value),
-        .byte_valid(midi_byte), .byte_data(midi_data), .frame_err(midi_ferr)
+        .byte_valid(midi_byte), .byte_data(midi_data), .frame_err(midi_ferr), .alt(midi_alt)
     );
     // for the status line: bytes received, the last one, framing errors
-    logic        midi_byte, midi_ferr;
+    logic        midi_byte, midi_ferr, midi_alt;
     logic [7:0]  midi_data, midi_last;
     logic [15:0] midi_count, midi_errs;
     always_ff @(posedge clk)
@@ -295,7 +295,7 @@ module synclavier_core #(
         .in_data(cpu_rst ? msg_data : term_tx_data),
         .color, .lights(kb_lights), .display(kb_display),
         .ptr_on, .ptr_x, .ptr_y, .lag_us, .underruns, .overruns,
-        .midi_count, .midi_last, .midi_errs,
+        .midi_count, .midi_last, .midi_errs, .midi_alt,
         .ce_pix, .r(vga_r), .g(vga_g), .b(vga_b), .hs(vga_hs), .vs(vga_vs),
         .hblank(vga_hblank), .vblank(vga_vblank),
         .peek_addr, .peek_data, .top_row

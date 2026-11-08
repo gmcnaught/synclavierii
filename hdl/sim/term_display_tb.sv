@@ -20,7 +20,7 @@ module term_display_tb;
         .clk, .rst, .vclk(clk), .in_valid, .in_data, .color(2'd0),
         .lights, .display, .ptr_on(1'b1), .ptr_x(10'd600), .ptr_y(9'd100),
         .lag_us(32'h0001_2a3f), .underruns(16'h0002), .overruns(16'h0000),
-        .midi_count(16'h0123), .midi_last(8'hf8), .midi_errs(16'h0000),
+        .midi_count(16'h0123), .midi_last(8'hf8), .midi_errs(16'h0000), .midi_alt(1'b1),
         .ce_pix, .r, .g, .b, .hs, .vs, .hblank, .vblank,
         .peek_addr(12'd0), .peek_data, .top_row
     );

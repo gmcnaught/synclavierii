@@ -18,10 +18,11 @@ Milestone M1 in [`plan.md`](plan.md). This page covers what exists so far:
 | `sim/system.py` | `make_system()`: a CPU with the devices attached (`floppy=True`, `synth=True` add the floppy controller and the stubs) |
 | `sim/boot.py` | Boot: `MONITOR` staged in external memory, started through the `.LD-6` loader's ECOPY entry; floppies from the `.simg` in F0/F1; console CLI `python3 -m sim.boot IMAGE` |
 | `sim/rtp.py` | Starts a Release L real-time program (`ORK-LM`, `ORK-LFM`) through MONITOR's RUN hand-off and the loader; logs device accesses (`python3 -m sim.rtp IMAGE --log out.csv`) (M2.1) |
-| `sim/fm.py` | FM register semantics: pitch from `ONU`/`NNU`/`INC` ([`fm-voice.md`](fm-voice.md)) |
+| `sim/fm.py` | FM register semantics: pitch, envelope/index interpolators, `ISHC`, wave memory ([`fm-voice.md`](fm-voice.md)) |
+| `sim/voice.py` | Integer FM voice model: replays the D162 write log and renders stereo audio (`render`, `write_wav`; `python3 -m sim.voice LOG.csv OUT.wav`) (M3.2) |
 | `sim/trace.py` | `Debugger`: instruction history, device-access log, breakpoints, stop on input wait, halt report, memory inspect (M1.7) |
 | `sim/asm.py` | Small assembler in NED syntax (`SRC TO DST`, `DATA`, `IM()`, `RE(label)`), for tests and experiments |
-| `tests/sim/` | `test_decode.py` (tables, assembler round trip over all 65,536 words), `test_cpu.py` (42 instruction-level tests), `test_devices.py` (17 device tests, mostly small programs written like NED's loaders and runtime), `test_floppy.py` (7), `test_synth.py` (7), `test_fm.py` (3), `test_trace.py` (5), `test_boot.py` (3; boots the real MONITOR to `Ready >` and runs `CATALOG` when `SYNCLAVIER_RELEASE_L` names the image) and `test_rtp.py` (5; with the image: runs ORK-LM, checks the `.STAB-6` pointer, recalls a timbre and checks C4's pitch) |
+| `tests/sim/` | `test_decode.py` (tables, assembler round trip over all 65,536 words), `test_cpu.py` (42 instruction-level tests), `test_devices.py` (17 device tests, mostly small programs written like NED's loaders and runtime), `test_floppy.py` (7), `test_synth.py` (8), `test_fm.py` (7), `test_voice.py` (8), `test_trace.py` (5), `test_boot.py` (3; boots the real MONITOR to `Ready >` and runs `CATALOG` when `SYNCLAVIER_RELEASE_L` names the image) and `test_rtp.py` (5; with the image: runs ORK-LM, checks the `.STAB-6` pointer, recalls a timbre, checks C4's pitch, renders it and checks the note's end) |
 
 ## Use
 
@@ -110,6 +111,25 @@ If the run halts, a report shows the registers, the last 32 instructions
 (disassembled), the last 16 device transfers and per-device counts.
 
 How the boot works: [`boot-and-loaders.md`](boot-and-loaders.md) §4.
+
+### Playing notes and rendering audio
+
+`sim.rtp` runs ORK-LM, puts the timbre floppy in F0, presses panel buttons,
+holds keys, and renders what the FM voices play (M3.2):
+
+```bash
+python3 -m sim.rtp IMAGE.simg --swap-f0 06-TIMBD --buttons bank.0,timb.0 \
+    --keys 36,40,43 --hold 1 --wav chord.wav --fm-log chord.csv
+```
+
+`--wav` replays every D162 write since the RTP started (so wave memory
+loads are included) through `sim/voice.py` and writes 48 kHz 16-bit stereo
+from the key press to the end of the run (0.5 s after release). Rendering
+takes about 1 s of host time per voice-second. The CSV holds only the
+writes during the panel actions, so `python3 -m sim.voice chord.csv
+out.wav` renders it correctly only if the wave memories were loaded in that
+window (a timbre recall does load them). What the model fixes and what it
+chooses: [`fm-voice.md`](fm-voice.md#voice-model-m32).
 
 ### Debugger
 

@@ -3,9 +3,11 @@
 What each register of the original Synclavier II FM synthesizer does, and
 how a voice turns them into sound. Registers and channels:
 [`devices/d160-fm-interface.md`](devices/d160-fm-interface.md). Code:
-`sim/fm.py`. Status (M3.1a): **pitch decoded and verified**; envelope,
-index, shift/pan, volume and wave memory **decoded from NED source**, with
-the release path checked against Release L. Open items at the end.
+`sim/fm.py`, `sim/voice.py`. Status: **pitch decoded and verified**;
+envelope, index, shift/pan, volume and wave memory **decoded from NED
+source**, with the release path checked against Release L (M3.1a). An
+integer voice model renders audio from the register writes (M3.2). Open
+items at the end.
 
 ## Structure (hardware)
 
@@ -170,4 +172,42 @@ maps partial volume 0–1000 to 0–255 for `VOL`. Release L rewrites `VOL`
 | Sine ROM contents (phase offset, 256 × 8 unsigned assumed) | ROM dump |
 | Absolute levels and envelope curves | recordings of real hardware (risk R1) |
 
-The bit-accurate voice model and audio rendering are M3.2/M3.3.
+## Voice model (M3.2)
+
+`sim/voice.py` replays the D162 writes (time, channel, function, value)
+through 16 channels and renders stereo audio. State is integer, as in
+hardware; only the final mix is floating point.
+
+| Part | Model | Status |
+|---|---|---|
+| Oscillator | per tick of 256 × 128 × K = 5.3335 MHz: accumulator += increment, modulus divisor; each wrap is a pulse; a 7-stage divider passes one pulse in 2^(7 − ONU) to the 8-bit point counter | step rate **[OBS]** (pitch table); clock tree **[UNKNOWN]**: increment can exceed the divisor (A 440: 123/91), so at this clock one tick can give two pulses |
+| Interpolators | `sim.fm.Interpolator`, 192 kHz | **[INFERRED]** |
+| Modulator | `SINE_ROM[point]`, round(127.5 + 127.5 sin(2πn/256)) | **[CHOICE]**: ROM not dumped |
+| FM | carrier address = (carrier point + (m × index) >> (8 − shift)) & 255 | **[INFERRED]** card analysis |
+| Carrier sample | wave memory `TIM` & 31, unsigned, DAC offset binary around 128 | wave data **[OBS]** (NED `COMPUTE.WAVE`: scaled to 0–255 around the DC point; flat = 128); offset **[CHOICE]** |
+| Level | (w − 128) × envelope × `VOL`, linear | **[CHOICE]**: MDAC/DAC laws unknown |
+| Pan | right = pan / 256, left = 1 − right (`ISHC` bits 7–2) | **[CHOICE]**: pan PROM not dumped |
+| Output | sampled at 48 kHz × 4, box filter to 48 kHz | **[CHOICE]**; hardware DACs change at each voice's step rate, analog filtering unknown |
+
+Checks (`tests/sim/test_voice.py`, `test_rtp.py`):
+
+* Oscillator and interpolator closed forms equal clock-by-clock stepping
+  (random registers), so an HDL implementation can be compared tick by
+  tick.
+* A rendered note's fundamental is at `fm.frequency(ONU, NNU, INC)`.
+* FM: index 0 gives the pure wave; with modulator = carrier frequency,
+  harmonics 2 and 3 appear and grow with the index and shift.
+* Release L `06-TIMBD` bank 0 timbre 0: wave memory 4 holds a sine; C4
+  renders at 523.3 Hz with harmonics 2 and 3 below 1 %. A C–E–G chord
+  (keys 36, 40, 43) renders three equal peaks at 261.6, 329.6, 392.0 Hz.
+* `TOMDTA43` timbre 3 in Release L (a later bank, partly misread):
+  index envelope (`ILIM` 228), a pitch sweep rewritten every 10 ms and a
+  `VOL` decay 150 → 41 over 30 ms; it renders without clipping. Whether
+  it sounds like the original needs a recording.
+
+Not modelled: the splice bits of the channel word (QUELITS: bits 8–11
+splice memory, 12–15 state), `TIM` bit 5, and the NED note that an `INC`
+write also sets `ONU` = 0 and `NNU` = 255.
+
+M3.3 (tuning against recordings of real hardware) needs those recordings
+(risk R1, [`bench-checklist.md`](bench-checklist.md)).

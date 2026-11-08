@@ -389,6 +389,22 @@ Details in [`timbre-libraries.md`](timbre-libraries.md).
   1–7 all load the same wave memory and the same envelope (attack 0,
   sustain = peak, no index envelope). Not investigated yet.
 
+## 23. Integer voice model and audio (M3.2)
+
+* NED `198-SYN2` `COMPUTE.WAVE`: wave memory samples are unsigned 8-bit,
+  scaled to 0–255 symmetrically about the DC point; a flat wave is 128.
+* Release L `06-TIMBD` bank 0 timbre 0 is a pure sine: wave memory 4
+  (`TIM` 044) holds one cycle (127, 152, 176, … 255 at point 64); its
+  harmonics 2–8 are below 0.1 % of the fundamental.
+* `.STAB-6` increments exceed their divisors for half of each octave
+  (A 440: 123/91). So the oscillator cannot be "one accumulator wrap per
+  tick of 256 × 128 × K"; the real clock is faster or the structure
+  differs. The model keeps the verified step rate and allows two pulses
+  per tick.
+* `sim/voice.py` renders the register log; `sim.rtp --wav`. Checked: pitch,
+  FM sidebands vs index, the Release L chord. The sine ROM, DAC laws, pan
+  law and analog reconstruction are choices (`fm-voice.md`).
+
 ## Searched without useful results
 
 * archive.org full-text and metadata search for "synclavier", "new england

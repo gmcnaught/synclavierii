@@ -91,6 +91,36 @@ def test_fm_channels_and_voice_detection():
     assert FMInterface.ODD_FUNCTIONS[0o13] == "volume"
 
 
+def test_fm_limit_status_and_wave_memory():
+    fm = FMInterface(voices=8)
+    fm.write(0o160, 1)
+    for fn, v in ((0o10, 0o377), (0o11, 0o377), (0o12, 0)):   # silence: ELIM 0
+        fm.write(0o161, fn)
+        fm.write(0o162, v)
+    assert fm.read(0o160) & 1 == 0           # function 12 selected, counter at 0 = limit
+    fm.write(0o161, 0)
+    assert fm.read(0o160) & 1 == 1           # other function: channel exists
+    fm.write(0o161, 0o12)
+    fm.write(0o162, 250)                     # attack to 250 at full rate
+    assert fm.read(0o160) & 1 == 1
+    fm.tick(1_000_000)                       # 1 ms = 192 steps
+    assert fm.read(0o160) & 1 == 1 and fm.interp[1].value == 192
+    fm.tick(1_000_000)
+    assert fm.read(0o160) & 1 == 0 and fm.interp[1].value == 250
+    fm.write(0o160, 0o20)                    # absent channel
+    assert fm.read(0o160) & 1 == 0
+    # wave memory: ZMA, TIM = 32 + n, then successive MEM bytes
+    fm.write(0o160, 0o17)
+    for fn, v in ((6, 0), (4, 0o44)):
+        fm.write(0o161, fn)
+        fm.write(0o162, v)
+    fm.write(0o161, 7)
+    for i in range(257):
+        fm.write(0o162, i)
+    assert fm.wave[4][:3] == bytes([0, 1, 2])  # byte 0 rewritten by the 257th write (256 & 255)
+    assert fm.wave[4][255] == 255 and fm.mar[0o17] == 1
+
+
 def test_switches_clock_and_adc():
     fm = FMInterface(voices=0)
     fm.write(0o160, 0)

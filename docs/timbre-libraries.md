@@ -12,8 +12,8 @@ later NED sample/patch libraries (user-supplied, not in the repository;
 * A bank holds fixed-size timbre records (about 0o251 words; names such as
   `WORKSPACE` inside the record, values like 1750 = 1000, 620 = 400).
   Format not decoded yet.
-* Bank 0, recalled in ORK-LM: timbres 0–5 play (4 voices each); 6 and 7
-  are silent.
+* Bank 0, recalled in ORK-LM: all 8 timbres play (one carrier each for
+  C4).
 
 ## Later NED libraries (`Original-NED-Sample-Patch-Libraries/`)
 
@@ -36,17 +36,22 @@ later NED sample/patch libraries (user-supplied, not in the repository;
 `TOMDTA43/*NEWDATA.stmb` written over bank 0 of `06-TIMBD`
 (`sim.rtp --bank-file`), then `bank.0`, `timb.n`, key C4 for 0.5 s:
 
-| Timbre | Entry text | Recall (FM writes) | C4 (FM writes) |
+| Timbre | Entry text | Recall (FM writes) | C4, 1 s (FM writes) |
 |---|---|---|---|
 | timb.0 | "TUNED TOMS", sound-file patch | 0; screen: `Error: Missing Sound File "TOM3--43"` | 0 |
-| timb.1, .2, .5, .6 | FM | 1,032 (four 256-point wave memories) | 0 |
-| timb.3 | FM | 1,032 | 13,682 (all 16 channels) |
-| timb.4 | FM | 5,862 | 176 |
-| timb.7 | FM | 1,032 | 12,486 |
+| timb.1, .2 | FM | 1,032 (four 256-point wave memories) | 0 |
+| timb.3 | FM | 1,032 | 10,093 |
+| timb.4 | FM | 6,352 | 12,130 |
+| timb.5 | FM | 7,554 | 17,378 |
+| timb.6 | FM | 5,740 | 136 |
+| timb.7 | FM | 1,032 | 13,086 |
+
+(Numbers after the `.STAB-6` fix of research log §21; the first run of
+this experiment used wrong tables.)
 
 **Inferred:** Release L reads the later bank format far enough to find
 names, sound-file references and the harmonic coefficients (it computes
-and loads wave memories), and three of the seven FM timbres play. Whether
+and loads wave memories), and four of the seven FM timbres play. Whether
 it interprets every parameter as the text says is **unknown**: the format
 grew after 1986, and four FM timbres stay silent. The logs from these
 timbres are therefore not yet calibration data.

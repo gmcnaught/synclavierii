@@ -32,6 +32,9 @@ from .trace import STOP_BREAKPOINT, STOP_INPUT, Debugger
 
 SECTOR_WORDS = 256
 LOADER_ECOPY = 4
+#: Release L high-core file pointers (offsets below MEM.SIZ; -6 layout,
+#: observed by diffing high core across PLAY): length, LS sector, device.
+LOC_MON_LENGTH, LOC_P2_LENGTH, LOC_P3_LENGTH = 46, 52, 55
 
 
 def rtp_parts(W, name):
@@ -76,7 +79,8 @@ def start_rtp(image, name="ORK-LM", ext_sectors=2048, strict=False, history_len=
     from .devices.stubs import ProbeDevice
     W = load(image)
     program = rtp_words(W, name)
-    cpu, lay = boot_from_image(image, "03-SYSTD", ext_sectors=ext_sectors,
+    first_floppy = rtp_parts(W, name)[0][1].strip("/").split("/")[0]
+    cpu, lay = boot_from_image(image, "03-SYSTD", f1=first_floppy, ext_sectors=ext_sectors,
                                strict=strict, **system_kw)
     if not strict:
         cpu.probe = ProbeDevice()
@@ -85,7 +89,10 @@ def start_rtp(image, name="ORK-LM", ext_sectors=2048, strict=False, history_len=
     if dbg.run(50_000_000, until_input=True) != STOP_INPUT:
         raise RuntimeError("MONITOR did not reach Ready >:\n" + dbg.report())
     entries = {lay["loc_load"] + i for i in (1, 2, 3)}
-    for line in ("ENTER F0:\r", "OLD CONFIGUR\r", "RUN\r"):
+    # SET RTP + PLAY: MONITOR finds the RTP (F1) and .STAB-6 (F0) and stores
+    # their locations in high core (LOC.P2 / LOC.P3) before giving up on the
+    # missing SCRIPT compiler. The RTP reads .STAB-6 from LOC.P3.
+    for line in ("SET RTP %s\r" % name, "PLAY\r", "ENTER F0:\r", "OLD CONFIGUR\r", "RUN\r"):
         cpu.terminal.feed(line)
         if line == "RUN\r":
             dbg.breakpoints.update(entries)
@@ -94,6 +101,9 @@ def start_rtp(image, name="ORK-LM", ext_sectors=2048, strict=False, history_len=
             raise RuntimeError("%r: %s\n%s" % (line, stop, dbg.report()))
     if stop != STOP_BREAKPOINT:
         raise RuntimeError("MONITOR did not enter the loader:\n" + dbg.report())
+    msiz = lay["mem_siz"]
+    if cpu.mem[msiz - LOC_P3_LENGTH] == 0:
+        raise RuntimeError("PLAY did not record .STAB-6 (LOC.P3):\n" + cpu.terminal.text()[-400:])
     dbg.breakpoints.clear()
     dbg.io_counts.clear()
     if not strict:

@@ -63,7 +63,18 @@ module dev_floppy (
     logic        buf_valid;
     logic [9:0]  pos, lsn_w;
     logic [15:0] head0, head1;
-    logic [7:0]  sbuf [512];
+    // the sector buffer: 256 words, byte 2k = word k bits 7:0 (the first byte
+    // on the disk is the low half), one write port with byte enables and a
+    // registered read port (one M10K). The read port follows the D103
+    // position, or the word being written back while flushing; q_word says
+    // which word q holds.
+    logic [15:0] sbuf [256];
+    logic [15:0] q;
+    logic [7:0]  q_word;
+    logic        b_we;
+    logic [1:0]  b_be;
+    logic [7:0]  b_wa;
+    logic [15:0] b_wd;
 
     // sector copy between the media RAM and the buffer
     logic        filling, flushing;
@@ -110,7 +121,7 @@ module dev_floppy (
             3'd0: rdata = {8'd0, stat};
             3'd1: rdata = {8'd0, track};
             3'd2: rdata = {8'd0, sector};
-            default: rdata = {8'd0, data_out ? sbuf[pos[8:0]] : data};
+            default: rdata = {8'd0, data_out ? q_byte : data};
         endcase
     end
 
@@ -134,9 +145,31 @@ module dev_floppy (
 
     // media RAM port
     assign fd_addr  = {drive, copy_lsn, idx[7:0]};
+    wire [7:0] r_word = flushing ? idx[7:0] : pos[8:1];
+    wire [7:0] q_byte = pos[0] ? q[15:8] : q[7:0];
+    always_ff @(posedge clk) begin
+        if (b_we) begin
+            if (b_be[0]) sbuf[b_wa][7:0]  <= b_wd[7:0];
+            if (b_be[1]) sbuf[b_wa][15:8] <= b_wd[15:8];
+        end
+        q <= sbuf[r_word];
+        q_word <= r_word;
+    end
+    always_comb begin
+        b_we = 1'b0; b_be = 2'b00; b_wa = idx[7:0]; b_wd = fd_rdata;
+        if (filling && fd_ack) begin
+            b_we = 1'b1; b_be = 2'b11;
+        end else if (ack && wr && reg_sel == 3'd3 && data_in) begin
+            b_we = 1'b1; b_wa = pos[8:1];
+            b_be = pos[0] ? 2'b10 : 2'b01;
+            b_wd = {wdata[7:0], wdata[7:0]};
+        end
+    end
+    // a CPU D103 access comes at least an instruction after pos moved, so q
+    // follows pos in time; a write-back word goes out once q holds it
     assign fd_rd    = filling;
-    assign fd_wr    = flushing;
-    assign fd_wdata = {sbuf[{idx[7:0], 1'b1}], sbuf[{idx[7:0], 1'b0}]};
+    assign fd_wr    = flushing && q_word == idx[7:0];
+    assign fd_wdata = q;
 
     wire signed [31:0] ns = {22'd0, tick_ns};
 
@@ -176,12 +209,10 @@ module dev_floppy (
         end else begin
         // sector copy (floppy accesses wait meanwhile; time still runs)
         if (filling && fd_ack) begin
-            sbuf[{idx[7:0], 1'b0}] <= fd_rdata[7:0];
-            sbuf[{idx[7:0], 1'b1}] <= fd_rdata[15:8];
             idx <= idx + 9'd1;
             if (idx == 9'd255) filling <= 1'b0;
         end
-        if (flushing && fd_ack) begin
+        if (fd_wr && fd_ack) begin
             idx <= idx + 9'd1;
             if (idx == 9'd255) flushing <= 1'b0;
         end
@@ -239,7 +270,6 @@ module dev_floppy (
                 3'd3: begin
                     data <= wdata[7:0];
                     if (data_in) begin
-                        sbuf[pos[8:0]] <= wdata[7:0];
                         pos <= pos + 10'd1;
                         if (pos == 10'd511) begin             // last byte: write the sector
                             buf_valid <= 1'b0;
@@ -253,7 +283,7 @@ module dev_floppy (
                 default: select <= wdata;
             endcase
         end else if (ack && rd && reg_sel == 3'd3 && data_out) begin
-            data <= sbuf[pos[8:0]];
+            data <= q_byte;
             pos <= pos + 10'd1;
             if (pos == 10'd511) begin
                 buf_valid <= 1'b0;

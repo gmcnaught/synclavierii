@@ -6,7 +6,9 @@
 //                  pattern, decimal point in the cell's corner) and the units
 //                  bits in hex; the 128 buttons, 16 a
 //                  row (row r = panel word r), each a 4-character label shown
-//                  inverted while its light is on; a help line;
+//                  inverted while its light is on; a help line; and a status
+//                  line: real time given up by the throttle (us) and audio
+//                  FIFO underruns/overruns, in hex;
 //   and the mouse pointer (panel_mouse.sv) once the mouse has moved.
 //
 // Character handling (what Release L MONITOR sends is printable ASCII plus
@@ -34,6 +36,9 @@ module term_display #(
     input  logic        ptr_on,
     input  logic [9:0]  ptr_x,
     input  logic [8:0]  ptr_y,
+    input  logic [31:0] lag_us,         // real-time health (hex on panel row 2)
+    input  logic [15:0] underruns,
+    input  logic [15:0] overruns,
 
     output logic        ce_pix,
     output logic [7:0]  r,
@@ -229,6 +234,25 @@ module term_display #(
                     p_seg = 1'b1;
                     p_dp = seg_byte[7];
                 end
+            end
+            4'd2: begin                                           // status, hex
+                case (h[9:3])
+                    7'd1: p_ch = "L"; 7'd2: p_ch = "a"; 7'd3: p_ch = "g"; 7'd4: p_ch = " ";
+                    7'd5: p_ch = "u"; 7'd6: p_ch = "s";
+                    7'd8: p_ch = hex_char(lag_us[31:28]);  7'd9: p_ch = hex_char(lag_us[27:24]);
+                    7'd10: p_ch = hex_char(lag_us[23:20]); 7'd11: p_ch = hex_char(lag_us[19:16]);
+                    7'd12: p_ch = hex_char(lag_us[15:12]); 7'd13: p_ch = hex_char(lag_us[11:8]);
+                    7'd14: p_ch = hex_char(lag_us[7:4]);   7'd15: p_ch = hex_char(lag_us[3:0]);
+                    7'd19: p_ch = "U"; 7'd20: p_ch = "n"; 7'd21: p_ch = "d"; 7'd22: p_ch = "e";
+                    7'd23: p_ch = "r"; 7'd24: p_ch = "r"; 7'd25: p_ch = "u"; 7'd26: p_ch = "n";
+                    7'd28: p_ch = hex_char(underruns[15:12]); 7'd29: p_ch = hex_char(underruns[11:8]);
+                    7'd30: p_ch = hex_char(underruns[7:4]);   7'd31: p_ch = hex_char(underruns[3:0]);
+                    7'd35: p_ch = "O"; 7'd36: p_ch = "v"; 7'd37: p_ch = "e"; 7'd38: p_ch = "r";
+                    7'd39: p_ch = "r"; 7'd40: p_ch = "u"; 7'd41: p_ch = "n";
+                    7'd43: p_ch = hex_char(overruns[15:12]); 7'd44: p_ch = hex_char(overruns[11:8]);
+                    7'd45: p_ch = hex_char(overruns[7:4]);   7'd46: p_ch = hex_char(overruns[3:0]);
+                    default: ;
+                endcase
             end
             4'd3, 4'd4, 4'd5, 4'd6, 4'd7, 4'd8, 4'd9, 4'd10:     // buttons
                 if (k < 3'd4) begin

@@ -31,7 +31,7 @@ assign HDMI_FREEZE = 0;
 assign HDMI_BLACKOUT = 0;
 assign HDMI_BOB_DEINT = 0;
 
-assign LED_DISK = 0;
+assign LED_DISK = {1'b1, led_disk};   // the core drives the disk LED
 assign LED_POWER = 0;
 assign BUTTONS = 0;
 
@@ -249,9 +249,9 @@ assign AUDIO_L   = audio_l;
 assign AUDIO_R   = audio_r;
 assign AUDIO_MIX = 0;
 
-// disk activity; slow blink: boot failed or the CPU halted (no SYN)
+// slow blink: boot failed or the CPU halted (no SYN)
 reg [24:0] blink;
 always @(posedge clk_sys) blink <= blink + 1'd1;
-assign LED_USER = led_disk | ((boot_error | halted) & blink[24]);
+assign LED_USER = (boot_error | halted) & blink[23];
 
 endmodule

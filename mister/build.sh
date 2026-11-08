@@ -44,7 +44,7 @@ grep -hE "uninferred|can't infer memory|Error \(" build.log 2>/dev/null | sort -
 
 if [ -f output_files/$PROJECT.sta.rpt ]; then
     "$QBIN/quartus_sta" -t sta_paths.tcl >/dev/null 2>&1 || echo "(worst-path report failed)"
-    if [ -f output_files/worst_paths.txt ]; then head -80 output_files/worst_paths.txt || true; fi
+    if [ -f output_files/worst_paths_core.txt ]; then head -60 output_files/worst_paths_core.txt || true; fi
 fi
 
 echo

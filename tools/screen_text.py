@@ -13,7 +13,9 @@ the font (tools/gen_font.py); row 7 of a cell may be inverted (the cursor),
 panel cells may be inverted whole (a lit button). The four display digits
 (panel row 1, columns 11-14) are drawn as 7 segments and read back as their
 codes (bit 0 = segment a ... bit 6 = g, bit 7 = decimal point), shown as
-characters where the code is a known one, '?' otherwise.
+characters where the code is a known one, '?' otherwise. Panel row 2 (the
+status counters) changes while a frame is drawn, so a digit there may read
+as '?'.
 """
 import os
 import sys
@@ -125,7 +127,11 @@ def screen_text(path, skip=(), strict=True):
                 display.append(code)
                 line += "?" if code is None else SEG_CHARS.get(code & 0x7F, "?")
                 continue
-            ch, inv = get(g, "panel row %d col %d" % (r, c), True)
+            if r == 2:                                        # live counters: may tear
+                m = _match(font, g, "", True)
+                ch, inv = m if m else ("?", False)
+            else:
+                ch, inv = get(g, "panel row %d col %d" % (r, c), True)
             inverted[(r, c)] = inv
             line += ch
         panel.append(line.rstrip())

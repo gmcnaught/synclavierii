@@ -54,6 +54,15 @@ def _testbench(name, rtl, args=()):
     assert p.returncode == 0 and "%s OK" % name in p.stdout, p.stdout + p.stderr
 
 
+def test_audio_fifo():
+    """Samples arriving with jitter play at a steady rate, in order; a stall
+    is one underrun with the last sample held."""
+    if not HAVE_VERILATOR:
+        print("  skip test_audio_fifo (needs verilator)")
+        return
+    _testbench("audio_fifo", "hdl/core/audio_fifo.sv")
+
+
 def test_panel_mouse():
     """Mouse packets -> pointer (clamped) and panel button presses."""
     if not HAVE_VERILATOR:
@@ -81,6 +90,7 @@ def test_term_display_panel():
     font, lab = glyphs(), labels()
     assert term[0] == "HELLO" and term[1] == "WORLD", term[:3]
     assert panel[1] == " Display  [1234]   Units 0004", panel[1]
+    assert panel[2] == " Lag us 00012A3F   Underrun 0002   Overrun 0000", panel[2]
     # the segment codes as written (NED DIGITS), decimal point on digit 2
     assert display == [0o006, 0o133 | 0o200, 0o117, 0o146], [oct(c) for c in display]
     # lit: HSus (word 0 bit 15), Bk1 (word 6 bit 0), Tb2 (word 6 bit 9)
@@ -126,7 +136,8 @@ def expected_panel(display="    ", units=0):
     """The panel strip with no lights on."""
     from tools.gen_panel_labels import labels
     lab = labels()
-    rows = ["-" * 80, (" Display  [%s]   Units %04X" % (display, units)).rstrip(), ""]
+    rows = ["-" * 80, (" Display  [%s]   Units %04X" % (display, units)).rstrip(),
+            " Lag us 00000000   Underrun 0000   Overrun 0000"]
     for r in range(8):
         rows.append(" ".join(lab[16 * r:16 * r + 16]).rstrip())
     rows.append(" Click a button to press it.   MIDI: ch 1-15 keys, ch 16 buttons, prog = timbre")
@@ -159,7 +170,11 @@ def test_board_boots_release_l():
         term, panel, inverted, display = frame_text(frame)
         assert term == screen
         assert not any(inverted.values())
-        assert panel == expected_panel(), "\n".join(panel)
+        # status line: no throttle in the bench (lag 0); the bench runs faster
+        # than real time, so the audio FIFO overruns there
+        import re
+        assert re.fullmatch(r" Lag us 00000000   Underrun [0-9A-F?]{4}   Overrun [0-9A-F?]{4}", panel[2]), panel[2]
+        assert panel[:2] + panel[3:] == expected_panel()[:2] + expected_panel()[3:], "\n".join(panel)
     finally:
         shutil.rmtree(tmp)
     assert n > 1_000_000

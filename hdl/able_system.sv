@@ -19,6 +19,7 @@ module able_system #(
     input  logic        clk,
     input  logic        rst,
     input  logic        rt_enable,         // 1: hold the CPU to real time (throttle.sv)
+    output logic [31:0] lag_us,            // real time given up by the throttle
 
     // devices outside this module
     output logic        dev_rd,
@@ -129,7 +130,7 @@ module able_system #(
     logic [15:4] irq;
     logic        stall;
 
-    throttle #(.CLK_HZ(CLK_HZ)) pace (.clk, .rst, .enable(rt_enable), .tick, .tick_ns, .stall);
+    throttle #(.CLK_HZ(CLK_HZ)) pace (.clk, .rst, .enable(rt_enable), .tick, .tick_ns, .stall, .lag_us);
 
     able_cpu cpu (
         .clk, .rst,

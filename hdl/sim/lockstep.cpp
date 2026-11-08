@@ -18,7 +18,9 @@
 //     from F0; the state it leaves must equal the trace's start (memory,
 //     external memory, registers), then the run is compared as for the
 //     system. At the end the screen is printed (and LOCKSTEP_FRAME=path
-//     writes one video frame as a PGM).
+//     writes one video frame as a PGM). LOCKSTEP_STATE=path mounts a state
+//     image (tools/state_image.py) in S2: the boot loader loads that state
+//     instead, and it must equal the trace's start the same way.
 //
 // Usage: V<top> TRACE [max_instructions]
 // Exit 0 on full agreement, 1 on the first mismatch (with context).
@@ -96,9 +98,11 @@ uint16_t reg(int i) { return (top->regs_flat[i / 2] >> ((i & 1) * 16)) & 0xFFFF;
 #ifdef BOARD
 // ---------------------------------------------------------------- board
 // HPS side of hps_io's SD block interface: one 512-byte block per request.
+uint32_t lba_of(Top* top, int d) { return d == 0 ? top->sd_lba0 : d == 1 ? top->sd_lba1 : top->sd_lba2; }
+
 struct SdModel {
-    std::vector<uint8_t> img[2];
-    bool present[2] = {false, false}, prot[2] = {false, false};
+    std::vector<uint8_t> img[3];                 // F0, F1, state image
+    bool present[3] = {false, false, false}, prot[3] = {false, false, true};
     int drive = -1, phase = 0, wait = 0, i = 0;
     bool writing = false;
     uint64_t reads = 0, writes = 0;
@@ -107,7 +111,7 @@ struct SdModel {
         if (wait > 0) { wait--; return; }
         switch (phase) {
         case 0:                                    // idle: pick a request
-            for (int d = 0; d < 2; d++)
+            for (int d = 0; d < 3; d++)
                 if ((top->sd_rd | top->sd_wr) >> d & 1) {
                     drive = d; writing = top->sd_wr >> d & 1;
                     phase = 1; wait = 40; return;
@@ -117,7 +121,7 @@ struct SdModel {
             top->sd_ack = 1 << drive; top->sd_buff_addr = 0; i = 0;
             phase = writing ? 3 : 2; wait = 4; return;
         case 2: {                                  // block -> FPGA
-            uint32_t lba = drive ? top->sd_lba1 : top->sd_lba0;
+            uint32_t lba = lba_of(top, drive);
             size_t off = (size_t)lba * 512 + i;
             top->sd_buff_addr = i;
             top->sd_buff_dout = off < img[drive].size() ? img[drive][off] : 0;
@@ -128,7 +132,7 @@ struct SdModel {
         case 3: {                                  // block <- FPGA
             top->sd_buff_addr = i; phase = 5; wait = 3; return; }
         case 5: {
-            uint32_t lba = drive ? top->sd_lba1 : top->sd_lba0;
+            uint32_t lba = lba_of(top, drive);
             size_t off = (size_t)lba * 512 + i;
             if (off < img[drive].size()) img[drive][off] = top->sd_buff_din;
             if (++i == 512) { phase = 4; writes++; } else phase = 3;
@@ -190,13 +194,14 @@ void board_start(Trace& t, bool& audio_trace) {
     for (int i = 0; i < 16; i++) want_regs[i] = t.u16();
     uint8_t want_flags = t.u8();
     std::vector<uint16_t> want_mem(65536), want_xm;
+    std::vector<uint8_t> want_wave(8192, 0);       // the header's wave-memory entries
     for (auto& w : want_mem) w = t.u16();
     for (;;) {
         uint8_t k = t.u8();
         if (k == 'B') break;
         if (k == 'X') {
             uint32_t sectors = t.u32();
-            if (sectors != 1024) { std::fprintf(stderr, "board: external memory must be 1024 sectors\n"); std::exit(2); }
+            if (sectors > 4096) { std::fprintf(stderr, "board: external memory over 4096 sectors\n"); std::exit(2); }
             want_xm.resize(sectors * 256);
             for (auto& w : want_xm) w = t.u16();
             ddr.mem.assign(sectors * 256 / 4, 0x5A5A5A5A5A5A5A5Aull);   // not zero: the loader clears it
@@ -212,8 +217,9 @@ void board_start(Trace& t, bool& audio_trace) {
         } else if (k == 'O') {
             t.p += 8 + 2 + 1 + 16 * 4;
             audio_trace = true;
-        } else if (k == 'V') {
-            t.p += 1 + 2 + 4;                      // fresh device state: boot_defaults.svh
+        } else if (k == 'V') {                     // device state: loaded by the core itself
+            uint8_t sel = t.u8(); uint16_t addr = t.u16(); uint32_t v = t.u32();
+            if (sel == 6 && addr < 8192) want_wave[addr] = (uint8_t)v;
         } else { std::fprintf(stderr, "bad header section '%c'\n", k); std::exit(2); }
     }
     top->rst_hard = 1; top->rst = 1; top->rt_enable = 0;
@@ -221,8 +227,17 @@ void board_start(Trace& t, bool& audio_trace) {
     top->dev_irq = 0; top->ps2_key = 0; top->ps2_mouse = 0; top->img_mounted = 0;
     top->sd_ack = 0; top->sd_buff_wr = 0; top->DDRAM_BUSY = 0; top->DDRAM_DOUT_READY = 0;
     for (int i = 0; i < 8; i++) board_tick();
+    // LOCKSTEP_STATE=path: a state image (tools/state_image.py) in S2, which
+    // the boot loader then loads instead of booting MONITOR from F0
+    if (const char* st = std::getenv("LOCKSTEP_STATE")) {
+        FILE* f = std::fopen(st, "rb");
+        if (!f) { std::perror(st); std::exit(2); }
+        for (int ch; (ch = std::fgetc(f)) != EOF;) sd.img[2].push_back((uint8_t)ch);
+        std::fclose(f);
+        sd.present[2] = true;
+    }
     top->rst_hard = 0;
-    for (int d = 0; d < 2; d++) if (sd.present[d]) {    // the HPS mounts the images
+    for (int d = 0; d < 3; d++) if (sd.present[d]) {    // the HPS mounts the images
         top->img_mounted = 1 << d; top->img_size = sd.img[d].size(); top->img_readonly = sd.prot[d];
         board_tick();
         top->img_mounted = 0;
@@ -244,8 +259,8 @@ void board_start(Trace& t, bool& audio_trace) {
             std::fprintf(stderr, "board: memory %06o = %06o, Python %06o\n", a, mem[a], want_mem[a]);
     auto& wave = top->rootp->board_top->core->sys->fm->wave;
     for (int a = 0; a < 8192; a++)
-        if (wave[a] != 0 && bad++ < 12)
-            std::fprintf(stderr, "board: wave memory %d = %d, Python 0\n", a, wave[a]);
+        if (wave[a] != want_wave[a] && bad++ < 12)
+            std::fprintf(stderr, "board: wave memory %d = %d, Python %d\n", a, wave[a], want_wave[a]);
     for (size_t a = 0; a < want_xm.size(); a++)
         if (ddr.word(a) != want_xm[a] && bad++ < 16)
             std::fprintf(stderr, "board: external word %zu = %06o, Python %06o\n", a, ddr.word(a), want_xm[a]);

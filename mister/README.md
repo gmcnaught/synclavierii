@@ -47,9 +47,21 @@ the image files (mount read-only to protect them).
 
 The bottom of the screen shows the original panel: the 4-digit display and
 the 128 buttons, lit ones inverted. Click a button with the mouse to press
-it. The real-time program (ORK-LM) cannot be started on the core yet: on
-Release L it needs a Winchester disk; the simulator stages it by hand
-(`sim/rtp.py`).
+it.
+
+The real-time program (ORK-LM) starts from a state image: on Release L it
+needs a Winchester disk, so the simulator starts it and saves the state.
+
+```bash
+python3 tools/state_image.py Release_L.simg ORK-LM.SST
+python3 tools/ned_disk.py Release_L.simg --floppy 14-RTPO1 14-RTPO1.IMG
+python3 tools/ned_disk.py Release_L.simg --floppy 06-TIMBD 06-TIMBD.IMG
+```
+
+Mount `ORK-LM.SST` as the State image (S2), `03-SYSTD.IMG` as F0 and
+`14-RTPO1.IMG` as F1, then Reset: the core loads the state and ORK-LM runs.
+For timbres, mount `06-TIMBD.IMG` as F0 and press a bank button, then a
+timbre button (mouse, MIDI channel 16, or MIDI program change).
 
 MIDI: set the UART to MidiLink (USB MIDI) in the MiSTer menu. Channels
 1–15 play the keyboard (MIDI notes 36–96 = the ORK's 61 keys); channel 16

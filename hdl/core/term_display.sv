@@ -2,9 +2,9 @@
 //   lines 0-383    the characters the program sends to D50, 80 x 24 text
 //                  (8 x 8 font, rows doubled);
 //   lines 384-479  the original keyboard's panel, 12 rows of 8 lines: a
-//                  rule; the 4-digit display (its 7-segment codes read back
-//                  as characters, the decimal point drawn in the cell's
-//                  corner) and the units bits in hex; the 128 buttons, 16 a
+//                  rule; the 4-digit display, drawn as 7 segments (any
+//                  pattern, decimal point in the cell's corner) and the units
+//                  bits in hex; the 128 buttons, 16 a
 //                  row (row r = panel word r), each a 4-character label shown
 //                  inverted while its light is on; a help line;
 //   and the mouse pointer (panel_mouse.sv) once the mouse has moved.
@@ -191,35 +191,18 @@ module term_display #(
         " Click a button to press it.   MIDI: ch 1-15 keys, ch 16 buttons, prog = timbre ";
     localparam int HELP_LEN = 80;
 
-    // a 7-segment code (bit 0 = segment a ... bit 6 = g) as a character
-    function automatic logic [7:0] seg_char(input logic [6:0] sg);
-        case (sg)
-            7'o077: seg_char = "0"; 7'o006: seg_char = "1"; 7'o133: seg_char = "2";
-            7'o117: seg_char = "3"; 7'o146: seg_char = "4"; 7'o155: seg_char = "5";
-            7'o174, 7'o175: seg_char = "6"; 7'o047, 7'o007: seg_char = "7";
-            7'o177: seg_char = "8"; 7'o147, 7'o157: seg_char = "9";
-            7'o100: seg_char = "-"; 7'o000: seg_char = " ";
-            7'o171: seg_char = "E"; 7'o120: seg_char = "r"; 7'o163: seg_char = "P";
-            7'o070: seg_char = "L"; 7'o166: seg_char = "H"; 7'o167: seg_char = "A";
-            7'o071: seg_char = "C"; 7'o136: seg_char = "d"; 7'o161: seg_char = "F";
-            7'o134: seg_char = "o"; 7'o124: seg_char = "n"; 7'o034: seg_char = "u";
-            7'o170: seg_char = "t"; 7'o156: seg_char = "y"; 7'o076: seg_char = "U";
-            default: seg_char = "?";
-        endcase
-    endfunction
-
     function automatic logic [7:0] hex_char(input logic [3:0] n);
         hex_char = n < 4'd10 ? 8'h30 + 8'(n) : 8'h37 + 8'(n);
     endfunction
 
     // the character, inverse flag and decimal point at panel row pr, column c
     logic [7:0] p_ch;
-    logic       p_inv, p_dp;
+    logic       p_inv, p_dp, p_seg;
     logic [7:0] seg_byte;
     always_comb begin
         logic [3:0] bcell;
         logic [2:0] k;
-        p_ch = 8'h20; p_inv = 1'b0; p_dp = 1'b0;
+        p_ch = 8'h20; p_inv = 1'b0; p_dp = 1'b0; p_seg = 1'b0;
         bcell = 4'(h[9:3] / 7'd5);
         k = 3'(h[9:3] % 7'd5);
         seg_byte = 8'd0;
@@ -243,7 +226,7 @@ module term_display #(
                     default: ;
                 endcase
                 if (h[9:3] >= 7'd11 && h[9:3] <= 7'd14) begin
-                    p_ch = seg_char(seg_byte[6:0]);
+                    p_seg = 1'b1;
                     p_dp = seg_byte[7];
                 end
             end
@@ -270,7 +253,21 @@ module term_display #(
 
     logic [7:0] tq, pq, glyph;
     logic [2:0] line1;
-    logic       text1, inv1, dp1, cur1, vis1, inv2, dp2, cur2, vis2;
+    logic       text1, inv1, dp1, cur1, vis1, inv2, dp2, cur2, vis2, seg1;
+    logic [6:0] segv1;
+
+    // a 7-segment digit in an 8 x 8 cell (bit 0 = leftmost pixel): a on
+    // row 0, f/b on rows 1-2, g on row 3, e/c on rows 4-5, d on row 6
+    function automatic logic [7:0] seg_glyph(input logic [6:0] sg, input logic [2:0] ln);
+        case (ln)
+            3'd0:       seg_glyph = sg[0] ? 8'h1c : 8'h00;
+            3'd1, 3'd2: seg_glyph = (sg[5] ? 8'h02 : 8'h00) | (sg[1] ? 8'h20 : 8'h00);
+            3'd3:       seg_glyph = sg[6] ? 8'h1c : 8'h00;
+            3'd4, 3'd5: seg_glyph = (sg[4] ? 8'h02 : 8'h00) | (sg[2] ? 8'h20 : 8'h00);
+            3'd6:       seg_glyph = sg[3] ? 8'h1c : 8'h00;
+            default:    seg_glyph = 8'h00;
+        endcase
+    endfunction
     logic [9:0] h1, h2;
     logic [9:0] v1, v2;
     always_ff @(posedge vclk) if (ce) begin
@@ -279,12 +276,14 @@ module term_display #(
         text1 <= in_text;
         inv1 <= in_panel && p_inv;
         dp1 <= in_panel && p_dp;
+        seg1 <= in_panel && p_seg;
+        segv1 <= seg_byte[6:0];
         cur1 <= cursor_here;
         vis1 <= (in_text || in_panel) && h < 10'd640;
         line1 <= line;
         h1 <= h; v1 <= v;
         // stage 2
-        glyph <= font8x8({(text1 ? tq[6:0] : pq[6:0]), line1}) |
+        glyph <= (seg1 ? seg_glyph(segv1, line1) : font8x8({(text1 ? tq[6:0] : pq[6:0]), line1})) |
                  (dp1 && line1 >= 3'd6 ? 8'h80 : 8'h00);       // decimal point
         inv2 <= inv1;
         cur2 <= cur1;

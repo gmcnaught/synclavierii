@@ -10,8 +10,10 @@ Pillow), 640 x 480.
 Layout: terminal rows of 8 x 16-pixel cells (font rows doubled) from line
 0; panel rows of 8 x 8 cells from line 384. Each cell is matched against
 the font (tools/gen_font.py); row 7 of a cell may be inverted (the cursor),
-panel cells may be inverted whole (a lit button) or carry the decimal point
-in their corner.
+panel cells may be inverted whole (a lit button). The four display digits
+(panel row 1, columns 11-14) are drawn as 7 segments and read back as their
+codes (bit 0 = segment a ... bit 6 = g, bit 7 = decimal point), shown as
+characters where the code is a known one, '?' otherwise.
 """
 import os
 import sys
@@ -32,6 +34,30 @@ def read_image(path, threshold=96):
     im = Image.open(path).convert("L")
     w, h = im.size
     return w, h, im.point(lambda v: 255 if v > threshold else 0).tobytes()
+
+
+# 7-segment codes (NED 05-BUTT:077-OLDW DIGITS, and letters) as characters
+SEG_CHARS = {0o077: "0", 0o006: "1", 0o133: "2", 0o117: "3", 0o146: "4", 0o155: "5",
+             0o174: "6", 0o175: "6", 0o047: "7", 0o007: "7", 0o177: "8", 0o147: "9",
+             0o157: "9", 0o100: "-", 0o000: " ", 0o171: "E", 0o120: "r", 0o163: "P",
+             0o070: "L", 0o166: "H", 0o167: "A", 0o071: "C", 0o136: "d", 0o161: "F",
+             0o134: "o", 0o124: "n", 0o034: "u", 0o170: "t", 0o156: "y", 0o076: "U"}
+
+
+def seg_code(g):
+    """The segment code of a display cell drawn by term_display.sv's
+    seg_glyph (None if the cell is not such a drawing)."""
+    a, f, b, gg, e, c, d = (g[0] == 0x1C, g[1] & 0x02, g[1] & 0x20, g[3] == 0x1C,
+                            g[4] & 0x02, g[4] & 0x20, (g[6] & 0x7F) == 0x1C)
+    code = (a and 1) | (bool(b) << 1) | (bool(c) << 2) | (d << 3) | (bool(e) << 4) | \
+        (bool(f) << 5) | (gg << 6) | (bool(g[6] & 0x80) << 7)
+    want = [0x1C if a else 0, (0x02 if f else 0) | (0x20 if b else 0),
+            (0x02 if f else 0) | (0x20 if b else 0), 0x1C if gg else 0,
+            (0x02 if e else 0) | (0x20 if c else 0), (0x02 if e else 0) | (0x20 if c else 0),
+            0x1C if d else 0, 0]
+    if [v & 0x7F for v in g] != want or (g[6] & 0x80) != (g[7] & 0x80):
+        return None
+    return code
 
 
 def _match(font, g, where, inverted):
@@ -87,22 +113,31 @@ def screen_text(path, skip=(), strict=True):
                 continue
             line += get(g, "terminal row %d col %d" % (r, c))[0]
         term.append(line.rstrip())
-    panel, inverted = [], {}
+    panel, inverted, display = [], {}, []
     for r in range(12):
         line = ""
         for c in range(80):
-            ch, inv = get(cell(384 + 8 * r, c, 1), "panel row %d col %d" % (r, c), True)
+            g = cell(384 + 8 * r, c, 1)
+            if r == 1 and 11 <= c <= 14:                       # display digits
+                code = seg_code(g)
+                if code is None and strict:
+                    raise AssertionError("display digit %d: not a segment drawing %r" % (c - 11, g))
+                display.append(code)
+                line += "?" if code is None else SEG_CHARS.get(code & 0x7F, "?")
+                continue
+            ch, inv = get(g, "panel row %d col %d" % (r, c), True)
             inverted[(r, c)] = inv
             line += ch
         panel.append(line.rstrip())
-    return term, panel, inverted
+    return term, panel, inverted, display
 
 
 def main():
-    term, panel, inv = screen_text(sys.argv[1], strict=False)
+    term, panel, inv, disp = screen_text(sys.argv[1], strict=False)
     for ln in term:
         print(ln)
     print("-" * 80)
+    print("display segment codes (octal): %s" % " ".join("---" if c is None else "%03o" % c for c in disp))
     for r, ln in enumerate(panel):
         marks = "".join("*" if inv.get((r, c)) else " " for c in range(80)).rstrip()
         print(ln + ("    [lit at columns: %s]" % [c for c, m in enumerate(marks) if m == "*"][:20]

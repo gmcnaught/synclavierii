@@ -422,16 +422,20 @@ def build(top="cpu", force=False):
     return exe
 
 
-def check(path, max_instructions=None, top="cpu", wav=None, realtime=False, frame=None):
+def check(path, max_instructions=None, top="cpu", wav=None, realtime=False, frame=None,
+          state=None):
     """Run a trace on the HDL. Returns (ok, output text). wav: write the
     system's 48 kHz PCM output (pcm_out.sv) to this WAV file. realtime:
     run the system with the throttle on (50 MHz); behaviour must not change
     and simulated time must track the clock. frame (board): write a video
-    frame (PGM) taken after the run."""
+    frame (PGM) taken after the run. state (board): a state image
+    (tools/state_image.py) to boot from instead of F0."""
     cmd = [build(top), path] + ([str(max_instructions)] if max_instructions else [])
     env = dict(os.environ)
     if frame:
         env["LOCKSTEP_FRAME"] = frame
+    if state:
+        env["LOCKSTEP_STATE"] = state
     if wav:
         env["LOCKSTEP_WAV"] = wav
     if realtime:

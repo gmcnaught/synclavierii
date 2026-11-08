@@ -19,12 +19,21 @@
 // The loader copies MONITOR to 0 and starts it; MONITOR's cold boot reads
 // the rest from the floppy through D100 as on the real machine.
 //
+// State mode: when a state image is mounted (SD drive 2; written by
+// tools/state_image.py, format there) it is loaded instead, after the
+// defaults: its device and voice entries to the load ports, wave memory,
+// internal memory, its external memory (whose size it gives) and the
+// registers. This starts the real-time program (ORK-LM) from the state the
+// simulator reaches with sim/rtp.py start_rtp().
+//
 // Progress and errors are written to the terminal display (msg_*).
 module boot_loader (
     input  logic        clk,
     input  logic        rst,                // power-on / user reset: boot again
     input  logic        f0_present,
-    input  logic [16:0] ext_sectors,
+    input  logic        state_present,      // a state image is mounted (drive 2)
+    input  logic [16:0] floppy_ext_sectors, // external memory for a floppy boot
+    output logic [16:0] ext_sectors,        // external memory now (state image: its own)
     output logic        cpu_rst,            // the system's reset (load ports live)
     output logic        error,
 
@@ -42,7 +51,7 @@ module boot_loader (
     output logic [15:0] ld_mem_addr,
     output logic [15:0] ld_mem_data,
 
-    output logic [18:0] fd_addr,            // floppy words (sd_floppy)
+    output logic [21:0] fd_addr,            // SD image words (sd_floppy): {drive, block, word}
     output logic        fd_rd,
     input  logic [15:0] fd_rdata,
     input  logic        fd_ack,
@@ -61,7 +70,8 @@ module boot_loader (
     localparam logic [15:0] MODEL_B = 16'o000400;
 
     typedef enum logic [3:0] {
-        B_WAIT, B_DEFAULTS, B_WAVE, B_MEM, B_XM, B_CAT, B_MON, B_LD, B_REGS, B_RUN, B_FAIL
+        B_WAIT, B_DEFAULTS, B_WAVE, B_MEM, B_XM, B_CAT, B_MON, B_LD, B_REGS, B_RUN, B_FAIL,
+        B_SHDR, B_SENT, B_SWAVE, B_SMEM, B_SXM
     } state_t;
     state_t state;
 
@@ -72,21 +82,25 @@ module boot_loader (
     localparam logic [8*64-1:0] MSG1 = "Booting MONITOR from F0\r\n";
     localparam logic [8*64-1:0] MSG2 = "Boot failed: MONITOR or .LD-6 not in F0's catalog\r\n";
     localparam logic [8*64-1:0] MSG3 = "Boot failed: MONITOR is not a valid XPL program\r\n";
-    localparam int MSG_LEN [4] = '{58, 25, 51, 49};
-    function automatic logic [7:0] msg_char(input logic [1:0] m, input logic [6:0] i);
+    localparam logic [8*64-1:0] MSG4 = "Loading the state image (S2)\r\n";
+    localparam logic [8*64-1:0] MSG5 = "Boot failed: not a state image (tools/state_image.py)\r\n";
+    localparam int MSG_LEN [6] = '{58, 25, 51, 49, 30, 55};
+    function automatic logic [7:0] msg_char(input logic [2:0] m, input logic [6:0] i);
         logic [8*64-1:0] s;
         int len;
         case (m)
-            2'd0: begin s = MSG0; len = MSG_LEN[0]; end
-            2'd1: begin s = MSG1; len = MSG_LEN[1]; end
-            2'd2: begin s = MSG2; len = MSG_LEN[2]; end
-            default: begin s = MSG3; len = MSG_LEN[3]; end
+            3'd0: begin s = MSG0; len = MSG_LEN[0]; end
+            3'd1: begin s = MSG1; len = MSG_LEN[1]; end
+            3'd2: begin s = MSG2; len = MSG_LEN[2]; end
+            3'd3: begin s = MSG3; len = MSG_LEN[3]; end
+            3'd4: begin s = MSG4; len = MSG_LEN[4]; end
+            default: begin s = MSG5; len = MSG_LEN[5]; end
         endcase
         // the literal is right-aligned: character k of a len-character
         // string is at byte len-1-k
         msg_char = int'(i) < len ? s[8*(len - 1 - int'(i)) +: 8] : 8'd0;
     endfunction
-    logic [1:0] m_sel;
+    logic [2:0] m_sel;
     logic [6:0] m_pos;
     logic       m_busy;
     wire  [7:0] m_c = msg_char(m_sel, m_pos);
@@ -103,6 +117,15 @@ module boot_loader (
     logic [16:0] mon_n, ld_n;       // words to copy
     logic        fd_wait;           // a floppy read is in flight
     logic        cat_done;
+    // state mode
+    logic        smode;
+    logic [19:0] wp;                // next word of the image
+    logic [15:0] hw [25];           // header words 0-24
+    logic [15:0] n_ent;
+    logic        pend_lo;           // second byte of a wave-memory word
+    logic [7:0]  lo_byte;
+    logic [12:0] lo_addr;
+    wire  [19:0] wp_block = (wp + 20'd255) & ~20'd255;     // next block boundary
 
     // words in a catalog entry's file (tools/ned_disk.py file_words)
     function automatic logic [16:0] file_words(input logic [15:0] length, input logic [15:0] words);
@@ -134,12 +157,15 @@ module boot_loader (
             cpu_rst <= 1'b1;
             error <= 1'b0;
             m_busy <= 1'b0;
-            m_sel <= 2'd0;
+            m_sel <= 3'd0;
             m_pos <= 7'd0;
             fd_rd <= 1'b0;
             xm_wr <= 1'b0;
             fd_wait <= 1'b0;
             n <= '0;
+            smode <= 1'b0;
+            pend_lo <= 1'b0;
+            ext_sectors <= floppy_ext_sectors;
         end else begin
             if (m_busy) begin
                 if (m_c == 8'd0) m_busy <= 1'b0;
@@ -148,12 +174,17 @@ module boot_loader (
 
             case (state)
             B_WAIT: begin
-                if (f0_present) begin
-                    m_sel <= 2'd1; m_pos <= 7'd0; m_busy <= 1'b1;
+                if (state_present) begin
+                    m_sel <= 3'd4; m_pos <= 7'd0; m_busy <= 1'b1;
+                    smode <= 1'b1;
+                    n <= '0;
+                    state <= B_DEFAULTS;
+                end else if (f0_present) begin
+                    m_sel <= 3'd1; m_pos <= 7'd0; m_busy <= 1'b1;
                     n <= '0;
                     state <= B_DEFAULTS;
                 end else if (n == 17'd0) begin
-                    m_sel <= 2'd0; m_pos <= 7'd0; m_busy <= 1'b1;
+                    m_sel <= 3'd0; m_pos <= 7'd0; m_busy <= 1'b1;
                     n <= 17'd1;                  // say it once
                 end
             end
@@ -171,8 +202,11 @@ module boot_loader (
                         dbg_we <= 1'b1; dbg_addr <= def[68:64]; dbg_wdata <= def[15:0];
                     end
                 endcase
-                if (n == 17'(BOOT_DEFAULTS - 1)) begin n <= '0; state <= B_WAVE; end
-                else n <= n + 17'd1;
+                if (n == 17'(BOOT_DEFAULTS - 1)) begin
+                    n <= '0;
+                    wp <= '0;
+                    state <= smode ? B_SHDR : B_WAVE;
+                end else n <= n + 17'd1;
             end
 
             B_WAVE: begin                         // wave memory: 32 x 256 bytes
@@ -229,11 +263,11 @@ module boot_loader (
                             n <= '0;
                             state <= B_MON;
                         end else begin
-                            m_sel <= 2'd2; m_pos <= 7'd0; m_busy <= 1'b1;
+                            m_sel <= 3'd2; m_pos <= 7'd0; m_busy <= 1'b1;
                             state <= B_FAIL;
                         end
                     end else begin
-                        fd_addr <= {1'b0, 10'd0, n[7:0]};
+                        fd_addr <= {2'd0, 12'd0, n[7:0]};
                         fd_rd <= 1'b1;
                     end
                 end
@@ -245,7 +279,7 @@ module boot_loader (
                     if (n == 17'd1) cfg <= fd_rdata;
                     if (n >= 17'd2 && n == {1'b0, cfg} + 17'd16) memsiz <= fd_rdata;
                     if (n == 17'd0 && fd_rdata != XPL_FIRST_WORD) begin
-                        m_sel <= 2'd3; m_pos <= 7'd0; m_busy <= 1'b1;
+                        m_sel <= 3'd3; m_pos <= 7'd0; m_busy <= 1'b1;
                         state <= B_FAIL;
                     end else begin
                         xm_addr <= {7'd0, n}; xm_wdata <= mon_word; xm_wr <= 1'b1;
@@ -256,14 +290,14 @@ module boot_loader (
                 end else if (!fd_rd && !fd_ack && !xm_wr && !xm_ack) begin
                     if (n == mon_n) begin
                         if (memsiz == 16'd0 || memsiz > 16'd256 || {1'b0, cfg} + 17'd17 >= mon_n) begin
-                            m_sel <= 2'd3; m_pos <= 7'd0; m_busy <= 1'b1;
+                            m_sel <= 3'd3; m_pos <= 7'd0; m_busy <= 1'b1;
                             state <= B_FAIL;
                         end else begin
                             n <= '0;
                             state <= B_LD;
                         end
                     end else begin
-                        fd_addr <= {1'b0, 10'(mon_start + 16'(n[16:8])), n[7:0]};
+                        fd_addr <= {2'd0, 12'(mon_start + 16'(n[16:8])), n[7:0]};
                         fd_rd <= 1'b1;
                     end
                 end
@@ -281,13 +315,19 @@ module boot_loader (
                         n <= '0;
                         state <= B_REGS;
                     end else begin
-                        fd_addr <= {1'b0, 10'(ld_start + 16'(n[16:8])), n[7:0]};
+                        fd_addr <= {2'd0, 12'(ld_start + 16'(n[16:8])), n[7:0]};
                         fd_rd <= 1'b1;
                     end
                 end
             end
 
-            B_REGS: begin
+            B_REGS: if (smode) begin              // R0-R17 and the flags from the header
+                dbg_we <= 1'b1;
+                dbg_addr <= n[4:0];
+                dbg_wdata <= hw[5'd8 + n[4:0]];
+                if (n == 17'd16) state <= B_RUN;
+                n <= n + 17'd1;
+            end else begin
                 dbg_we <= 1'b1;
                 case (n[1:0])
                     2'd0: begin dbg_addr <= 5'd0;  dbg_wdata <= 16'd0; end       // staging sector
@@ -297,6 +337,123 @@ module boot_loader (
                 endcase
                 if (n[1:0] == 2'd3) state <= B_RUN;
                 n <= n + 17'd1;
+            end
+
+
+            // ------------------------------------------- state image (drive 2)
+            // Each state fetches the image's words in order (wp); a word
+            // arrives with fd_ack and is used at once.
+            B_SHDR: begin                         // block 0: the header
+                if (fd_rd && fd_ack) begin
+                    fd_rd <= 1'b0;
+                    if (wp < 20'd25) hw[wp[4:0]] <= fd_rdata;
+                    wp <= wp + 20'd1;
+                end else if (!fd_rd && !fd_ack) begin
+                    if (wp == 20'd256) begin
+                        if (hw[0] != 16'h5359 || hw[1] != 16'h4e43 || hw[2] != 16'h5354 ||
+                            hw[3] != 16'h4154 || hw[4] != 16'd1 || hw[5] == 16'd0 ||
+                            hw[5] > 16'd4096) begin
+                            m_sel <= 3'd5; m_pos <= 7'd0; m_busy <= 1'b1;
+                            state <= B_FAIL;
+                        end else begin
+                            ext_sectors <= {1'b0, hw[5]};
+                            n_ent <= hw[6];
+                            n <= '0;
+                            state <= B_SENT;
+                        end
+                    end else begin
+                        fd_addr <= {2'd2, wp};
+                        fd_rd <= 1'b1;
+                    end
+                end
+            end
+
+            B_SENT: begin                         // entries: 8 words each
+                if (fd_rd && fd_ack) begin
+                    fd_rd <= 1'b0;
+                    ent[n[2:0]] <= fd_rdata;
+                    fd_wait <= n[2:0] == 3'd7;
+                    n <= n + 17'd1;
+                    wp <= wp + 20'd1;
+                end else if (fd_wait) begin       // the 8th word has landed
+                    fd_wait <= 1'b0;
+                    if (ent[0] == 16'd0) begin
+                        ld_dev_we <= 1'b1; ld_dev_sel <= ent[1][2:0];
+                        ld_dev_addr <= ent[2][12:0]; ld_dev_data <= {ent[6], ent[7]};
+                    end else begin
+                        ld_voice_we <= 1'b1; ld_voice_addr <= ent[2][5:0];
+                        ld_voice_data <= {ent[4], ent[5], ent[6], ent[7]};
+                    end
+                end else if (!fd_rd && !fd_ack) begin
+                    if (n[16:3] == n_ent[13:0]) begin
+                        wp <= wp_block;
+                        n <= '0;
+                        state <= B_SWAVE;
+                    end else begin
+                        fd_addr <= {2'd2, wp};
+                        fd_rd <= 1'b1;
+                    end
+                end
+            end
+
+            B_SWAVE: begin                        // wave memory: 4096 words, 2 bytes each
+                if (fd_rd && fd_ack) begin
+                    fd_rd <= 1'b0;
+                    ld_dev_we <= 1'b1; ld_dev_sel <= 3'd6;
+                    ld_dev_addr <= {n[11:0], 1'b0}; ld_dev_data <= {24'd0, fd_rdata[15:8]};
+                    pend_lo <= 1'b1;
+                    lo_addr <= {n[11:0], 1'b1}; lo_byte <= fd_rdata[7:0];
+                    n <= n + 17'd1;
+                    wp <= wp + 20'd1;
+                end else if (pend_lo) begin
+                    pend_lo <= 1'b0;
+                    ld_dev_we <= 1'b1; ld_dev_sel <= 3'd6;
+                    ld_dev_addr <= lo_addr; ld_dev_data <= {24'd0, lo_byte};
+                end else if (!fd_rd && !fd_ack) begin
+                    if (n == 17'd4096) begin
+                        n <= '0;
+                        state <= B_SMEM;
+                    end else begin
+                        fd_addr <= {2'd2, wp};
+                        fd_rd <= 1'b1;
+                    end
+                end
+            end
+
+            B_SMEM: begin                         // internal memory
+                if (fd_rd && fd_ack) begin
+                    fd_rd <= 1'b0;
+                    ld_mem_we <= 1'b1; ld_mem_addr <= n[15:0]; ld_mem_data <= fd_rdata;
+                    n <= n + 17'd1;
+                    wp <= wp + 20'd1;
+                end else if (!fd_rd && !fd_ack) begin
+                    if (n == 17'd65536) begin
+                        xn <= '0;
+                        state <= B_SXM;
+                    end else begin
+                        fd_addr <= {2'd2, wp};
+                        fd_rd <= 1'b1;
+                    end
+                end
+            end
+
+            B_SXM: begin                          // external memory
+                if (fd_rd && fd_ack) begin
+                    fd_rd <= 1'b0;
+                    xm_addr <= xn; xm_wdata <= fd_rdata; xm_wr <= 1'b1;
+                    wp <= wp + 20'd1;
+                end else if (xm_wr && xm_ack) begin
+                    xm_wr <= 1'b0;
+                    xn <= xn + 24'd1;
+                end else if (!fd_rd && !fd_ack && !xm_wr && !xm_ack) begin
+                    if ({1'b0, xn} == {ext_sectors, 8'd0}) begin
+                        n <= '0;
+                        state <= B_REGS;
+                    end else begin
+                        fd_addr <= {2'd2, wp};
+                        fd_rd <= 1'b1;
+                    end
+                end
             end
 
             B_RUN: cpu_rst <= 1'b0;

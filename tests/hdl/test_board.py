@@ -74,16 +74,15 @@ def test_term_display_panel():
     try:
         frame = os.path.join(tmp, "frame.pgm")
         _testbench("term_display", "hdl/core/term_display.sv", ["+frame=" + frame])
-        term, panel, inverted = frame_text(frame, skip={(6, 75)})   # (6, 75): under the pointer
+        term, panel, inverted, display = frame_text(frame, skip={(6, 75)})   # (6, 75): under the pointer
         w, h, px = read_frame(frame)
     finally:
         shutil.rmtree(tmp)
     font, lab = glyphs(), labels()
     assert term[0] == "HELLO" and term[1] == "WORLD", term[:3]
     assert panel[1] == " Display  [1234]   Units 0004", panel[1]
-    # decimal point: digit 2 (column 12) has the corner pixel on rows 6-7
-    assert all(px[(392 + k) * w + 8 * 12 + 7] for k in (6, 7))
-    assert not any(px[(392 + k) * w + 8 * 11 + 7] for k in range(8))
+    # the segment codes as written (NED DIGITS), decimal point on digit 2
+    assert display == [0o006, 0o133 | 0o200, 0o117, 0o146], [oct(c) for c in display]
     # lit: HSus (word 0 bit 15), Bk1 (word 6 bit 0), Tb2 (word 6 bit 9)
     lit = {(0, 15), (6, 0), (6, 9)}
     for r in range(8):
@@ -117,8 +116,8 @@ def read_frame(path):
 
 
 def frame_text(path, skip=()):
-    """(terminal rows, panel rows, inverted cells) read back with the font
-    (tools/screen_text.py)."""
+    """(terminal rows, panel rows, inverted cells, display segment codes)
+    read back with the font (tools/screen_text.py)."""
     from tools.screen_text import screen_text
     return screen_text(path, skip=skip)
 
@@ -157,7 +156,7 @@ def test_board_boots_release_l():
         assert ok, text
         assert "state matches" in text, text
         screen = [ln[1:] for ln in text.split("screen:\n", 1)[1].splitlines()[:24]]
-        term, panel, inverted = frame_text(frame)
+        term, panel, inverted, display = frame_text(frame)
         assert term == screen
         assert not any(inverted.values())
         assert panel == expected_panel(), "\n".join(panel)
@@ -168,6 +167,43 @@ def test_board_boots_release_l():
     assert "N.E.D. ABLE Series System Monitor - 1 December 1985" in screen
     assert "Catalog contains 7 entries, 375 sectors used, 25 sectors remaining" in screen
     assert screen[12] == "Ready >"
+
+
+def test_board_state_image_ork_lm():
+    """ORK-LM on the core from a state image: the simulator runs ORK-LM to
+    its main loop (8 s) and writes a state image there (tools/state_image.py);
+    the core loads it from S2 and must equal the trace's start state, then
+    match it through the timbre recall and a held C4 (5M instructions),
+    every audio sample included; the panel shows the lights and display."""
+    image = os.environ.get("SYNCLAVIER_RELEASE_L")
+    if not image or not HAVE_VERILATOR:
+        print("  skip test_board_state_image_ork_lm (needs SYNCLAVIER_RELEASE_L and verilator)")
+        return
+    from sim.lockstep import ork_lm_note_actions
+    from sim.rtp import start_rtp
+    from tools.state_image import state_bytes
+    cpu, dbg, _ = start_rtp(image, "ORK-LM")
+    actions = ork_lm_note_actions(cpu, dbg, image)
+    tmp = tempfile.mkdtemp()
+    try:
+        state = os.path.join(tmp, "ork.sst")
+        path = os.path.join(tmp, "ork.trace")
+        frame = os.path.join(tmp, "frame.pgm")
+        open(state, "wb").write(state_bytes(cpu))
+        n = record(cpu, path, 5_000_000, actions=actions, audio=True)
+        ok, text = check(path, top="board", state=state, frame=frame)
+        assert ok, text
+        assert "state matches" in text and "804572 audio samples" in text, text
+        term, panel, inverted, display = frame_text(frame)
+    finally:
+        shutil.rmtree(tmp)
+    assert n == 5_000_000
+    kb = cpu.keyboard
+    assert display == [kb.display[1] >> 8, kb.display[1] & 0o377,
+                       kb.display[0] >> 8, kb.display[0] & 0o377], [oct(c) for c in display]
+    for r in range(8):                                 # lights as the model has them
+        for c in range(16):
+            assert inverted[(3 + r, 5 * c)] == bool(kb.lights[r] >> c & 1), (r, c)
 
 
 if __name__ == "__main__":

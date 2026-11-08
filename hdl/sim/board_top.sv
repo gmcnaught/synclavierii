@@ -12,6 +12,7 @@ module board_top (
     input  logic        rt_enable,
 
     input  logic [10:0] ps2_key,
+    input  logic [24:0] ps2_mouse,
     input  logic [1:0]  img_mounted,
     input  logic        img_readonly,
     input  logic [63:0] img_size,
@@ -104,7 +105,7 @@ module board_top (
 
     // one clock in simulation: the video runs at clk / 2
     synclavier_core core (
-        .clk, .rst_hard, .rst, .rt_enable, .clk_vid(clk), .ps2_key, .color(2'd0),
+        .clk, .rst_hard, .rst, .rt_enable, .clk_vid(clk), .ps2_key, .ps2_mouse, .color(2'd0),
         .img_mounted, .img_readonly, .img_size, .sd_lba0, .sd_lba1, .sd_rd, .sd_wr, .sd_ack,
         .sd_buff_addr, .sd_buff_dout, .sd_buff_din, .sd_buff_wr,
         .xr_addr, .xr_rd, .xr_wr, .xr_wdata, .xr_rdata, .xr_ack,

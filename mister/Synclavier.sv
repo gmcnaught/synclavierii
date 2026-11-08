@@ -59,6 +59,7 @@ localparam CONF_STR = {
 wire   [1:0] buttons;
 wire [127:0] status;
 wire  [10:0] ps2_key;
+wire  [24:0] ps2_mouse;
 
 wire  [1:0] img_mounted;
 wire        img_readonly;
@@ -81,6 +82,7 @@ hps_io #(.CONF_STR(CONF_STR), .VDNUM(2)) hps_io
 	.status_menumask(16'd0),
 
 	.ps2_key(ps2_key),
+	.ps2_mouse(ps2_mouse),
 
 	.img_mounted(img_mounted),
 	.img_readonly(img_readonly),
@@ -134,6 +136,7 @@ synclavier_core #(.CLK_HZ(16_000_000), .VID_CE_DIV(1)) core
 	.rt_enable(~status[3]),
 
 	.ps2_key(ps2_key),
+	.ps2_mouse(ps2_mouse),
 	.color(status[2:1]),
 
 	.img_mounted(img_mounted),

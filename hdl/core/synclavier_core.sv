@@ -5,7 +5,8 @@
 //   sd_floppy     F0/F1 floppy images on the SD block interface (hps_io);
 //   term_display  the system terminal (D50) as 80 x 24 text on video;
 //   ps2_ascii     the keyboard (hps_io ps2_key) as terminal input;
-//   midi_in       MIDI (UART, MidiLink) to the original keyboard and panel.
+//   midi_in       MIDI (UART, MidiLink) to the original keyboard and panel;
+//   panel_mouse   the mouse: click the panel buttons shown on the screen.
 // External memory (D60-D63, EXT_SECTORS sectors) is a word port (xr_*):
 // DDR3 on MiSTer (hdl/board/ddram_word.sv), a model in simulation.
 // Devices not in the HDL answer no SYN, which halts the CPU as on the real
@@ -24,6 +25,7 @@ module synclavier_core #(
     input  logic        clk_vid,        // video: 25 MHz x VID_CE_DIV
 
     input  logic [10:0] ps2_key,
+    input  logic [24:0] ps2_mouse,
     input  logic [1:0]  color,
 
     input  logic [1:0]  img_mounted,
@@ -169,10 +171,10 @@ module synclavier_core #(
         .fd_spt0(FD_SPT), .fd_spt1(FD_SPT), .fd_sides0(FD_SIDES), .fd_sides1(FD_SIDES),
         .fd_addr(s_fd_addr), .fd_rd(s_fd_rd), .fd_wr(s_fd_wr), .fd_wdata(s_fd_wdata),
         .fd_rdata(m_rdata), .fd_ack(m_ack),
-        .kb_host_we(kb_host_we || midi_we),
-        .kb_host_panel(kb_host_we ? kb_host_panel : midi_panel),
-        .kb_host_index(kb_host_we ? kb_host_index : midi_index),
-        .kb_host_value(kb_host_we ? kb_host_value : midi_value),
+        .kb_host_we(kb_host_we || h_we),
+        .kb_host_panel(kb_host_we ? kb_host_panel : h_panel),
+        .kb_host_index(kb_host_we ? kb_host_index : h_index),
+        .kb_host_value(kb_host_we ? kb_host_value : h_value),
         .kb_lights, .kb_display,
         .audio_valid, .audio_l(audio_sum_l), .audio_r(audio_sum_r),
         .pcm_valid, .pcm_l, .pcm_r,
@@ -217,6 +219,53 @@ module synclavier_core #(
         .byte_valid(), .byte_data()
     );
 
+    // ------------------------------------------------- mouse; host port mux
+    logic        mouse_we, ptr_on;
+    logic [2:0]  mouse_index;
+    logic [15:0] mouse_value;
+    logic [9:0]  ptr_x;
+    logic [8:0]  ptr_y;
+    panel_mouse mouse (
+        .clk, .rst, .ps2_mouse, .x(ptr_x), .y(ptr_y), .moved(ptr_on),
+        .we(mouse_we), .index(mouse_index), .value(mouse_value)
+    );
+
+    // Clavier words from MIDI go straight through. A panel button is down
+    // while MIDI or the mouse holds it: each source's words are kept and the
+    // OR of a changed word is written (one write a clock; MIDI first).
+    logic [15:0] midi_pw [8], mouse_pw [8];
+    logic [7:0]  pw_dirty;
+    logic        h_we, h_panel;
+    logic [2:0]  h_index, pw_i;
+    logic [15:0] h_value;
+    always_comb begin
+        pw_i = 3'd0;
+        for (int i = 7; i >= 0; i--) if (pw_dirty[i]) pw_i = 3'(i);
+    end
+    always_ff @(posedge clk) begin
+        h_we <= 1'b0;
+        if (rst) begin
+            for (int i = 0; i < 8; i++) begin midi_pw[i] <= '0; mouse_pw[i] <= '0; end
+            pw_dirty <= '0;
+        end else begin
+            if (midi_we && !midi_panel) begin                    // clavier
+                h_we <= 1'b1; h_panel <= 1'b0; h_index <= midi_index; h_value <= midi_value;
+            end else if (pw_dirty != '0) begin
+                h_we <= 1'b1; h_panel <= 1'b1; h_index <= pw_i;
+                h_value <= midi_pw[pw_i] | mouse_pw[pw_i];
+                pw_dirty[pw_i] <= 1'b0;
+            end
+            if (midi_we && midi_panel) begin
+                midi_pw[midi_index] <= midi_value;
+                pw_dirty[midi_index] <= 1'b1;
+            end
+            if (mouse_we) begin
+                mouse_pw[mouse_index] <= mouse_value;
+                pw_dirty[mouse_index] <= 1'b1;
+            end
+        end
+    end
+
     // ------------------------------------------------------ terminal, video
     ps2_ascii keys (.clk, .rst, .ps2_key, .valid(kb_rx_valid), .ascii(kb_rx_data));
 
@@ -224,7 +273,8 @@ module synclavier_core #(
         .clk, .rst, .vclk(clk_vid),
         .in_valid(cpu_rst ? msg_valid : term_tx_valid),
         .in_data(cpu_rst ? msg_data : term_tx_data),
-        .color,
+        .color, .lights(kb_lights), .display(kb_display),
+        .ptr_on, .ptr_x, .ptr_y,
         .ce_pix, .r(vga_r), .g(vga_g), .b(vga_b), .hs(vga_hs), .vs(vga_vs),
         .hblank(vga_hblank), .vblank(vga_vblank),
         .peek_addr, .peek_data, .top_row

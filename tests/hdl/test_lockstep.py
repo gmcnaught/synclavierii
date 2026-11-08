@@ -133,6 +133,130 @@ def test_system_devices_program():
     assert n > 30_000 and cpu.rtc.ticks >= 5 and fed
 
 
+FLOPPY_PROGRAM = """
+        IM(0) TO D104       ; drive 0, side 0
+        IM(1) TO D100       ; restore
+        WAITBUSY
+        IM(3) TO D103       ; seek to cylinder 3
+        PCI TO D100
+        DATA 21
+        WAITBUSY
+        IM(2) TO D102       ; write sector 2 from 10000
+        PCI TO D100
+        DATA 240
+        PCI TO R4
+        DATA 10000
+        PCI TO R5
+        DATA 400
+WL:     D100 TO R0          ; wait for DRQ
+        IM(2) TO TAND0
+        RE(WL) TO RTZE
+        MR4 TO D103         ; low byte first
+        MR4I TO R0
+        IM(0) TO BSOR0      ; then the high byte
+        R0 TO D103
+        R5 TO R3
+        IM(1) TO SUB3
+        R3 TO R5
+        RE(WL) TO RTNZ
+        WAITBUSY
+        IM(2) TO D102       ; read it back into 12000
+        PCI TO D100
+        DATA 210
+        PCI TO R4
+        DATA 12000
+        PCI TO R5
+        DATA 400
+RL:     D100 TO R0
+        IM(2) TO TAND0
+        RE(RL) TO RTZE
+        D103 TO R2
+        D103 TO R1
+        IM(0) TO BSOR1
+        R2 TO OR1
+        R1 TO MR4I
+        R5 TO R3
+        IM(1) TO SUB3
+        R3 TO R5
+        RE(RL) TO RTNZ
+        WAITBUSY
+        IM(11) TO D102      ; sector 9: record not found
+        PCI TO D100
+        DATA 210
+        WAITBUSY
+        D100 TO R6
+        IM(1) TO D104       ; drive 1 (write protected): write
+        PCI TO D100
+        DATA 240
+        D100 TO R7
+        IM(0) TO D104
+        PCI TO D100         ; step in, then step out with track update
+        DATA 101
+        WAITBUSY
+        PCI TO D100
+        DATA 161
+        WAITBUSY
+        D101 TO R10
+        PCI TO D100         ; force interrupt: index pulses in the status
+        DATA 320
+        PCI TO R5
+        DATA 2000
+IX:     D100 TO R11
+        R5 TO R3
+        IM(1) TO SUB3
+        R3 TO R5
+        RE(IX) TO RTNZ
+        D104 TO R0          ; D100 has no drive ID: no SYN, halt
+"""
+
+
+def _expand_waits(src):
+    """WAITBUSY -> an inline loop polling D100 until not busy."""
+    out, k = [], 0
+    for line in src.splitlines():
+        if line.strip() == "WAITBUSY":
+            k += 1
+            out += ["WB%d:   D100 TO R0" % k, "        IM(1) TO TAND0", "        RE(WB%d) TO RTNZ" % k]
+        else:
+            out.append(line)
+    return "\n".join(out)
+
+
+def test_system_floppy_program():
+    """The HDL floppy controller against Python: restore, seek, write a
+    sector, read it back, record not found, write protect, steps, index
+    pulses, and the D104 read that has no SYN."""
+    if not HAVE_VERILATOR:
+        print("  skip test_system_floppy_program (verilator not found)")
+        return
+    import random as _random
+    from sim.asm import assemble
+    from sim.devices.floppy import Media
+    from sim.system import make_system
+    rng = _random.Random(5)
+    cpu = make_system(floppy=True)
+    cpu.floppy.insert(0, Media([rng.randrange(0x10000) for _ in range(40 * 256)]))
+    cpu.floppy.insert(1, Media([0] * (40 * 256), protected=True))
+    words, labels = assemble(_expand_waits(FLOPPY_PROGRAM))
+    cpu.load(words)
+    data = [rng.randrange(0x10000) for _ in range(256)]
+    cpu.load(data, 0o10000)
+    with tempfile.NamedTemporaryFile(suffix=".trace", delete=False) as f:
+        path = f.name
+    try:
+        n = record(cpu, path, 400_000)
+        ok, text = check(path, top="system")
+    finally:
+        os.unlink(path)
+    assert ok, text
+    assert cpu.halted and cpu.halted.device == 0o104, cpu.halted
+    assert cpu.mem[0o12000:0o12400] == data            # written and read back
+    lsn = 3 * 5 + 2 - 1
+    assert cpu.floppy.media[0].words[lsn * 256:(lsn + 1) * 256] == data
+    assert cpu.r[6] & 0o20 and cpu.r[7] & 0o100      # RNF, write protect
+    assert n > 10_000
+
+
 def test_release_l_monitor_boot_and_catalog():
     image = os.environ.get("SYNCLAVIER_RELEASE_L")
     if not image or not HAVE_VERILATOR:

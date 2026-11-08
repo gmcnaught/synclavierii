@@ -1,6 +1,6 @@
-// Simulation top for system lockstep (M4.4/M4.5): able_system plus an
-// external-memory RAM model (1M words, answers the clock after a request)
-// with a load port. Devices not yet in HDL are answered by the C++ bench
+// Simulation top for system lockstep (M4.4-M4.6): able_system plus RAM
+// models for external memory (1M words) and the two floppies (512K words),
+// each answering the clock after a request, with load ports. Devices not yet in HDL are answered by the C++ bench
 // (hdl/sim/lockstep.cpp) from the recorded trace.
 module able_sys_top (
     input  logic        clk,
@@ -18,6 +18,17 @@ module able_sys_top (
     input  logic        ld_xm_we,
     input  logic [19:0] ld_xm_addr,
     input  logic [15:0] ld_xm_data,
+    input  logic [1:0]  fd_present,
+    input  logic [1:0]  fd_protect,
+    input  logic [10:0] fd_sectors0,
+    input  logic [10:0] fd_sectors1,
+    input  logic [3:0]  fd_spt0,
+    input  logic [3:0]  fd_spt1,
+    input  logic [1:0]  fd_sides0,
+    input  logic [1:0]  fd_sides1,
+    input  logic        ld_fd_we,
+    input  logic [18:0] ld_fd_addr,
+    input  logic [15:0] ld_fd_data,
     input  logic        term_rx_valid,
     input  logic [7:0]  term_rx_data,
     output logic        term_tx_valid,
@@ -32,8 +43,8 @@ module able_sys_top (
     input  logic [4:0]  dbg_addr,
     input  logic [15:0] dbg_wdata,
     input  logic        ld_dev_we,
-    input  logic [1:0]  ld_dev_sel,
-    input  logic [3:0]  ld_dev_addr,
+    input  logic [2:0]  ld_dev_sel,
+    input  logic [4:0]  ld_dev_addr,
     input  logic [31:0] ld_dev_data,
     output logic        instr_done,
     output logic [15:0] instr_pc,
@@ -64,6 +75,22 @@ module able_sys_top (
             xm_ack <= (xm_rd || xm_wr) && !xm_ack;
             if (xm_wr && !xm_ack) xram[xm_addr[19:0]] <= xm_wdata;
             xm_rdata <= xram[xm_addr[19:0]];
+        end
+    end
+
+    // floppy words: 2 drives x 1024 sectors x 256 words
+    logic [18:0] fd_addr;
+    logic        fd_rd, fd_wr, fd_ack;
+    logic [15:0] fd_wdata, fd_rdata;
+    logic [15:0] fram [1 << 19];
+    always_ff @(posedge clk) begin
+        if (rst) begin
+            fd_ack <= 1'b0;
+            if (ld_fd_we) fram[ld_fd_addr] <= ld_fd_data;
+        end else begin
+            fd_ack <= (fd_rd || fd_wr) && !fd_ack;
+            if (fd_wr && !fd_ack) fram[fd_addr] <= fd_wdata;
+            fd_rdata <= fram[fd_addr];
         end
     end
 

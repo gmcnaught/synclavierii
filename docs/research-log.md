@@ -421,6 +421,11 @@ Details in [`timbre-libraries.md`](timbre-libraries.md).
   check), so they agree with the Python devices exactly: MONITOR boot +
   `CATALOG` with input typed during a held D50 read, ORK-LM from a mid-run
   device state (6M instructions, 4.806 s), and a device test program.
+* HDL D100 floppy controller (`dev_floppy.sv`): agrees on MONITOR's boot,
+  ORK-LM with a timbre recall and a held note (35 sector reads), and a
+  floppy program with a sector write and read-back. A sector copy to or
+  from the media RAM stalls floppy accesses without simulated time, which
+  keeps it identical to Python's instant copy.
 
 ## Searched without useful results
 

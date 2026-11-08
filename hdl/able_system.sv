@@ -1,9 +1,10 @@
 // ABLE system (M4.4/M4.5): CPU, 64K words of internal memory, and the
 // devices ported to HDL so far:
 //   D3 real-time clock, D4-D7 multiply/divide, D50/D51 terminal,
-//   D60-D63 external memory (words in an external RAM behind xm_*).
-// Every other device number goes out on the dev_* port (floppy, keyboard,
-// FM interface: still in Python; the lockstep bench replays them).
+//   D60-D63 external memory (words in an external RAM behind xm_*),
+//   D100-D104 floppy controller (floppy words in a RAM behind fd_*).
+// Every other device number goes out on the dev_* port (keyboard, FM
+// interface: still in Python; the lockstep bench replays them).
 //
 // Device time is the CPU's simulated time (333 ns per bus transfer, see
 // able_cpu.sv), so device behaviour matches sim/devices/ exactly. On the
@@ -34,6 +35,22 @@ module able_system #(
     input  logic [15:0] xm_rdata,
     input  logic        xm_ack,
 
+    // floppy media (D100): presence, geometry and a word RAM
+    input  logic [1:0]  fd_present,
+    input  logic [1:0]  fd_protect,
+    input  logic [10:0] fd_sectors0,
+    input  logic [10:0] fd_sectors1,
+    input  logic [3:0]  fd_spt0,
+    input  logic [3:0]  fd_spt1,
+    input  logic [1:0]  fd_sides0,
+    input  logic [1:0]  fd_sides1,
+    output logic [18:0] fd_addr,
+    output logic        fd_rd,
+    output logic        fd_wr,
+    output logic [15:0] fd_wdata,
+    input  logic [15:0] fd_rdata,
+    input  logic        fd_ack,
+
     // terminal, host side
     input  logic        term_rx_valid,
     input  logic [7:0]  term_rx_data,
@@ -51,9 +68,9 @@ module able_system #(
     input  logic        dbg_we,
     input  logic [4:0]  dbg_addr,
     input  logic [15:0] dbg_wdata,
-    input  logic        ld_dev_we,         // device state: ld_dev_sel 0 rtc,
-    input  logic [1:0]  ld_dev_sel,        // 1 muldiv, 2 extmem, 3 terminal
-    input  logic [3:0]  ld_dev_addr,
+    input  logic        ld_dev_we,         // device state: ld_dev_sel 0 rtc, 1 muldiv,
+    input  logic [2:0]  ld_dev_sel,        // 2 extmem, 3 terminal, 4 floppy
+    input  logic [4:0]  ld_dev_addr,
     input  logic [31:0] ld_dev_data,
     output logic        instr_done,
     output logic [15:0] instr_pc,
@@ -104,26 +121,28 @@ module able_system #(
     wire sel_md   = io && io_dev[6:2] == 5'b00001;            // 004-007
     wire sel_term = io && io_dev[6:1] == 6'b010100;           // 050-051
     wire sel_xm   = io && io_dev[6:2] == 5'b01100;            // 060-063
-    wire sel_ext  = io && !(sel_rtc || sel_md || sel_term || sel_xm);
+    wire sel_fd   = io && io_dev >= 7'o100 && io_dev <= 7'o104;
+    wire sel_ext  = io && !(sel_rtc || sel_md || sel_term || sel_xm || sel_fd);
 
-    logic [15:0] rtc_rdata, md_rdata, term_rdata, xm_rdata_cpu;
+    logic [15:0] rtc_rdata, md_rdata, term_rdata, xm_rdata_cpu, fd_rdata_cpu;
     logic        rtc_irq, md_ack, md_nosyn, term_ack, term_hold, term_irq, xm_cpu_ack;
+    logic        fd_cpu_ack, fd_nosyn;
 
     dev_rtc rtc (
         .clk, .rst, .acc(sel_rtc), .wr(io_wr), .rdata(rtc_rdata),
         .tick, .tick_ns, .irq(rtc_irq),
-        .ld_we(ld_dev_we && ld_dev_sel == 2'd0), .ld_addr(ld_dev_addr), .ld_data(ld_dev_data)
+        .ld_we(ld_dev_we && ld_dev_sel == 3'd0), .ld_addr(ld_dev_addr[3:0]), .ld_data(ld_dev_data)
     );
     dev_muldiv muldiv (
         .clk, .rst, .sel(sel_md), .rd(io_rd), .wr(io_wr), .reg_sel(io_dev[1:0]),
         .wdata(io_wdata), .rdata(md_rdata), .ack(md_ack), .nosyn(md_nosyn),
-        .ld_we(ld_dev_we && ld_dev_sel == 2'd1), .ld_addr(ld_dev_addr), .ld_data(ld_dev_data)
+        .ld_we(ld_dev_we && ld_dev_sel == 3'd1), .ld_addr(ld_dev_addr[3:0]), .ld_data(ld_dev_data)
     );
     dev_extmem extmem (
         .clk, .rst, .sel(sel_xm), .rd(io_rd), .wr(io_wr), .reg_sel(io_dev[1:0]),
         .wdata(io_wdata), .rdata(xm_rdata_cpu), .ack(xm_cpu_ack), .sectors(ext_sectors),
         .xm_addr, .xm_rd, .xm_wr, .xm_wdata, .xm_rdata, .xm_ack,
-        .ld_we(ld_dev_we && ld_dev_sel == 2'd2), .ld_addr(ld_dev_addr), .ld_data(ld_dev_data)
+        .ld_we(ld_dev_we && ld_dev_sel == 3'd2), .ld_addr(ld_dev_addr[3:0]), .ld_data(ld_dev_data)
     );
     dev_terminal #(.DEVICE_BITS(TERMINAL_BITS)) terminal (
         .clk, .rst, .sel(sel_term), .rd(io_rd), .wr(io_wr), .reg_sel(io_dev[0]),
@@ -131,7 +150,18 @@ module able_system #(
         .tick, .tick_ns, .irq(term_irq),
         .host_rx_valid(term_rx_valid), .host_rx_data(term_rx_data),
         .host_tx_valid(term_tx_valid), .host_tx_data(term_tx_data),
-        .ld_we(ld_dev_we && ld_dev_sel == 2'd3), .ld_addr(ld_dev_addr), .ld_data(ld_dev_data)
+        .ld_we(ld_dev_we && ld_dev_sel == 3'd3), .ld_addr(ld_dev_addr[3:0]), .ld_data(ld_dev_data)
+    );
+
+    dev_floppy floppy (
+        .clk, .rst, .sel(sel_fd), .rd(io_rd), .wr(io_wr), .reg_sel(io_dev[2:0]),
+        .wdata(io_wdata), .rdata(fd_rdata_cpu), .ack(fd_cpu_ack), .nosyn(fd_nosyn),
+        .tick, .tick_ns,
+        .present(fd_present), .protect(fd_protect), .sectors0(fd_sectors0),
+        .sectors1(fd_sectors1), .spt0(fd_spt0), .spt1(fd_spt1), .sides0(fd_sides0),
+        .sides1(fd_sides1),
+        .fd_addr, .fd_rd, .fd_wr, .fd_wdata, .fd_rdata, .fd_ack,
+        .ld_we(ld_dev_we && ld_dev_sel == 3'd4), .ld_addr(ld_dev_addr), .ld_data(ld_dev_data)
     );
 
     assign dev_rd    = sel_ext && io_rd;
@@ -148,6 +178,7 @@ module able_system #(
         if (sel_md)   begin io_rdata = md_rdata;     io_ack = md_ack;     io_nosyn = md_nosyn; end
         if (sel_term) begin io_rdata = term_rdata;   io_ack = term_ack;   io_hold = term_hold; end
         if (sel_xm)   begin io_rdata = xm_rdata_cpu; io_ack = xm_cpu_ack; end
+        if (sel_fd)   begin io_rdata = fd_rdata_cpu; io_ack = fd_cpu_ack; io_nosyn = fd_nosyn; end
     end
 
     // PSW bits 8 (D3) and 6 (D50/D51); bits of devices outside from dev_irq

@@ -5,8 +5,9 @@
 //   able_sim_top (default): the CPU alone; every device access is answered
 //     from the trace.
 //   able_sys_top (-DSYSTEM): able_system with the HDL devices (D3, D4-D7,
-//     D50/D51, D60-D63); their reads, writes, interrupt bits and timing are
-//     compared with the trace. Other devices are answered from the trace.
+//     D50/D51, D60-D63, D100-D104); their reads, writes, interrupt bits and
+//     timing are compared with the trace. Other devices are answered from
+//     the trace.
 // Each I/O transfer, PSW read, interrupt check and completed instruction
 // must match; register snapshots (and, for the system, simulated time)
 // are compared every 256 instructions.
@@ -27,7 +28,7 @@
 #ifdef SYSTEM
 #include "Vable_sys_top.h"
 typedef Vable_sys_top Top;
-static const uint16_t INTERNAL_IRQ = 0400 | 0100;   // D3, D50/D51
+static const uint16_t INTERNAL_IRQ = 0400 | 0100;   // D3, D50/D51 (D100 has none)
 #else
 #include "Vable_sim_top.h"
 typedef Vable_sim_top Top;
@@ -94,6 +95,9 @@ int main(int argc, char** argv) {
     top->rst = 1;
     top->dev_ack = top->dev_nosyn = top->dev_hold = top->halt_req = 0;
     top->dev_irq = 0;
+#ifdef SYSTEM
+    top->fd_present = top->fd_protect = 0;
+#endif
     for (int i = 0; i < 16; i++) {
         top->dbg_we = 1; top->dbg_addr = i; top->dbg_wdata = t.u16(); tick();
     }
@@ -117,6 +121,23 @@ int main(int argc, char** argv) {
             }
             top->ld_xm_we = 0;
 #else
+            t.p += (size_t)sectors * 512;
+#endif
+        } else if (k == 'F') {                     // floppy media
+            uint8_t drive = t.u8(); uint16_t sectors = t.u16();
+            uint8_t spt = t.u8(), sides = t.u8(), prot = t.u8();
+#ifdef SYSTEM
+            if (sectors > 1024) { std::fprintf(stderr, "floppy > 1024 sectors\n"); return 2; }
+            top->fd_present |= 1 << drive;
+            if (prot) top->fd_protect |= 1 << drive;
+            if (drive) { top->fd_sectors1 = sectors; top->fd_spt1 = spt; top->fd_sides1 = sides; }
+            else       { top->fd_sectors0 = sectors; top->fd_spt0 = spt; top->fd_sides0 = sides; }
+            for (uint32_t a = 0; a < (uint32_t)sectors * 256; a++) {
+                top->ld_fd_we = 1; top->ld_fd_addr = (drive << 18) | a; top->ld_fd_data = t.u16(); tick();
+            }
+            top->ld_fd_we = 0;
+#else
+            (void)drive; (void)spt; (void)sides; (void)prot;
             t.p += (size_t)sectors * 512;
 #endif
         } else if (k == 'V') {                     // device state

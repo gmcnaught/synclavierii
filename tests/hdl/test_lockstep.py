@@ -13,7 +13,7 @@ import sys
 import tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
-from sim.lockstep import check, random_cpu, record  # noqa: E402
+from sim.lockstep import check, expected_wav, random_cpu, record  # noqa: E402
 
 HAVE_VERILATOR = shutil.which("verilator") is not None
 
@@ -352,6 +352,189 @@ def test_system_synth_devices_program():
     assert cpu.r[4] > 20 and cpu.r[0] > 20                  # both ramps took many polls
     assert cpu.fm.wave[9][:2] == bytearray([5, 6]) and cpu.r[3] == 1 << 11
     assert kb.lights[2] == cpu.r[2] and kb.display[1] == cpu.r[0] and cpu.r[5] == 0 and n > 100
+
+
+VOICE_PROGRAM = """
+        IM(17) TO D160      ; load wave memory 4 through channel 17 (15)
+        IM(4) TO D161
+        PCI TO D162
+        DATA 44
+        IM(6) TO D161
+        IM(0) TO D162
+        IM(7) TO D161
+        IM(0) TO R0
+RAMP:   R0 TO D162          ; 0, 3, ... 252 (85 points; the rest stay 0)
+        IM(3) TO ADD0
+        R0 TO R3
+        PCI TO TSUB3
+        DATA 375
+        RE(RAMP) TO RTNC
+        IM(1) TO D160       ; voice 0 carrier: pitch, wave 4, envelope, VOL
+        IM(2) TO D161
+        IM(1) TO D162       ; ONU 1
+        IM(1) TO D161
+        PCI TO D162         ; NNU
+        DATA 300
+        IM(0) TO D161
+        PCI TO D162         ; INC
+        DATA 176
+        IM(4) TO D161
+        PCI TO D162
+        DATA 44
+        IM(13) TO D161
+        PCI TO D162         ; VOL
+        DATA 360
+        IM(10) TO D161
+        PCI TO D162
+        DATA 374
+        IM(11) TO D161
+        PCI TO D162
+        DATA 377
+        IM(12) TO D161
+        PCI TO D162         ; envelope to 240
+        DATA 360
+        IM(0) TO D160       ; modulator: ratio 2, pan right of centre, shift 2
+        IM(2) TO D161
+        IM(2) TO D162
+        IM(1) TO D161
+        PCI TO D162
+        DATA 300
+        IM(0) TO D161
+        PCI TO D162
+        DATA 176
+        IM(13) TO D161
+        PCI TO D162
+        DATA 302
+        IM(10) TO D161
+        PCI TO D162
+        DATA 360
+        IM(11) TO D161
+        PCI TO D162
+        DATA 100
+        IM(12) TO D161
+        PCI TO D162         ; index ramps to 200
+        DATA 310
+        IM(7) TO D160       ; voice 3: other pitch, all left, memory 4, no envelope set
+        IM(2) TO D161
+        IM(2) TO D162
+        IM(1) TO D161
+        PCI TO D162
+        DATA 240
+        IM(0) TO D161
+        PCI TO D162
+        DATA 112
+        IM(4) TO D161
+        PCI TO D162
+        DATA 44
+        IM(13) TO D161
+        PCI TO D162
+        DATA 200
+        IM(12) TO D161
+        PCI TO D162
+        DATA 200
+        IM(6) TO D160
+        IM(13) TO D161
+        IM(0) TO D162       ; pan 0, shift 0
+        PCI TO R4           ; play for a while
+        DATA 30000
+P1:     R4 TO R3
+        IM(1) TO SUB3
+        R3 TO R4
+        RE(P1) TO RTNZ
+        IM(1) TO D160       ; carrier: new pitch and octave while sounding
+        IM(1) TO D161
+        PCI TO D162
+        DATA 360
+        IM(2) TO D161
+        IM(3) TO D162
+        IM(0) TO D160       ; modulator: lower octave
+        IM(2) TO D161
+        IM(0) TO D162
+        PCI TO R4
+        DATA 30000
+P2:     R4 TO R3
+        IM(1) TO SUB3
+        R3 TO R4
+        RE(P2) TO RTNZ
+        IM(1) TO D160       ; release
+        IM(12) TO D161
+        IM(0) TO D162
+        PCI TO R4
+        DATA 20000
+P3:     R4 TO R3
+        IM(1) TO SUB3
+        R3 TO R4
+        RE(P3) TO RTNZ
+        D161 TO R7          ; no SYN: halt
+"""
+
+
+def test_system_voice_engine():
+    """HDL voice engine against sim/voice.py sample for sample: FM with an
+    index ramp and shift, pan, VOL, a loaded wave memory, pitch and octave
+    changes while sounding, a release."""
+    if not HAVE_VERILATOR:
+        print("  skip test_system_voice_engine (verilator not found)")
+        return
+    from sim.asm import assemble
+    from sim.system import make_system
+    cpu = make_system(synth=True)
+    words, _ = assemble(VOICE_PROGRAM)
+    cpu.load(words)
+    with tempfile.NamedTemporaryFile(suffix=".trace", delete=False) as f:
+        path = f.name
+    try:
+        n = record(cpu, path, 2_000_000, audio=True)
+        ok, text = check(path, top="system", wav=path + ".hdl.wav")
+        nonzero = _nonzero_samples(path)
+        frames = expected_wav(path, path + ".py.wav")
+        hdl_wav, py_wav = open(path + ".hdl.wav", "rb").read(), open(path + ".py.wav", "rb").read()
+    finally:
+        for p in (path, path + ".hdl.wav", path + ".py.wav"):
+            if os.path.exists(p):
+                os.unlink(p)
+    assert ok, text
+    assert frames > 5000 and hdl_wav == py_wav       # audio_out.sv = render() + write_wav()
+    assert cpu.halted and cpu.halted.device == 0o161, cpu.halted
+    assert nonzero > 5000 and n > 100_000, (nonzero, n)
+
+
+def _nonzero_samples(path):
+    """Audio samples in a trace that are not (0, 0)."""
+    import struct
+    b = open(path, "rb").read()
+    p = 8 + 33 + 131072
+    while True:
+        k = b[p:p + 1]
+        p += 1
+        if k == b"B":
+            break
+        if k == b"X":
+            p += 4 + struct.unpack_from("<I", b, p)[0] * 512
+        elif k == b"F":
+            p += 6 + struct.unpack_from("<H", b, p + 1)[0] * 512
+        elif k == b"V":
+            p += 7
+        elif k == b"O":
+            p += 11 + 64
+    sizes = {b"P": 2, b"R": 3, b"W": 3, b"Q": 2, b"I": 4, b"S": 41, b"H": 1, b"E": 0,
+             b"w": 4, b"K": 4, b"A": 16}
+    count = 0
+    while p < len(b):
+        k = b[p:p + 1]
+        p += 1
+        if k == b"T":
+            p += 6 + struct.unpack_from("<H", b, p + 4)[0]
+            continue
+        if k == b"A" and struct.unpack_from("<qq", b, p) != (0, 0):
+            count += 1
+        p += sizes[k]
+    return count
+
+
+def test_sine_rom_matches_python():
+    from tools.gen_sine_rom import PATH, text
+    assert open(PATH).read() == text(), "run python3 tools/gen_sine_rom.py"
 
 
 def test_release_l_monitor_boot_and_catalog():

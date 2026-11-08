@@ -431,6 +431,13 @@ Details in [`timbre-libraries.md`](timbre-libraries.md).
   trace. One HDL bug found by lockstep: the 192 kHz clock remainder
   (`rem + 24 × ns`, up to 148,975) overflowed 17 bits and dropped
   interpolator clocks; the release then ended late.
+* HDL voice engine (`fm_voices.sv`): identical integer samples to
+  `sim/voice.py` for ORK-LM's C4 (804,572 samples) and an FM test program
+  (index ramp, shift, pan, pitch/octave change while sounding). Exactness
+  needs the samples at Python's render instants inside an instruction's
+  tick, with oscillators split at the instant and envelopes taken before
+  or after the interpolator clock by the same rule as Python's lazy
+  advance.
 
 ## Searched without useful results
 

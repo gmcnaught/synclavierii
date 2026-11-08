@@ -5,7 +5,8 @@
 //   D100-D104 floppy controller (floppy words in a RAM behind fd_*),
 //   D130/D131 original keyboard and panel (key/button state from the host),
 //   D160-D163 FM interface (registers, interpolators, wave memory),
-//   D164/D165 control voltages (write-only).
+//   D164/D165 control voltages (write-only),
+// and the FM voice engine (hdl/dev/fm_voices.sv) producing audio.
 // Every other device number goes out on the dev_* port.
 //
 // Device time is the CPU's simulated time (333 ns per bus transfer, see
@@ -60,6 +61,17 @@ module able_system #(
     input  logic [15:0] kb_host_value,
     output logic [15:0] kb_lights [8],
     output logic [15:0] kb_display [3],
+
+    // audio: one sample (sums over the voices) per 1/192000 s of simulated time
+    output logic        audio_valid,
+    output logic signed [39:0] audio_l,
+    output logic signed [39:0] audio_r,
+    output logic        pcm_valid,         // 48 kHz 16-bit stereo (audio_out.sv)
+    output logic signed [15:0] pcm_l,
+    output logic signed [15:0] pcm_r,
+    input  logic        ld_voice_we,       // voice engine state (simulation)
+    input  logic [5:0]  ld_voice_addr,
+    input  logic [63:0] ld_voice_data,
 
     // terminal, host side
     input  logic        term_rx_valid,
@@ -158,16 +170,19 @@ module able_system #(
         .ld_addr(ld_dev_addr[4:0]), .ld_data(ld_dev_data)
     );
 
-    // FM interface; the voice engine (M5) will use the register outputs
-    logic [7:0] ch_inc [16], ch_nnu [16], ch_onu [16], ch_tim [16], ch_f13 [16], ch_env [16];
-    logic [7:0] wave_q;
-    logic       interp_clock;
+    // FM interface and voice engine
+    logic [7:0]  ch_inc [16], ch_nnu [16], ch_onu [16], ch_tim [16], ch_f13 [16], ch_env [16];
+    logic [7:0]  ch_env_next [16];
+    logic [17:0] fm_rem;
+    logic [12:0] wave_addr;
+    logic [7:0]  wave_q;
+    logic        interp_clock, voices_busy;
     dev_fm fm (
         .clk, .rst, .sel(sel_fm), .rd(io_rd), .wr(io_wr), .reg_sel(io_dev[1:0]),
         .wdata(io_wdata), .rdata(fm_rdata), .ack(fm_ack), .nosyn(fm_nosyn), .strict(synth_strict),
         .tick, .tick_ns,
-        .ch_inc, .ch_nnu, .ch_onu, .ch_tim, .ch_f13, .ch_env,
-        .wave_addr(13'd0), .wave_q, .interp_clock,
+        .ch_inc, .ch_nnu, .ch_onu, .ch_tim, .ch_f13, .ch_env, .ch_env_next, .fm_rem,
+        .hold(voices_busy), .wave_addr, .wave_q, .interp_clock,
         .ld_we(ld_dev_we && (ld_dev_sel == 3'd5 || ld_dev_sel == 3'd6)),
         .ld_wave(ld_dev_sel == 3'd6), .ld_addr(ld_dev_addr), .ld_data(ld_dev_data)
     );
@@ -206,6 +221,19 @@ module able_system #(
         .sides1(fd_sides1),
         .fd_addr, .fd_rd, .fd_wr, .fd_wdata, .fd_rdata, .fd_ack,
         .ld_we(ld_dev_we && ld_dev_sel == 3'd4), .ld_addr(ld_dev_addr[4:0]), .ld_data(ld_dev_data)
+    );
+
+    fm_voices voices (
+        .clk, .rst, .tick, .tick_ns,
+        .ch_inc, .ch_nnu, .ch_onu, .ch_tim, .ch_f13, .ch_env, .ch_env_next, .fm_rem,
+        .wave_addr, .wave_q, .busy(voices_busy),
+        .audio_valid, .audio_l, .audio_r,
+        .ld_we(ld_voice_we), .ld_addr(ld_voice_addr), .ld_data(ld_voice_data)
+    );
+
+    audio_out pcm (
+        .clk, .rst, .in_valid(audio_valid), .in_l(audio_l), .in_r(audio_r),
+        .out_valid(pcm_valid), .out_l(pcm_l), .out_r(pcm_r)
     );
 
     assign dev_rd    = sel_ext && io_rd;

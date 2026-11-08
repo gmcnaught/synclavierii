@@ -36,6 +36,9 @@ module dev_fm #(
     output logic [7:0]  ch_tim [2*VOICES],
     output logic [7:0]  ch_f13 [2*VOICES],
     output logic [7:0]  ch_env [2*VOICES],      // interpolator value
+    output logic [7:0]  ch_env_next [2*VOICES], // ... after an interpolator clock now
+    output logic [17:0] fm_rem,                 // interpolator clock phase
+    input  logic        hold,                   // voice engine mixing: accesses wait
     input  logic [12:0] wave_addr,              // {memory, point}
     output logic [7:0]  wave_q,
     output logic        interp_clock,           // an interpolator clock this edge
@@ -64,7 +67,7 @@ module dev_fm #(
     // -------------------------------------------------------------- reads
     wire bit0 = ch_ok && !(function_ == 16'o12 && val[c] == lim[c]);
     assign nosyn = sel && rd && strict && (reg_sel == 2'd1 || reg_sel == 2'd2);
-    assign ack   = sel && !nosyn;
+    assign ack   = sel && !nosyn && !hold;
     always_comb begin
         case (reg_sel)
             2'd0: rdata = {8'd0, switches & 8'o374} | {14'd0, ext_in, bit0};
@@ -171,5 +174,7 @@ module dev_fm #(
 
     for (genvar k = 0; k < NCH; k++) begin : g_env
         assign ch_env[k] = val[k];
+        assign ch_env_next[k] = val_n[k];
     end
+    assign fm_rem = rem;
 endmodule

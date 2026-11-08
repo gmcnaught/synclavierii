@@ -56,6 +56,40 @@ OCTAVE_KEYS = (12, 12, 12, 12, 12, 1)
 LOWEST_KEY = 12
 
 
+#: Physical button number (0-127) -> NED logical parameter name, from
+#: SYNRSOU 05-BUTT:075-OLDL ("LPN lookup table ... on original panel",
+#: 5/15/86). "name.n" stands for NED's name.l+n.
+ORK_BUTTONS = (
+    # panel 1 (PBN 0-31)
+    "psel.0", "psel.1", "ve.del", "ve.atk", "ve.idec", "ve.fdec", "ve.peak", "ve.sust",
+    "psel.2", "psel.3", "he.del", "he.atk", "he.idec", "he.fdec", "he.peak", "he.sust",
+    "hgs1", "hgs2", "coef.0", "coef.1", "coef.2", "coef.3", "coef.4", "coef.5",
+    "scale.a", "ttben", "coef.6", "coef.7", "coef.8", "coef.9", "coef.10", "coef.11",
+    # panel 2 (PBN 32-63)
+    "start", "stop", "record", "punch", "cont", "rew", "ff", "erase",
+    "eloop", "transp", "speed", "bounce", "smt", "skt", "click", "ext",
+    "trak.0", "trak.1", "trak.2", "trak.3", "trak.4", "trak.5", "trak.6", "trak.7",
+    "trak.8", "trak.9", "trak.10", "trak.11", "trak.12", "trak.13", "trak.14", "trak.15",
+    # panel 3 (PBN 64-95)
+    "ptun", "vwave", "vrate", "vdepth", "vatk", "ponoff", "plogl", "prate",
+    "ratio", "decay", "repeat", "arpeg", "rrate", "chorus", "tbase", "oratio",
+    "vkvel", "vkpre", "vkpe1", "vkpe2", "vkmod", "vkrib", "vkkcv", "vkbth",
+    "smpte", "smin", "scon", "midi", "vkper", "vkrec", "vkove", "vkclr",
+    # panel 4 (PBN 96-127)
+    "bank.0", "bank.1", "bank.2", "bank.3", "bank.4", "bank.5", "bank.6", "bank.7",
+    "timb.0", "timb.1", "timb.2", "timb.3", "timb.4", "timb.5", "timb.6", "timb.7",
+    "seqr.0", "seqr.1", "seqr.2", "seqr.3", "seqr.4", "seqr.5", "bnkovwrt", "entrywrt",
+    "lpt", "lpfc", "hpt", "hpfc", "bpt", "bpfc", "bwdth", "dsel",
+)
+
+
+def button_number(name):
+    """Physical button number for a name ("timb.0") or a number ("104")."""
+    if str(name).isdigit():
+        return int(name)
+    return ORK_BUTTONS.index(name)
+
+
 class OriginalKeyboard(Device):
     """D130/D131: original Synclavier II clavier, button panel, display."""
     numbers = (0o130, 0o131)
@@ -146,10 +180,12 @@ class FMInterface(Device):
         self.voices = voices
         self.strict = strict
         self.unknown_reads = 0
-        self.channel = 0
+        self.channel = 0                # low 8 bits of the last D160 write
+        self.channel_word = 0           # the whole word, as the program wrote it
+        self.time_ns = 0
         self.function = 0
         self.writes = 0
-        self.log = []                   # (channel, function, value) of D162 writes
+        self.log = []                   # (time_ns, channel word, function, value) per D162 write
         self.log_len = log_len
         self.channels = {}              # (channel, function) -> last value
         self.switches = 0               # six switches, bits 2..7 of D160
@@ -172,12 +208,15 @@ class FMInterface(Device):
     def write(self, dev, value):
         self.writes += 1
         if dev == 0o160:
-            self.channel = value
+            # QUELITS: channel words are [4 bits state][4 bits splice wave
+            # memory 8-15][8 bits channel]; ORK-LM writes whole words.
+            self.channel_word = value
+            self.channel = value & 0o377
         elif dev == 0o161:
             self.function = value
         elif dev == 0o162:
             if len(self.log) < self.log_len:
-                self.log.append((self.channel, self.function, value))
+                self.log.append((self.time_ns, self.channel_word, self.function, value))
             self.channels[(self.channel, self.function)] = value
         elif value == 1:
             self.ext_clock_out = not self.ext_clock_out
@@ -185,6 +224,9 @@ class FMInterface(Device):
             self.adc_select = (value >> 2) & 7
         # value 3: start the next conversion (instant here)
         return True
+
+    def tick(self, ns):
+        self.time_ns += ns
 
 
 class ControlVoltages(Device):

@@ -98,6 +98,13 @@ def floppy_media(W, name):
     raise KeyError(name)
 
 
+def insert_floppy(cpu, image, drive, name):
+    """Put floppy `name` of a .simg into drive 0 (F0) or 1 (F1), as a user
+    swapping disks would. Writes stay in memory."""
+    from tools.ned_disk import load
+    cpu.floppy.insert(drive, floppy_media(load(image), name))
+
+
 def boot_from_image(image, floppy="03-SYSTD", f1=None, processor="B", **system_kw):
     """Return (cpu, layout) ready to boot MONITOR from a Release L image.
 

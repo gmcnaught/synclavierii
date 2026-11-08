@@ -106,7 +106,7 @@ Each milestone has tasks, deliverables and **acceptance criteria**.
 | 2.1 | **Done** (`sim/rtp.py`, [`realtime-program.md`](realtime-program.md)). Load and run `ORK-LM`/`ORK-LFM` (multi-disk executable) under the simulator, with devices stubbed to log every access |
 | 2.2 | **Done for the devices Release L touches:** D130/D131, D160–D163, D164/D165 (`sim/devices/synth.py`). Release L ORK-LM does not use the D16 timer. Reconstruct register maps for **D160 (FM interface)**, the **original keyboard / button panel** and the **D16 timer** from the logs, disassembly of the Release L binaries, and NED's MIT XPL source (later releases; check for differences) |
 | 2.3 | **Done:** [`devices/`](devices/) (keyboard, FM interface, control voltages). Write `docs/devices/<device>.md` for each device: addresses, bit fields, sequences, evidence |
-| 2.4 | **Done for the keyboard** (clavier, buttons, lights, display); still open: the logical button map, so a timbre can be recalled and a key plays FM notes. Minimal behavioural models of the keyboard and panel so the program reaches its main loop |
+| 2.4 | **Done:** keyboard, panel, button map (`ORK_BUTTONS`); a recalled timbre plays FM notes from the simulated keyboard. Minimal behavioural models of the keyboard and panel so the program reaches its main loop |
 
 **Done when:** the real-time program runs its main loop without halting, and
 every device it touches has a documented register map.
@@ -221,6 +221,9 @@ loop, 10 simulated seconds without a halt) and every device access can be
 logged (`python3 -m sim.rtp IMAGE --log out.csv`).
 
 **M2.2/M2.3 are done** for every device ORK-LM touches (maps in
-[`devices/`](devices/)). Next: the ORK logical button map (`ORK.PTR`) so a
-timbre can be recalled from the panel and a key press produces the FM
-note-on writes, which then feed M3.
+[`devices/`](devices/)). **M2.4 is done:** with the button map, a timbre
+recalled from `06-TIMBD` plays, and every FM write of a note is logged
+(`--fm-log`). **M2's acceptance test passes** (main loop runs, every device
+it touches is documented). Next: **M3.1**, the FM voice spec from the card
+analysis and patents, decoding the logged `ONU`/`NNU`/`INC`, `TIM`,
+envelope and `VOL` writes.

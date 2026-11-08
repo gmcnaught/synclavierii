@@ -330,6 +330,17 @@ checked against the Release L ORK-LM log. Maps in [`devices/`](devices/).
   256 × `MEM`). A key press is read but plays nothing yet (no timbre
   recalled).
 
+## 19. Button map and the first note (M2.4)
+
+* `075-OLDL` (5/15/86) is the physical-to-logical button table of the
+  original panel: banks at PBN 96–103, timbre recall 104–111.
+* At start-up ORK-LM lights bank 0 / timbre 0 but has read no bank; keys
+  are silent. With `06-TIMBD` swapped into F0, `bank.0` reads 34 sectors
+  of `.NEWDATA` and `timb.0` loads the timbre; C4 then starts 4 voices.
+* ORK-LM writes whole channel words (`QUELITS` format: state, splice wave
+  memory 8 + voice, channel) to D160, and 16-bit values to D162 for
+  `ONU`/`NNU`/`INC`, contrary to FCODLITS' "8-bit" comment.
+
 ## Searched without useful results
 
 * archive.org full-text and metadata search for "synclavier", "new england

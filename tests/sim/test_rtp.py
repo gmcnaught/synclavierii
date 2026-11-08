@@ -74,6 +74,32 @@ def test_release_l_ork_lm_runs():
     assert "9  VOICES" in text                  # one 8-voice card detected (shown + 1)
 
 
+def test_release_l_ork_lm_plays_a_note():
+    image = os.environ.get("SYNCLAVIER_RELEASE_L")
+    if not image:
+        print("  skip test_release_l_ork_lm_plays_a_note (SYNCLAVIER_RELEASE_L not set)")
+        return
+    from sim.boot import insert_floppy
+    from sim.devices.synth import button_number
+    from sim.rtp import run_seconds, start_rtp
+    cpu, dbg, lay = start_rtp(image, "ORK-LM")
+    assert run_seconds(cpu, dbg, 8) is None
+    insert_floppy(cpu, image, 0, "06-TIMBD")      # timbre library into F0
+    for b in ("bank.0", "timb.0"):
+        cpu.keyboard.press_button(button_number(b))
+        assert run_seconds(cpu, dbg, 0.1) is None
+        cpu.keyboard.press_button(button_number(b), False)
+        assert run_seconds(cpu, dbg, 1.5) is None
+    n0 = len(cpu.fm.log)
+    cpu.keyboard.press_key(48)                     # C4
+    assert run_seconds(cpu, dbg, 0.05) is None
+    on = [(w & 0o377, fn) for t, w, fn, v in cpu.fm.log[n0:] if fn in (0, 1, 2, 4)]
+    carriers = {ch for ch, fn in on}
+    assert len(carriers) == 4 and all(ch & 1 for ch in carriers), on   # 4 partials
+    for ch in carriers:
+        assert {fn for c, fn in on if c == ch} == {0, 1, 2, 4}          # TIM, ONU, NNU, INC
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:

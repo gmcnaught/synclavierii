@@ -78,16 +78,23 @@ Values are octal, most frequent first.
 D162 (FM data) is not written in this window. No other device numbers are
 touched.
 
-## Open questions for M2.2
+## Register maps (M2.2)
 
-* **D160 read, bit 1:** the main loop polls it and acts on changes. A
-  status bit from the FM interface (a clock or "voice done")? Returning 0
-  means the loop never sees a change.
-* **D130/D131 protocol:** D131 values select what D130 returns (key scan,
-  panel buttons, knob). The 1,160 reads of 1 match the 1,160 D131 = 105
-  "type" queries, so D130 reads otherwise return the probe's 0.
-* **D163–D165:** written with small values (D163: 2, 3, 6, 22; D164: 0–3;
-  D165: 372, 10200). Candidates: D16-style timers or the poly/MIDI
-  subsystems the options word does not enable.
-* The disassembly of the routines at these PCs, and NED's later-release
-  XPL source for the same devices (`Able/SYNMODS`, …), come next.
+The devices above are decoded from NED's 1986–89 RTP source and checked
+against this log:
+
+* [`devices/d130-original-keyboard.md`](devices/d130-original-keyboard.md):
+  D130/D131 clavier scan (negative logic), panel buttons/lights, display.
+  With the M2.1 probe every key read as held; the model now reads idle.
+* [`devices/d160-fm-interface.md`](devices/d160-fm-interface.md): D160
+  channel / D161 function / D162 data; D160 read bit 0 = channel exists
+  (voice detection), bit 1 = external clock (the main-loop poll), bits
+  2–7 = switches; D163 = A/D converter (the writes 2, 3, 6, 22) and clock
+  out.
+* [`devices/d164-control-voltages.md`](devices/d164-control-voltages.md):
+  D164 DAC select, D165 value (filter CVs, keyboard pitch/gate/trigger).
+
+With these models ORK-LM detects 8 voices ("9 VOICES" on its screen),
+loads four 256-point wave memories and runs with no unmodelled device
+access. **A key press does not yet produce FM writes**; the next step is
+recalling a timbre, which needs the panel's logical button map.

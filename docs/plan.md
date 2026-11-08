@@ -87,12 +87,12 @@ Each milestone has tasks, deliverables and **acceptance criteria**.
 |---|---|---|
 | 1.1 | **Done** (`sim/cpu.py`, `docs/simulator.md`). CPU core: decode via the shared tables in `tools/able_disasm.py`; implement all Model B sources and destinations, flags, conditional/relative transfers, PCI literals, post-increment | `instruction-set.md` §2–7 |
 | 1.2 | **Done.** PSW/PCW (D1), interrupt entry (R16 as PC, ION/ICS/PCS), INIT state | `instruction-set.md` §8 |
-| 1.3 | Memory 64K words; external memory D60 (sector), D61 (word), D63 (data, auto-increment) | `boot-and-loaders.md` §3 |
-| 1.4 | Terminal D50 (data) and D51 (status), bridged to the host console; TTI/TTO interrupts | XPL manual §IX; loaders |
-| 1.5 | D3 real-time clock (200 Hz interrupt) and D4567 multiply/divide (documented protocol) | `boot-and-loaders.md` §3 |
+| 1.3 | **Done** (`sim/devices/`). Memory 64K words; external memory D60 (sector), D61 (word), D63 (data, auto-increment) | `boot-and-loaders.md` §3 |
+| 1.4 | **Done** (`sim/devices/`), except the live host-console bridge, which comes with the M1.7 tooling (`feed()` and `output` hooks exist). Terminal D50 (data) and D51 (status), bridged to the host console; TTI/TTO interrupts | XPL manual §IX; loaders |
+| 1.5 | **Done** (`sim/devices/`). D3 real-time clock (200 Hz interrupt) and D4567 multiply/divide (documented protocol) | `boot-and-loaders.md` §3 |
 | 1.6 | Disk: **step A** high-level boot that loads `MONITOR` from the image catalog and synthesises the post-boot core state like NED's Mac runtime (`set_up_able_core`); **step B** register-level D100 floppy emulation from the FLPLOAD/`.LD-6` code | `boot-and-loaders.md`, `release-l-image.md` |
 | 1.7 | Debug tooling: instruction trace (reusing the disassembler), breakpoints, device-access log, and a HOP-like halt/inspect | — |
-| 1.8 | **Started** (`tests/sim/test_cpu.py`, 42 tests). CPU unit tests: one per source/destination class, flag edge cases (SUB/SBB borrow, rotates, shifts), relative targets | `data/able-opcodes.csv` |
+| 1.8 | **Started** (`tests/sim/`: 42 CPU and 14 device tests). CPU unit tests: one per source/destination class, flag edge cases (SUB/SBB borrow, rotates, shifts), relative targets | `data/able-opcodes.csv` |
 
 **Deliverables:** `sim/` package, `tests/sim/`, user doc `docs/simulator.md`.
 **Done when:**
@@ -211,6 +211,6 @@ In priority order (details in [`bench-checklist.md`](bench-checklist.md)):
 
 ## 10. Next action
 
-M0, M1.1 and M1.2 are done. Next: **M1.3–1.5** (external memory,
-terminal, real-time clock, multiply/divide), then the high-level boot
-(M1.6 step A).
+M0 and M1.1–1.5 are done. Next: **M1.6 step A**, the high-level boot that
+loads `MONITOR` from a user-supplied Release L image, then **M1.7** debug
+tooling.

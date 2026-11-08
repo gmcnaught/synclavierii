@@ -188,6 +188,43 @@ followed and checked. Newest information wins where entries disagree.
   simulator reads through R17; interrupt handlers in Release L will show
   which is right.
 
+## 14. Devices for the simulator (M1.3–1.5)
+
+Sources: NED's loaders (FLPLOAD, WINLOAD, SCSILOAD), the interpreter header
+`Code/Includes/Able Interpreter/AbleInterpreter.h`, the XPL-to-C translator,
+`AbleCatRtns.cpp`, and a disassembly of the Model B runtime `*RTB-7.sdat`
+(all MIT, `jbemond/Software` @ `a237bf2`). Register details are in
+[`simulator.md`](simulator.md#devices-m13-15).
+
+* **Terminal D50/D51:** the interpreter header gives the D51 status bits
+  (XMIT_IRQ 1, CHAR_RDY 2, XMIT_MT 4) and card-present bits 8–15. The
+  loaders use the latter to detect a D100A (10000) and a SCSI card (40000).
+* **Interrupt dispatch in the Model B runtime** (`*RTB-7` addresses
+  705–735) is a table of handlers that also shows how each device is
+  acknowledged: `IM(0) TO D3` for the clock; `D16 TO …` (a read) for the
+  D16 timer; for the terminal, `D51` is read and either `D50` is read
+  (TTIINT) or `IM(0) TO D51` clears the transmit interrupt (TTOINT).
+* **At interrupt level the runtime reads in-line constants with `MR16I`
+  (376), not `PCI` (377).** That supports the simulator's choice that
+  register codes are not remapped when R16 is the PC.
+* **External memory:** D63 auto-increments across sector boundaries
+  (whole tracks and swap files are copied after a single D60 write), D60
+  and D61 are readable (the loaders read them to find where a copy ended),
+  and SCSILOAD parks an unrelated 16-bit value in D60 and reads it back.
+* **D62 exists** (the XPL-to-C translator knows `_read_62`/`_write_62`)
+  but its function is unknown. **D4567:** only D4 and D5 are readable.
+* **PCW bit layout, open question.** The interpreter header names bit 3
+  `D1_ION` (read/write) and bit 4 `D1_PC17` ("pc select flag", write only),
+  and has no ICS bit. The hardware manual has ION = bit 3, ICS = bit 4,
+  PCS = bit 5. Every PCW value found in NED code (`IM(-20)`, `IM(0)`, saved
+  `IM(-20)` images) means the same under both layouts, so nothing seen so
+  far tells them apart. The simulator follows the manual. The header may
+  describe the later Model D, or simplify for the interpreter.
+* **Open:** the runtime writes `IM(0) TO D3` 32 or 62 times in a row
+  (`*RTB-7` 4353), which only makes sense as a delay if a D3 write waits for
+  the next clock tick. The simulator treats the write as an acknowledgement
+  only.
+
 ## Searched without useful results
 
 * archive.org full-text and metadata search for "synclavier", "new england

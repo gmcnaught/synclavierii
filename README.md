@@ -50,14 +50,15 @@ docs/
   plan.md                    detailed project plan (milestones, verification, risks)
   roadmap.md                 one-page summary of the plan
   research-log.md            chronology of findings, corrections and sources
-sim/                         software simulator (M1): Model B CPU, bus, test assembler
-  cpu.py  bus.py  decode.py  asm.py
+sim/                         software simulator (M1): Model B CPU, devices, test assembler
+  cpu.py  bus.py  decode.py  asm.py  system.py
+  devices/                   D60-D63 external memory, D50/D51 terminal, D3 clock, D4567
 tools/
   able_disasm.py             ABLE disassembler (NED syntax, Model C aware)
   ned_disk.py                NED .simg catalog lister / extractor
 tests/
   test_able_disasm.py        validation against NED's SCSI.LST listing (fixture, MIT)
-  sim/                       simulator tests: decode tables, 42 CPU tests
+  sim/                       simulator tests: decode tables, CPU, devices
 data/
   ezbuss-pinout.csv          72-pin pinout + expected chips + columns to fill in
   able-opcodes.csv           source/destination code map with flag effects

@@ -174,6 +174,20 @@ followed and checked. Newest information wins where entries disagree.
   examined (proprietary). The CPU-interpreter core and any ROM images would
   have to come from Synclavier Digital.
 
+## 13. Simulator CPU (M1.1–1.2)
+
+* `sim/` runs the Model B instruction set at about 1.6 MIPS in Python, close
+  to the real machine's speed. Choices the manual leaves open are listed in
+  [`simulator.md`](simulator.md).
+* Writing the tests showed why NED code writes the PCW with **negative
+  immediates** (`IM(-20) TO D1`): PCS is bit 5, and a positive 6-bit
+  immediate only reaches bit 4. `IM(-20)` = 177760 selects R17 with
+  ICS = 1 and ION = 0, which matches the "interrupts off" comment in the
+  runtime.
+* The manual does not say whether `PCI` follows R16 at interrupt level. The
+  simulator reads through R17; interrupt handlers in Release L will show
+  which is right.
+
 ## Searched without useful results
 
 * archive.org full-text and metadata search for "synclavier", "new england

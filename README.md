@@ -20,6 +20,7 @@ Where to start:
 | [`tools/`](tools/README.md) | `able_disasm.py`: ABLE disassembler, validated 541/541 against an NED assembler listing (`tests/`); `ned_disk.py`: NED disk-image lister/extractor |
 | [`docs/bench-checklist.md`](docs/bench-checklist.md) | What to do when someone has a board or bin: PROM reads, measurements, photos |
 | [`docs/sources.md`](docs/sources.md) | Pinned sources: checksums, commit IDs, page map |
+| [`docs/simulator.md`](docs/simulator.md) | **Software simulator:** how to use `sim/`, behaviour, and the choices the manual leaves open |
 | [`docs/plan.md`](docs/plan.md) | **Project plan:** scope, architecture, milestones M0–M6 with acceptance criteria, verification, risks, decisions |
 | [`docs/roadmap.md`](docs/roadmap.md) | **Toward an FPGA Synclavier II:** what we have, the gaps in order of risk, and milestones |
 | [`docs/research-log.md`](docs/research-log.md) | How we got here, including corrections and dead ends |
@@ -49,11 +50,14 @@ docs/
   plan.md                    detailed project plan (milestones, verification, risks)
   roadmap.md                 one-page summary of the plan
   research-log.md            chronology of findings, corrections and sources
+sim/                         software simulator (M1): Model B CPU, bus, test assembler
+  cpu.py  bus.py  decode.py  asm.py
 tools/
   able_disasm.py             ABLE disassembler (NED syntax, Model C aware)
   ned_disk.py                NED .simg catalog lister / extractor
 tests/
   test_able_disasm.py        validation against NED's SCSI.LST listing (fixture, MIT)
+  sim/                       simulator tests: decode tables, 42 CPU tests
 data/
   ezbuss-pinout.csv          72-pin pinout + expected chips + columns to fill in
   able-opcodes.csv           source/destination code map with flag effects

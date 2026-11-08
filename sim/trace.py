@@ -41,12 +41,15 @@ class Debugger:
     io_len:      device transfers kept (pc, "R"/"W", device, value).
     """
 
-    def __init__(self, cpu, history_len=64, io_len=64):
+    def __init__(self, cpu, history_len=64, io_len=64, io_sink=None):
         self.cpu = cpu
         self.history = deque(maxlen=history_len)
         self.io = deque(maxlen=io_len)
         self.io_counts = Counter()   # (device, "R"/"W") -> transfers
         self.breakpoints = set()
+        #: optional callable(time_ns, pc, "R"/"W", device, value) for every
+        #: completed transfer (value None = NO SYN); e.g. a CSV writer
+        self.io_sink = io_sink
         self.last_pc = None
         self._waiting = False       # last read was held (BUS_WAIT)
         self._prev_trace = cpu.trace
@@ -81,12 +84,16 @@ class Debugger:
             return v
         self.io.append((self.last_pc, "R", dev, v))
         self.io_counts[(dev, "R")] += 1
+        if self.io_sink:
+            self.io_sink(self.cpu.time_ns, self.last_pc, "R", dev, v)
         return v
 
     def _write(self, dev, value):
         ok = self._bus_write(dev, value)
         self.io.append((self.last_pc, "W", dev, value if ok else NO_SYN))
         self.io_counts[(dev, "W")] += 1
+        if self.io_sink:
+            self.io_sink(self.cpu.time_ns, self.last_pc, "W", dev, value if ok else NO_SYN)
         return ok
 
     # ----------------------------------------------------------- running

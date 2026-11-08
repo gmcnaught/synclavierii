@@ -48,6 +48,20 @@ def mem_size(program):
     return sectors * SECTOR_WORDS
 
 
+C_CMOPT = 17                # configuration table: computer and music options
+O_PROCT = 0o3400            # options word: processor type field (0 A, 1 B, 2 C, 3 D)
+
+
+def set_processor(program, model):
+    """Copy of an XPL program whose configured processor type is `model`
+    ("A".."D"), as CONFIGUR would set it. Release L's system disks are
+    configured for Model C (options 141031 / 141011)."""
+    program = list(program)
+    i = config_pointer(program) + C_CMOPT
+    program[i] = (program[i] & ~O_PROCT) | ("ABCD".index(model) << 8)
+    return program
+
+
 def boot(cpu, program, loader, staging_sector=0):
     """Set up cpu to boot program (e.g. MONITOR) through loader (.LD-6).
 
@@ -84,15 +98,21 @@ def floppy_media(W, name):
     raise KeyError(name)
 
 
-def boot_from_image(image, floppy="03-SYSTD", f1=None, **system_kw):
+def boot_from_image(image, floppy="03-SYSTD", f1=None, processor="B", **system_kw):
     """Return (cpu, layout) ready to boot MONITOR from a Release L image.
 
     image: path to a .simg; floppy: the sub-catalog holding MONITOR/.LD-6,
     also inserted in F0; f1: optional sub-catalog to insert in F1.
+    processor: the processor type written into MONITOR's configuration
+    (default "B", matching the simulated CPU; None keeps the disk's value).
+    MONITOR copies its configuration to high core and the loader copies
+    that into every program it starts, so this is what programs see.
     """
     from tools.ned_disk import load, read_file
     W = load(image)
     program = read_file(W, floppy + "/MONITOR")
+    if processor:
+        program = set_processor(program, processor)
     loader = read_file(W, floppy + "/.LD-6")
     cpu = make_system(floppy=True, synth=True, **system_kw)
     cpu.floppy.insert(0, floppy_media(W, floppy))

@@ -159,6 +159,21 @@ def test_extmem_core_to_external_and_back():
     assert cpu.extmem.dump(3, 0o600) == src
 
 
+def test_muldiv_d5_write_clears_d4():
+    # NED XPL.h: "write to d5 cleared d4"; ORK-LM: "R0 TO D5; IM(20) TO D7"
+    m = MulDiv()
+    m.write(0o4, 7)
+    m.write(0o5, 0o177)
+    assert m.read(0o4) == 0
+    m.write(0o7, 0o20)
+    assert (m.read(0o5), m.read(0o4)) == (7, 0o17)
+    # quotient wider than 16 bits: high bits add into D4 (XPL.h _write_7)
+    m.write(0o5, 0)
+    m.write(0o4, 3)                  # dividend 0x30000
+    m.write(0o7, 1)
+    assert (m.read(0o5), m.read(0o4)) == (0, 3)
+
+
 # ------------------------------------------------------------ D3 clock
 
 

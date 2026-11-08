@@ -46,6 +46,9 @@ class Bus:
     def __init__(self):
         self.devices = {}  # number -> Device
         self._unique = []
+        #: optional Device answering every number nothing else claims
+        #: (M2 probing: log accesses instead of halting)
+        self.fallback = None
 
     def attach(self, device, numbers=None):
         numbers = device.numbers if numbers is None else numbers
@@ -62,11 +65,11 @@ class Bus:
         return device
 
     def read(self, dev):
-        d = self.devices.get(dev)
+        d = self.devices.get(dev, self.fallback)
         return NO_SYN if d is None else d.read(dev)
 
     def write(self, dev, value):
-        d = self.devices.get(dev)
+        d = self.devices.get(dev, self.fallback)
         return False if d is None else d.write(dev, value)
 
     def tick(self, ns):

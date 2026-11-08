@@ -9,7 +9,7 @@ from collections import namedtuple
 from .bus import BUS_WAIT, NO_SYN, Bus
 from .decode import (
     C_ALWAYS, C_C, C_M, C_NC, C_NEVER, C_NM, C_NZ, C_Z,
-    D_ALU, D_BSOR, D_IO, D_JABS, D_JREL, D_MEM, D_MEMI, D_REG,
+    D_ADC, D_ALU, D_BSOR, D_IO, D_JABS, D_JREL, D_MEM, D_MEMI, D_REG,
     D_SHRA, D_TEST, DST_TABLE,
     OP_ADD, OP_AND, OP_LCM, OP_LOA, OP_OR, OP_RTL, OP_SUB, OP_XOR,
     S_IMM, S_IO, S_MEM, S_MEMI, S_REG, S_REGI, SRC_TABLE,
@@ -41,7 +41,7 @@ class CPU:
     """
 
     def __init__(self, bus=None, ns_per_transfer=333):
-        self.model = "B"  # Model C extensions (ADC/SBB, D10, MR12D) are M6
+        self.model = "B"  # "C" enables ADC/SBB; D10 and MR12D are M6
         self.bus = bus if bus is not None else Bus()
         #: CHOICE: about 1 us per three-transfer instruction (plan §3, risk R3)
         self.ns_per_transfer = ns_per_transfer
@@ -256,8 +256,26 @@ class CPU:
                 self.write_pcw(val)
             elif not self.bus.write(da, val):
                 return self._stop(HALT_NO_SYN_WRITE, pc, w, da)
-        else:  # D_ADC, D_SBB: Model C only (M6); undefined on Model B
-            return self._stop(HALT_UNIMPLEMENTED, pc, w)
+        elif self.model == "B":
+            # D_ADC, D_SBB on Model B: no operation. [HYP] Release L ORK-LM
+            # detects Model C by "IM(0) TO R0; IM(0) TO ADD0; IM(5) TO ADC0;
+            # R0 TO LOA0" and enables D10 repeat loops only if R0 <> 0, so
+            # on a Model B the accumulator must stay unchanged.
+            pass
+        elif dk == D_ADC:
+            # Model C (docs/model-c-runtime-analysis.md 3.4): acc + src + C
+            t = r[db] + val + self.c
+            self.c = t > M16
+            res = t & M16
+            self._set_zm(res)
+            r[db] = res
+        else:  # D_SBB: acc - src - (1 - C), C = NOT borrow (as SUB)
+            acc = r[db]
+            sub = val + (not self.c)
+            self.c = acc >= sub
+            res = (acc - sub) & M16
+            self._set_zm(res)
+            r[db] = res
         if write:
             transfers += 1
 

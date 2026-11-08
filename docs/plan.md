@@ -103,7 +103,7 @@ Each milestone has tasks, deliverables and **acceptance criteria**.
 ### M2. Run the real-time program; recover the device register maps
 | # | Task |
 |---|---|
-| 2.1 | Load and run `ORK-LM`/`ORK-LFM` (multi-disk executable) under the simulator, with devices stubbed to log every access |
+| 2.1 | **Done** (`sim/rtp.py`, [`realtime-program.md`](realtime-program.md)). Load and run `ORK-LM`/`ORK-LFM` (multi-disk executable) under the simulator, with devices stubbed to log every access |
 | 2.2 | Reconstruct register maps for **D160 (FM interface)**, the **original keyboard / button panel** and the **D16 timer** from the logs, disassembly of the Release L binaries, and NED's MIT XPL source (later releases; check for differences) |
 | 2.3 | Write `docs/devices/<device>.md` for each device: addresses, bit fields, sequences, evidence |
 | 2.4 | Minimal behavioural models of the keyboard and panel so the program reaches its main loop |
@@ -214,5 +214,11 @@ In priority order (details in [`bench-checklist.md`](bench-checklist.md)):
 **M1's acceptance test passes:** Release L `MONITOR` boots from a
 user-supplied `.simg` (`03-SYSTD`), prints `Ready >`, and `CATALOG` lists
 the disk (`python3 -m sim.boot IMAGE --f1 18-UTILS`). M1.8 (more CPU unit
-tests) remains open. Next: **M2.1**, load `ORK-LM`/`ORK-LFM` under the
-simulator with the D160/D130 stubs logging every access.
+tests) remains open.
+
+**M2.1 is done:** `ORK-LM` runs under the simulator (welcome screen, main
+loop, 10 simulated seconds without a halt) and every device access can be
+logged (`python3 -m sim.rtp IMAGE --log out.csv`). Next: **M2.2**, the
+register maps of D160–D165 and D130/D131 from the logs and the
+disassembly, starting with the D130 keyboard scan and the D160 status
+bit that the main loop polls.

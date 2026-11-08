@@ -257,6 +257,14 @@ shr(options_word, 8) and 7`, where **0 = Model A, 1 = B, 2 = C, 3 = D**
   The R12 pre-decrement needs a decrement path, either the ALU or the U18/U28
   decode treating code 372 specially as a destination.
 
+**On a Model B, destinations 270–277 do nothing [HYP].** Release L
+`ORK-LM` (compiled for Model B) tests for a Model C at start-up with
+`IM(0) TO R0; IM(0) TO ADD0; IM(5) TO ADC0; R0 TO LOA0`; if R0 is non-zero
+it sets a flag that enables `D10` repeat loops. For the test to report a
+Model B correctly, `IM(5) TO ADC0` must leave R0 at 0 there (a Model B
+treating 270 like BSOR or SHRA would also give 5). `MONITOR` uses the same
+idea to reject a Model A (`IM(0) TO BSOR0` must byte-swap R0).
+
 ### Still unknown
 * Whether relative or untaken transfers *also* update `ppc`. No NED software depends on it; only hardware or the unpublished interpreter core can tell. For an implementation, updating it on taken absolute transfers and interrupts is enough.
 * ADC/SBB effect on Z/M. Assumed to be from the 16-bit result, like every other operation (the interpreter keeps Z and M as one `zflags` result word).

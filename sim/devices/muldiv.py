@@ -10,6 +10,13 @@ Evidence: SCSILOAD (MIT) register protocol, and NED's C runtime
     _read_5 but no _read_6/_read_7); reading D6/D7 halts the CPU.
   * Unsigned: the operands are sector numbers and counts. XPL's signed
     multiply and divide do their own sign correction (Scientific XPL manual).
+  * NED's C emulation (Code/Includes/XPL.h, MIT): "d4567 itself operated
+    unsigned: write to d5 cleared d4; write to d4 loaded d4; write to d6
+    computed d5*d6+d4; write to d7 computed (d4:d5) / d7; q to d5, r to
+    d4". Its _write_7 stores (n / d) + ((n % d) << 16) in the 32-bit D4:D5,
+    so the high bits of a quotient wider than 16 bits add into D4.
+    Release L ORK-LM divides with "R0 TO D5; IM(20) TO D7" (no D4 write)
+    and relies on the cleared D4.
 """
 from ..bus import NO_SYN, Device
 
@@ -36,6 +43,7 @@ class MulDiv(Device):
             self.d4 = value
         elif dev == 0o5:
             self.d5 = value
+            self.d4 = 0         # XPL.h: "write to d5 cleared d4"
         elif dev == 0o6:
             p = self.d5 * value + self.d4
             self.d5 = p & M16
@@ -48,7 +56,7 @@ class MulDiv(Device):
                 self.d4, self.d5 = self.d5, M16
             else:
                 q, r = divmod(n, value)
-                # CHOICE: a quotient wider than 16 bits keeps its low 16 bits.
-                self.d5 = q & M16
-                self.d4 = r
+                both = (q + (r << 16)) & 0xFFFFFFFF   # as XPL.h _write_7
+                self.d5 = both & M16
+                self.d4 = both >> 16
         return True

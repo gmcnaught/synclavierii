@@ -31,7 +31,7 @@ def read_image(path, threshold=96):
     from PIL import Image
     im = Image.open(path).convert("L")
     w, h = im.size
-    return w, h, bytes(255 if v > threshold else 0 for v in im.getdata())
+    return w, h, im.point(lambda v: 255 if v > threshold else 0).tobytes()
 
 
 def _match(font, g, where, inverted):

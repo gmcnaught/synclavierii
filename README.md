@@ -20,6 +20,7 @@ Where to start:
 | [`tools/`](tools/README.md) | `able_disasm.py`: ABLE disassembler, validated 541/541 against an NED assembler listing (`tests/`); `ned_disk.py`: NED disk-image lister/extractor |
 | [`docs/bench-checklist.md`](docs/bench-checklist.md) | What to do when someone has a board or bin: PROM reads, measurements, photos |
 | [`docs/sources.md`](docs/sources.md) | Pinned sources: checksums, commit IDs, page map |
+| [`docs/roadmap.md`](docs/roadmap.md) | **Toward an FPGA Synclavier II:** what we have, the gaps in order of risk, and milestones |
 | [`docs/research-log.md`](docs/research-log.md) | How we got here, including corrections and dead ends |
 | [`data/`](data/README.md) | CSVs: EZbuss pinout, opcode map, netlist (STD/OBS/HYP) |
 
@@ -44,6 +45,7 @@ docs/
   model-c-runtime-analysis.md  disassembly findings (D10 link, R12 stack, RPT, ADC)
   boot-and-loaders.md        boot chain, loader vector, D4567 / SCSI / ext-memory protocols
   release-l-image.md         Release L disk image: format, loaders, Model B binaries
+  roadmap.md                 path to an FPGA Synclavier II: gaps and milestones
   research-log.md            chronology of findings, corrections and sources
 tools/
   able_disasm.py             ABLE disassembler (NED syntax, Model C aware)
@@ -140,19 +142,9 @@ boards/
   summarised here, not copied.
 * Board roles and installation notes supplied by the project owner.
 
-## Creating the standalone repository
+## Licence
 
-This branch has the project files at its root, and the commit history was
-carried over from where the work began. To publish it as its own repo:
-
-```bash
-# create an empty repo on GitHub first (no README/licence), then:
-git clone --branch synclavier-able-cpu --single-branch \
-    https://github.com/gmcnaught/misterfpga-skill.git synclavier-able-cpu
-cd synclavier-able-cpu
-git remote set-url origin https://github.com/<owner>/<new-repo>.git
-git branch -m main
-git push -u origin main
-```
-
-No licence has been chosen yet. Add one when the repo is created.
+No licence has been chosen yet for this project's own files. Third-party
+material keeps its own terms: `tests/fixtures/NED-SCSI.LST` is MIT
+(see `tests/fixtures/LICENSE-NED-Software`). Choose a licence that is
+compatible with MIT.

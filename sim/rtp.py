@@ -106,6 +106,24 @@ def start_rtp(image, name="ORK-LM", ext_sectors=2048, strict=False, history_len=
     return cpu, dbg, lay
 
 
+NEWDATA_SECTOR = 4          # .NEWDATA on 06-TIMBD starts at floppy sector 4
+BANK_SECTORS = 49           # 8 banks of 49 sectors; a bank button reads the first 32
+
+
+def replace_bank(media, path, bank=0):
+    """Write a timbre bank file (raw big-endian words, e.g. a Synclavier
+    `*NEWDATA.stmb`) over bank `bank` of the 06-TIMBD floppy media.
+    [OBS] Release L layout: .NEWDATA = 8 banks x 49 sectors."""
+    import struct
+    data = open(path, "rb").read()
+    words = list(struct.unpack(">%dH" % (len(data) // 2), data[:len(data) // 2 * 2]))
+    size = BANK_SECTORS * SECTOR_WORDS
+    if len(words) > size:
+        raise ValueError("%s: %d words, a bank holds %d" % (path, len(words), size))
+    start = (NEWDATA_SECTOR + bank * BANK_SECTORS) * SECTOR_WORDS
+    media.words[start:start + size] = words + [0] * (size - len(words))
+
+
 def run_seconds(cpu, dbg, seconds):
     """Run for `seconds` of simulated time. Returns a stop reason or None."""
     t0 = cpu.time_ns
@@ -134,6 +152,9 @@ def main(argv=None):
                     help="octal devices left out of the CSV (default: terminal, ext memory)")
     ap.add_argument("--swap-f0", metavar="FLOPPY",
                     help="after start, put this floppy in F0 (e.g. 06-TIMBD, the timbre library)")
+    ap.add_argument("--bank-file", metavar="PATH",
+                    help="with --swap-f0 06-TIMBD: replace a bank of .NEWDATA with this file")
+    ap.add_argument("--bank", type=int, default=0, help="bank number for --bank-file (0-7)")
     ap.add_argument("--buttons", default="",
                     help="panel buttons to press in order, names or numbers (e.g. bank.0,timb.0)")
     ap.add_argument("--keys", default="", help="keys to hold together, 12-72 (e.g. 48 = C4)")
@@ -163,6 +184,9 @@ def main(argv=None):
     if not stop and a.swap_f0:
         insert_floppy(cpu, a.image, 0, a.swap_f0)
         print("\n[rtp] F0 <- %s" % a.swap_f0)
+        if a.bank_file:
+            replace_bank(cpu.floppy.media[0], a.bank_file, a.bank)
+            print("[rtp] bank %d <- %s" % (a.bank, a.bank_file))
     for b in [x for x in a.buttons.split(",") if x]:
         if stop:
             break

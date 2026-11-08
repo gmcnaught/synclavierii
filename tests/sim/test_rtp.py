@@ -54,6 +54,23 @@ def test_inconsistent_headers_rejected():
         raise AssertionError("accepted %r" % (parts,))
 
 
+def test_replace_bank():
+    import struct
+    import tempfile
+    from sim.devices.floppy import Media
+    from sim.rtp import replace_bank
+    m = Media([7] * 404 * S)
+    with tempfile.NamedTemporaryFile(suffix=".stmb", delete=False) as f:
+        f.write(struct.pack(">3H", 1, 2, 3))
+    try:
+        replace_bank(m, f.name, 1)
+    finally:
+        os.unlink(f.name)
+    start = (4 + 49) * S                         # .NEWDATA at sector 4, 49-sector banks
+    assert m.words[start - 1] == 7 and m.words[start:start + 4] == [1, 2, 3, 0]
+    assert m.words[start + 49 * S] == 7          # next bank untouched
+
+
 def test_release_l_ork_lm_runs():
     image = os.environ.get("SYNCLAVIER_RELEASE_L")
     if not image:

@@ -80,6 +80,18 @@ no extension.
 The ABLE interpreter's execution core (`AbleInterpreterCore` implementation)
 is **not** in this repo; only its headers are.
 
+## Primary: NED distribution image
+
+GitHub **`Synclavier/Synclavier_Distributions`** @
+`c01668b6d44b13b5b88a88d34d87c9c4fafc5c0f`,
+`Release_L/NED_Synclavier_Release_L_DD_Floppies.simg`: 5,242,880 bytes,
+SHA-256 `97bb43decb64a497206661fc3b9e08377cc00bf58a52aef396196ce1828a1db0`.
+19 Release L floppies (June 1986). **No licence file** in that repo, so
+nothing from it is redistributed here. Analysed in
+[`release-l-image.md`](release-l-image.md).
+
+Format cross-reference: `hansliss/syncextract` @ `d370916ed4dc`.
+
 ## Secondary: community
 
 ### "Cards and Components – Description.docx" (M. Waluga, 04/2023)

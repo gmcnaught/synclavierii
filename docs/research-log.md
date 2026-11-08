@@ -149,6 +149,17 @@ followed and checked. Newest information wins where entries disagree.
 * Every instruction-set question that software can answer is now closed.
   The rest need hardware (see `bench-checklist.md`).
 
+## 11. Release L distribution image (owner pointer)
+
+* `Synclavier_Distributions/Release_L` is one `.simg` holding 19 floppies.
+  Wrote `tools/ned_disk.py` to list and extract it.
+* **`.LD-6` = three 512-word position-independent loaders** (floppy at 0,
+  IMI at 1000, SCSI at 2000). They match the FLPLOAD source, which is a
+  second disassembler check on a real binary.
+* `MONITOR` and `ORK-LM` are **compiled for Model B** (MR15I stack): useful
+  as backward-compatibility test programs.
+* **Not present:** the MFC/D40Q boot ROM and any CPU diagnostic.
+
 ## Searched without useful results
 
 * archive.org full-text and metadata search for "synclavier", "new england

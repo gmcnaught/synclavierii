@@ -15,8 +15,9 @@ Where to start:
 | [`docs/able-reference.md`](docs/able-reference.md) | Architecture, the 72-pin EZbuss pinout, processor models and slots |
 | [`docs/instruction-set.md`](docs/instruction-set.md) | **Full ABLE instruction set** with NED mnemonics, plus the **Model C extensions** (ADC/SBB, `RPT` via D10, R12 stack) from NED's own assembler and compiler sources |
 | [`docs/model-c-runtime-analysis.md`](docs/model-c-runtime-analysis.md) | Disassembly of NED's Model B/C/D runtime packages: **D10 link register**, R12-only stack, RPT and ADC confirmed |
+| [`docs/release-l-image.md`](docs/release-l-image.md) | The Release L (1986) disk image: catalog format, `.LD-6` = three position-independent boot loaders, OS and real-time binaries compiled for Model B |
 | [`docs/boot-and-loaders.md`](docs/boot-and-loaders.md) | Boot chain (Load → boot ROM → `.LD-7` loader → MONITOR), loader entry vector, the D4567/SCSI/external-memory device protocols |
-| [`tools/`](tools/README.md) | `able_disasm.py`: ABLE disassembler, validated 541/541 against an NED assembler listing (`tests/`) |
+| [`tools/`](tools/README.md) | `able_disasm.py`: ABLE disassembler, validated 541/541 against an NED assembler listing (`tests/`); `ned_disk.py`: NED disk-image lister/extractor |
 | [`docs/bench-checklist.md`](docs/bench-checklist.md) | What to do when someone has a board or bin: PROM reads, measurements, photos |
 | [`docs/sources.md`](docs/sources.md) | Pinned sources: checksums, commit IDs, page map |
 | [`docs/research-log.md`](docs/research-log.md) | How we got here, including corrections and dead ends |
@@ -42,9 +43,11 @@ docs/
   sources.md                 pinned sources: checksums, commits, page map
   model-c-runtime-analysis.md  disassembly findings (D10 link, R12 stack, RPT, ADC)
   boot-and-loaders.md        boot chain, loader vector, D4567 / SCSI / ext-memory protocols
+  release-l-image.md         Release L disk image: format, loaders, Model B binaries
   research-log.md            chronology of findings, corrections and sources
 tools/
   able_disasm.py             ABLE disassembler (NED syntax, Model C aware)
+  ned_disk.py                NED .simg catalog lister / extractor
 tests/
   test_able_disasm.py        validation against NED's SCSI.LST listing (fixture, MIT)
 data/

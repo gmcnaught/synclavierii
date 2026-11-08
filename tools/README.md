@@ -25,5 +25,19 @@ python3 tools/able_disasm.py --validate LISTING [--model B]
 of 541 instruction words and 78 of 78 relative-jump targets match. Run
 `python3 tests/test_able_disasm.py`.
 
-Results of running it on NED's runtime packages are in
+## `ned_disk.py`: NED disk-image lister and extractor
+
+```bash
+python3 tools/ned_disk.py IMAGE                   # list catalogs recursively
+python3 tools/ned_disk.py IMAGE --extract OUTDIR  # extract files (exact word length)
+```
+
+Reads NED ABLE/Synclavier `.simg` images (256-word sectors, big-endian
+words, nested 8-word catalog entries). The format is described in
+[`docs/release-l-image.md`](../docs/release-l-image.md). Output names are
+sanitised and confined to OUTDIR. Standard library only.
+
+---
+
+Results of running the disassembler on NED's runtime packages are in
 [`docs/model-c-runtime-analysis.md`](../docs/model-c-runtime-analysis.md).

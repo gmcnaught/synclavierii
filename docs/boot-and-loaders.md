@@ -35,6 +35,11 @@ manuals. File IDs are in [`sources.md`](sources.md).
 
 ## 2. The loader image
 
+> **Real binary check:** Release L's `.LD-6` (1986, three 512-word loaders
+> for floppy, IMI and SCSI at offsets 0/1000/2000) disassembles to exactly
+> this structure. See [`release-l-image.md`](release-l-image.md).
+
+
 `HIGHLOAD` is built by MRGLOAD from three 768-word routines, one per boot
 medium:
 

@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Write hdl/core/font8x8.svh from third_party/font8x8/font8x8_basic.h
 (Daniel Hepper's 8x8 font, public domain, after the IBM VGA font): 128
-characters x 8 rows, bit 0 = leftmost pixel.
+characters x 8 rows, bit 0 = leftmost pixel. Codes 0x00-0x1F (control
+characters, blank in the font) hold the DEC special graphics set (VT100
+"line drawing", characters 0x5F-0x7E), drawn here: box parts on the cell's
+centre lines, scan lines, a few symbols.
 
 Run:  python3 tools/gen_font.py
 tests/hdl/test_board.py checks that the file is up to date; the board
@@ -16,11 +19,41 @@ SRC = os.path.join(ROOT, "third_party", "font8x8", "font8x8_basic.h")
 PATH = os.path.join(ROOT, "hdl", "core", "font8x8.svh")
 
 
+def special_graphics(font):
+    """32 glyphs for DEC special graphics 0x5F-0x7E (in codes 0x00-0x1F)."""
+    V, H, L, R = 0x08, 0xFF, 0x0F, 0xF8          # vertical, full/left/right horizontal
+
+    def box(up, down, h):
+        return [V if up else 0] * 3 + [h | (V if up or down else 0)] + [V if down else 0] * 4
+
+    def scan(row):
+        return [H if r == row else 0 for r in range(8)]
+    g = {
+        "_": [0] * 8,
+        "`": [0x08, 0x1C, 0x3E, 0x7F, 0x3E, 0x1C, 0x08, 0x00],      # diamond
+        "a": [0xAA, 0x55] * 4,                                      # checkerboard
+        "b": font[ord("T")], "c": font[ord("F")], "d": font[ord("R")], "e": font[ord("L")],
+        "f": [0x0E, 0x11, 0x11, 0x0E, 0, 0, 0, 0],                  # degree
+        "g": font[ord("+")][:6] + [0x3E, 0],                        # plus-minus
+        "h": font[ord("N")], "i": font[ord("V")],
+        "j": box(True, False, L), "k": box(False, True, L),
+        "l": box(False, True, R), "m": box(True, False, R),
+        "n": box(True, True, H),
+        "o": scan(0), "p": scan(1), "q": scan(3), "r": scan(5), "s": scan(7),
+        "t": box(True, True, R), "u": box(True, True, L),
+        "v": box(True, False, H), "w": box(False, True, H), "x": [V] * 8,
+        "y": font[ord("<")], "z": font[ord(">")], "{": font[ord("n")],
+        "|": font[ord("#")], "}": font[ord("L")], "~": font[ord(".")],
+    }
+    return [g[chr(0x5F + i)] for i in range(32)]
+
+
 def glyphs():
-    """128 lists of 8 row bytes."""
+    """128 lists of 8 row bytes (0x00-0x1F: DEC special graphics)."""
     rows = re.findall(r"\{\s*((?:0x[0-9A-Fa-f]{2}\s*,?\s*){8})\}", open(SRC).read())
     out = [[int(v, 16) for v in re.findall(r"0x([0-9A-Fa-f]{2})", r)] for r in rows]
     assert len(out) == 128 and all(len(g) == 8 for g in out)
+    out[:32] = special_graphics(out)
     return out
 
 

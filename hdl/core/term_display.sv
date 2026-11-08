@@ -11,11 +11,14 @@
 //                  FIFO underruns/overruns, in hex;
 //   and the mouse pointer (panel_mouse.sv) once the mouse has moved.
 //
-// Character handling (what Release L MONITOR sends is printable ASCII plus
-// CR and LF): bit 7 is ignored; 040-176 are written at the cursor, with a
-// pending wrap at column 80 as on a VT100; CR = column 0; LF = next line,
-// scrolling at the bottom; BS = left one; HT = next multiple of 8; FF =
-// clear and home. Everything else is ignored.
+// Character handling: the VT100 subset (and VT640 graphics passages skipped)
+// that Release L's programs use, exactly as tools/vt100.py (the reference
+// model; tests/hdl/test_board.py compares pictures): printable characters
+// with a pending wrap at column 80; CR, LF/VT/FF, BS, HT; ESC [ ... H f A B C
+// D J K m (reverse video); ESC # 3/4/6/5 line attributes (double height,
+// double width); ESC ( 0 / B line-drawing set (font codes 0x00-0x1F);
+// ESC 7 8 D E M c; GS starts Tektronix graphics, skipped up to CAN.
+// A cell is {reverse, character[6:0]}.
 //
 // Video: 800 x 525 pixels per frame, one pixel per `ce` of vclk (on MiSTer
 // vclk = 25 MHz and CE_DIV = 1: 59.5 Hz). Sync pulses are active high
@@ -39,6 +42,10 @@ module term_display #(
     input  logic [31:0] lag_us,         // real-time health (hex on panel row 2)
     input  logic [15:0] underruns,
     input  logic [15:0] overruns,
+    input  logic [15:0] midi_count,     // MIDI bytes received, the last, framing errors
+    input  logic [7:0]  midi_last,
+    input  logic [15:0] midi_errs,
+    input  logic        midi_alt,       // MIDI line at 9600 rather than 31250
 
     output logic        ce_pix,
     output logic [7:0]  r,
@@ -79,14 +86,26 @@ module term_display #(
     always_ff @(posedge clk) if (w_we) tram[w_addr] <= w_data;
 
     // ---------------------------------------------------------------- writer
-    typedef enum logic [1:0] {W_IDLE, W_CLEAR} wstate_t;
+    typedef enum logic [2:0] {S_NORM, S_ESC, S_CSI, S_HASH, S_G0, S_G1, S_TEK} pstate_t;
+    pstate_t ps;
+    typedef enum logic [0:0] {W_IDLE, W_ERASE} wstate_t;
     wstate_t wstate;
     logic [6:0] col;
     logic [4:0] row;            // logical row 0-23
     logic [4:0] top;            // physical row of logical row 0
     logic       wrap;           // pending wrap
-    logic [6:0] clr_col;
-    logic [4:0] clr_row, clr_end;  // physical rows [clr_row, clr_end] to clear
+    logic       rev, gfx;       // reverse video; line-drawing set in G0
+    logic [6:0] sv_col;
+    logic [4:0] sv_row;
+    logic       sv_rev;
+    logic [7:0] prm [4];        // CSI parameters
+    logic [1:0] pn;
+    logic       priv;
+    logic [1:0] rattr [ROWS];   // line attribute by physical row: 0 single,
+                                // 1 double-height top, 2 bottom, 3 double width
+    // erase from logical (er_row, er_col) to (er_end_row, er_end_col)
+    logic [4:0] er_row, er_end_row;
+    logic [6:0] er_col, er_end_col, er_rs;   // er_rs: first column of this row
     assign top_row = top;
 
     function automatic logic [4:0] phys(input logic [4:0] t, input logic [4:0] lr);
@@ -96,32 +115,154 @@ module term_display #(
     endfunction
 
     wire [7:0] c = fifo[f_head] & 8'h7f;
+    wire [6:0] ch7 = gfx && c >= 8'h5f && c <= 8'h7e ? 7'(c - 8'h5f) : c[6:0];
+    wire [6:0] er_row_end = er_row == er_end_row ? er_end_col : 7'(COLS - 1);
+
+    // parameter digits: p * 10 + d, at most 255
+    wire [11:0] p_next = {4'd0, prm[pn]} * 12'd10 + {8'd0, c[3:0]};
+    wire [7:0]  p0 = prm[0], p1 = prm[1];
+    wire [7:0]  n1 = p0 == 8'd0 ? 8'd1 : p0;               // count, default 1
+    logic       m_rev;
+    always_comb begin                                       // SGR: 0 normal, 7 reverse
+        m_rev = rev;
+        for (int i = 0; i < 4; i++)
+            if (i <= int'(pn)) begin
+                if (prm[i] == 8'd0) m_rev = 1'b0;
+                else if (prm[i] == 8'd7) m_rev = 1'b1;
+            end
+    end
+
+    task automatic start_erase(input logic [4:0] r0, input logic [6:0] c0,
+                               input logic [4:0] r1, input logic [6:0] c1);
+        er_row <= r0; er_col <= c0; er_rs <= c0;
+        er_end_row <= r1; er_end_col <= c1;
+        wstate <= W_ERASE;
+    endtask
 
     always_ff @(posedge clk) begin
         w_we <= 1'b0;
         if (rst) begin
             f_head <= '0;
-            col <= '0;
-            row <= '0;
-            top <= '0;
-            wrap <= 1'b0;
-            clr_row <= 5'd0;
-            clr_end <= 5'(ROWS - 1);
-            clr_col <= '0;
-            wstate <= W_CLEAR;                   // clear the screen
+            col <= '0; row <= '0; top <= '0;
+            wrap <= 1'b0; rev <= 1'b0; gfx <= 1'b0;
+            sv_col <= '0; sv_row <= '0; sv_rev <= 1'b0;
+            ps <= S_NORM;
+            for (int i = 0; i < ROWS; i++) rattr[i] <= 2'd0;
+            start_erase(5'd0, 7'd0, 5'(ROWS - 1), 7'(COLS - 1));   // clear the screen
         end else case (wstate)
-            W_IDLE:
-                if (f_any) begin
-                    f_head <= f_head + 6'd1;
-                    if (c >= 8'o040 && c <= 8'o176) begin
-                        if (wrap) begin                          // wrap first
-                            col <= 7'd1;
+            W_ERASE: begin
+                w_addr <= {phys(top, er_row), er_col};
+                w_data <= 8'h20;
+                w_we <= 1'b1;
+                if (er_col == er_row_end) begin
+                    if (er_rs == 7'd0 && er_row_end == 7'(COLS - 1))
+                        rattr[phys(top, er_row)] <= 2'd0;          // whole row erased
+                    if (er_row == er_end_row) wstate <= W_IDLE;
+                    else begin
+                        er_row <= er_row + 5'd1;
+                        er_col <= '0;
+                        er_rs <= '0;
+                    end
+                end else er_col <= er_col + 7'd1;
+            end
+
+            default: if (f_any) begin                               // W_IDLE: next byte
+                f_head <= f_head + 6'd1;
+                case (ps)
+                S_TEK: if (c == 8'h18) ps <= S_NORM;
+
+                S_ESC: begin
+                    ps <= S_NORM;
+                    case (c)
+                        8'h5b: begin                                // [
+                            ps <= S_CSI; pn <= '0; priv <= 1'b0;
+                            for (int i = 0; i < 4; i++) prm[i] <= '0;
+                        end
+                        8'h23: ps <= S_HASH;                        // #
+                        8'h28: ps <= S_G0;                          // (
+                        8'h29: ps <= S_G1;                          // )
+                        8'h37: begin sv_row <= row; sv_col <= col; sv_rev <= rev; end
+                        8'h38: begin row <= sv_row; col <= sv_col; rev <= sv_rev; wrap <= 1'b0; end
+                        8'h44, 8'h45: begin                         // D index, E next line
                             wrap <= 1'b0;
+                            if (c == 8'h45) col <= '0;
                             if (row == 5'(ROWS - 1)) begin
-                                w_addr <= {top, 7'd0};
                                 top <= phys(top, 5'd1);
-                                clr_row <= top; clr_end <= top; clr_col <= 7'd1;
-                                wstate <= W_CLEAR;               // rest of the new line
+                                start_erase(5'(ROWS - 1), 7'd0, 5'(ROWS - 1), 7'(COLS - 1));
+                            end else row <= row + 5'd1;
+                        end
+                        8'h4d: begin                                // M reverse index
+                            wrap <= 1'b0;
+                            if (row != 5'd0) row <= row - 5'd1;
+                        end
+                        8'h63: begin                                // c reset
+                            col <= '0; row <= '0; wrap <= 1'b0; rev <= 1'b0; gfx <= 1'b0;
+                            sv_col <= '0; sv_row <= '0; sv_rev <= 1'b0;
+                            start_erase(5'd0, 7'd0, 5'(ROWS - 1), 7'(COLS - 1));
+                        end
+                        default: ;
+                    endcase
+                end
+
+                S_HASH: begin
+                    ps <= S_NORM;
+                    case (c)
+                        8'h33: rattr[phys(top, row)] <= 2'd1;       // 3: double height, top
+                        8'h34: rattr[phys(top, row)] <= 2'd2;       // 4: bottom
+                        8'h36: rattr[phys(top, row)] <= 2'd3;       // 6: double width
+                        8'h35: rattr[phys(top, row)] <= 2'd0;       // 5: single
+                        default: ;
+                    endcase
+                end
+
+                S_G0: begin ps <= S_NORM; gfx <= c == 8'h30; end
+                S_G1: ps <= S_NORM;
+
+                S_CSI:
+                    if (c >= 8'h30 && c <= 8'h39)
+                        prm[pn] <= p_next > 12'd255 ? 8'd255 : p_next[7:0];
+                    else if (c == 8'h3b) begin
+                        if (pn != 2'd3) pn <= pn + 2'd1;
+                    end else if (c == 8'h3f) priv <= 1'b1;
+                    else if (c >= 8'h40 && c <= 8'h7e) begin
+                        ps <= S_NORM;
+                        wrap <= 1'b0;
+                        if (!priv) case (c)
+                            8'h48, 8'h66: begin                     // H f
+                                row <= p0 == 8'd0 ? 5'd0 : p0 > 8'(ROWS) ? 5'(ROWS - 1) : 5'(p0 - 8'd1);
+                                col <= p1 == 8'd0 ? 7'd0 : p1 > 8'(COLS) ? 7'(COLS - 1) : 7'(p1 - 8'd1);
+                            end
+                            8'h41: row <= n1 > 8'(row) ? 5'd0 : row - 5'(n1);
+                            8'h42: row <= 8'(row) + n1 > 8'(ROWS - 1) ? 5'(ROWS - 1) : row + 5'(n1);
+                            8'h43: col <= 8'(col) + n1 > 8'(COLS - 1) ? 7'(COLS - 1) : col + 7'(n1);
+                            8'h44: col <= n1 > 8'(col) ? 7'd0 : col - 7'(n1);
+                            8'h4a: case (p0)                        // J
+                                8'd0: start_erase(row, col, 5'(ROWS - 1), 7'(COLS - 1));
+                                8'd1: start_erase(5'd0, 7'd0, row, col);
+                                8'd2: start_erase(5'd0, 7'd0, 5'(ROWS - 1), 7'(COLS - 1));
+                                default: ;
+                            endcase
+                            8'h4b: case (p0)                        // K
+                                8'd0: start_erase(row, col, row, 7'(COLS - 1));
+                                8'd1: start_erase(row, 7'd0, row, col);
+                                8'd2: start_erase(row, 7'd0, row, 7'(COLS - 1));
+                                default: ;
+                            endcase
+                            8'h6d: rev <= m_rev;                    // m
+                            default: ;
+                        endcase
+                    end
+
+                default:                                            // S_NORM
+                    if (c >= 8'h20 && c <= 8'h7e) begin
+                        if (wrap) begin                             // wrap first
+                            wrap <= 1'b0;
+                            col <= 7'd1;
+                            if (row == 5'(ROWS - 1)) begin
+                                w_addr <= {top, 7'd0};              // new bottom row
+                                rattr[top] <= 2'd0;
+                                top <= phys(top, 5'd1);
+                                start_erase(5'(ROWS - 1), 7'd1, 5'(ROWS - 1), 7'(COLS - 1));
                             end else begin
                                 row <= row + 5'd1;
                                 w_addr <= {phys(top, row + 5'd1), 7'd0};
@@ -131,47 +272,31 @@ module term_display #(
                             if (col == 7'(COLS - 1)) wrap <= 1'b1;
                             else col <= col + 7'd1;
                         end
-                        w_data <= c;
+                        w_data <= {rev, ch7};
                         w_we <= 1'b1;
-                    end else begin
-                        case (c)
-                            8'o015: begin col <= '0; wrap <= 1'b0; end
-                            8'o012: begin
-                                wrap <= 1'b0;
-                                if (row == 5'(ROWS - 1)) begin
-                                    top <= phys(top, 5'd1);
-                                    clr_row <= top; clr_end <= top; clr_col <= '0;
-                                    wstate <= W_CLEAR;
-                                end else row <= row + 5'd1;
-                            end
-                            8'o010: begin
-                                wrap <= 1'b0;
-                                if (col != 7'd0) col <= col - 7'd1;
-                            end
-                            8'o011: begin
-                                wrap <= 1'b0;
-                                col <= col >= 7'(COLS - 8) ? 7'(COLS - 1) : (col | 7'd7) + 7'd1;
-                            end
-                            8'o014: begin
-                                col <= '0; row <= '0; wrap <= 1'b0;
-                                clr_row <= 5'd0; clr_end <= 5'(ROWS - 1); clr_col <= '0;
-                                wstate <= W_CLEAR;
-                            end
-                            default: ;
-                        endcase
-                    end
-                end
-            W_CLEAR: begin                       // blank physical rows clr_row..clr_end
-                w_addr <= {clr_row, clr_col};
-                w_data <= 8'o040;
-                w_we <= 1'b1;
-                if (clr_col == 7'(COLS - 1)) begin
-                    clr_col <= '0;
-                    if (clr_row == clr_end) wstate <= W_IDLE;
-                    else clr_row <= clr_row + 5'd1;
-                end else clr_col <= clr_col + 7'd1;
+                    end else case (c)
+                        8'h0d: begin col <= '0; wrap <= 1'b0; end
+                        8'h0a, 8'h0b, 8'h0c: begin
+                            wrap <= 1'b0;
+                            if (row == 5'(ROWS - 1)) begin
+                                top <= phys(top, 5'd1);
+                                start_erase(5'(ROWS - 1), 7'd0, 5'(ROWS - 1), 7'(COLS - 1));
+                            end else row <= row + 5'd1;
+                        end
+                        8'h08: begin
+                            wrap <= 1'b0;
+                            if (col != 7'd0) col <= col - 7'd1;
+                        end
+                        8'h09: begin
+                            wrap <= 1'b0;
+                            col <= col >= 7'(COLS - 8) ? 7'(COLS - 1) : (col | 7'd7) + 7'd1;
+                        end
+                        8'h1b: ps <= S_ESC;
+                        8'h1d: ps <= S_TEK;
+                        default: ;
+                    endcase
+                endcase
             end
-            default: wstate <= W_IDLE;
         endcase
     end
 
@@ -251,6 +376,16 @@ module term_display #(
                     7'd39: p_ch = "r"; 7'd40: p_ch = "u"; 7'd41: p_ch = "n";
                     7'd43: p_ch = hex_char(overruns[15:12]); 7'd44: p_ch = hex_char(overruns[11:8]);
                     7'd45: p_ch = hex_char(overruns[7:4]);   7'd46: p_ch = hex_char(overruns[3:0]);
+                    7'd50: p_ch = "M"; 7'd51: p_ch = "I"; 7'd52: p_ch = "D"; 7'd53: p_ch = "I";
+                    7'd55: p_ch = hex_char(midi_count[15:12]); 7'd56: p_ch = hex_char(midi_count[11:8]);
+                    7'd57: p_ch = hex_char(midi_count[7:4]);   7'd58: p_ch = hex_char(midi_count[3:0]);
+                    7'd60: p_ch = hex_char(midi_last[7:4]);    7'd61: p_ch = hex_char(midi_last[3:0]);
+                    7'd63: p_ch = "E"; 7'd64: p_ch = "r"; 7'd65: p_ch = "r";
+                    7'd67: p_ch = hex_char(midi_errs[15:12]);  7'd68: p_ch = hex_char(midi_errs[11:8]);
+                    7'd69: p_ch = hex_char(midi_errs[7:4]);    7'd70: p_ch = hex_char(midi_errs[3:0]);
+                    7'd72: p_ch = midi_alt ? "9" : "3";
+                    7'd73: p_ch = midi_alt ? "k" : "1";
+                    7'd74: p_ch = midi_alt ? "6" : "k";
                     default: ;
                 endcase
             end
@@ -271,13 +406,19 @@ module term_display #(
     wire        in_text  = v < 10'd384;
     wire        in_panel = v >= 10'd384 && v < 10'd480;
     wire [4:0]  lrow = v[8:4];
+    wire [4:0]  prow = phys(top, lrow);
+    wire [1:0]  ra   = in_text ? rattr[prow] : 2'd0;     // this row's line attribute
+    wire [6:0]  tcol = ra != 2'd0 ? {1'b0, h[9:4]} : h[9:3];
     wire [3:0]  pr = 4'((v - 10'd384) >> 3);
-    wire [2:0]  line = in_text ? v[3:1] : v[2:0];
-    wire        cursor_here = in_text && lrow == row && h[9:3] == col && line == 3'd7 && frame[5];
+    wire [2:0]  line = !in_text ? v[2:0] :
+                       ra == 2'd1 ? {1'b0, v[3:2]} :     // double height: top half
+                       ra == 2'd2 ? {1'b1, v[3:2]} :     // bottom half
+                       v[3:1];
+    wire        cursor_here = in_text && lrow == row && tcol == col && v[3:1] == 3'd7 && frame[5];
 
     logic [7:0] tq, pq, glyph;
     logic [2:0] line1;
-    logic       text1, inv1, dp1, cur1, vis1, inv2, dp2, cur2, vis2, seg1;
+    logic       text1, inv1, dp1, cur1, vis1, inv2, dp2, cur2, vis2, seg1, wide1, wide2;
     logic [6:0] segv1;
 
     // a 7-segment digit in an 8 x 8 cell (bit 0 = leftmost pixel): a on
@@ -295,7 +436,8 @@ module term_display #(
     logic [9:0] h1, h2;
     logic [9:0] v1, v2;
     always_ff @(posedge vclk) if (ce) begin
-        tq <= tram[{phys(top, lrow), h[9:3]}];               // text RAM: one read port
+        tq <= tram[{prow, tcol}];                             // text RAM: one read port
+        wide1 <= ra != 2'd0;
         pq <= p_ch;
         text1 <= in_text;
         inv1 <= in_panel && p_inv;
@@ -309,7 +451,8 @@ module term_display #(
         // stage 2
         glyph <= (seg1 ? seg_glyph(segv1, line1) : font8x8({(text1 ? tq[6:0] : pq[6:0]), line1})) |
                  (dp1 && line1 >= 3'd6 ? 8'h80 : 8'h00);       // decimal point
-        inv2 <= inv1;
+        inv2 <= inv1 || (text1 && tq[7]);                       // reverse video cell
+        wide2 <= wide1;
         cur2 <= cur1;
         vis2 <= vis1;
         h2 <= h1; v2 <= v1;
@@ -333,7 +476,7 @@ module term_display #(
     wire [7:0] arow = arrow(pdy[2:0]);
     wire       ptr_px = ptr_on && pdx < 10'd8 && pdy < 10'd8 && arow[pdx[2:0]];
 
-    wire on = vis2 && (glyph[h2[2:0]] ^ inv2 ^ cur2);
+    wire on = vis2 && (glyph[wide2 ? h2[3:1] : h2[2:0]] ^ inv2 ^ cur2);
     always_ff @(posedge vclk) if (ce) begin
         hblank <= h2 >= 10'd640;
         vblank <= v2 >= 10'd480;

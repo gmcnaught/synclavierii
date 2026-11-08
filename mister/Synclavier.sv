@@ -7,7 +7,8 @@
 //
 //  Use: mount a Release L system floppy image (e.g. 03-SYSTD, made with
 //  tools/ned_disk.py --floppy) as F0, and optionally a data floppy as F1;
-//  MONITOR boots from F0 and shows "Ready >" on the screen.
+//  MONITOR boots from F0 and shows "Ready >" on the screen. MIDI (UART,
+//  MidiLink) plays the original keyboard; see hdl/core/midi_in.sv.
 //============================================================================
 
 module emu
@@ -17,7 +18,8 @@ module emu
 
 assign ADC_BUS  = 'Z;
 assign USER_OUT = '1;
-assign {UART_RTS, UART_TXD, UART_DTR} = 0;
+assign {UART_RTS, UART_DTR} = 0;
+assign UART_TXD = 1;            // MIDI in only
 assign {SD_SCK, SD_MOSI, SD_CS} = 'Z;
 assign {SDRAM_DQ, SDRAM_A, SDRAM_BA, SDRAM_CLK, SDRAM_CKE, SDRAM_DQML, SDRAM_DQMH, SDRAM_nWE, SDRAM_nCAS, SDRAM_nRAS, SDRAM_nCS} = 'Z;
 
@@ -39,7 +41,7 @@ assign VIDEO_ARY = (!ar) ? 12'd3 : 12'd0;
 
 `include "build_id.v"
 localparam CONF_STR = {
-	"Synclavier;;",
+	"Synclavier;UART31250,MIDI;",
 	"-;",
 	"S0,IMG,Floppy F0;",
 	"S1,IMG,Floppy F1;",
@@ -162,6 +164,7 @@ synclavier_core #(.CLK_HZ(50_000_000)) core
 	.audio_l(audio_l),
 	.audio_r(audio_r),
 
+	.midi_rxd(UART_RXD),
 	.kb_host_we(1'b0),
 	.kb_host_panel(1'b0),
 	.kb_host_index(3'd0),

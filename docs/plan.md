@@ -251,8 +251,8 @@ sample for sample (ORK-LM's note and an FM test program). **M4 core done in simu
 power-on, through its boot loader, SD floppies, DDR3 external memory and
 terminal display, and matches the Python run through `CATALOG`; the
 frame shows the catalog. Quartus Lite 17.0 builds run in CI. What remains
-of M4 is the hardware test (boot to `Ready >` on a MiSTer); of M5, MIDI →
-clavier input and the audio path's DAC/pan law. M3.3 needs recordings.
+of M4 is the hardware test (boot to `Ready >` on a MiSTer); of M5, the audio path's DAC/pan law (MIDI → clavier and panel is done:
+`hdl/core/midi_in.sv`). M3.3 needs recordings.
 Groundwork: [`timbre-libraries.md`](timbre-libraries.md)
 (Release L bank layout; later NED banks load partly in Release L; FM-only
 entries with parameters in physical units for calibration once the timbre

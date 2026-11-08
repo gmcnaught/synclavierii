@@ -40,3 +40,8 @@ Copy them to `games/Synclavier/` on the SD card. In the OSD, mount
 `03-SYSTD.IMG` as F0 (and a second floppy as F1): the core boots MONITOR
 from F0 and prints `Ready >`. Type `CATALOG` to list F1. Writes go back to
 the image files (mount read-only to protect them).
+
+MIDI: set the UART to MidiLink (USB MIDI) in the MiSTer menu. Channels
+1–15 play the keyboard (MIDI notes 36–96 = the ORK's 61 keys); channel 16
+note n presses panel button n; program change p recalls timbre p (bank
+p/8, timbre p%8) with the timbre floppy in F0.

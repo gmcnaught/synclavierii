@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The MiSTer core (hdl/core/synclavier_core.sv) in simulation.
 
-Generated tables up to date; the PS/2 keyboard decoder; and, with
+Generated tables up to date; the PS/2 keyboard decoder; MIDI input; and, with
 SYNCLAVIER_RELEASE_L set, the whole core from power-on: the boot loader
 boots MONITOR from the F0 image (SD block transfers played by the bench),
 leaving exactly the state sim/boot.py does, the run through CATALOG
@@ -35,19 +35,31 @@ def test_font_up_to_date():
     assert open(PATH).read() == text(), "run python3 tools/gen_font.py"
 
 
+def _testbench(name, rtl):
+    """Build and run a self-checking SystemVerilog testbench hdl/sim/NAME_tb.sv."""
+    mdir = os.path.join(BUILD_DIR, name)
+    os.makedirs(mdir, exist_ok=True)
+    subprocess.run(["verilator", "--binary", "-Wno-fatal", "-Wno-WIDTH", "-Wno-UNUSED",
+                    "--top-module", name + "_tb", "-Mdir", mdir,
+                    os.path.join(ROOT, rtl), os.path.join(ROOT, "hdl/sim/%s_tb.sv" % name)],
+                   check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    p = subprocess.run([os.path.join(mdir, "V%s_tb" % name)], capture_output=True, text=True)
+    assert p.returncode == 0 and "%s OK" % name in p.stdout, p.stdout + p.stderr
+
+
 def test_ps2_ascii():
     if not HAVE_VERILATOR:
         print("  skip test_ps2_ascii (needs verilator)")
         return
-    mdir = os.path.join(BUILD_DIR, "ps2")
-    os.makedirs(mdir, exist_ok=True)
-    subprocess.run(["verilator", "--binary", "-Wno-fatal", "-Wno-WIDTH", "-Wno-UNUSED",
-                    "--top-module", "ps2_ascii_tb", "-Mdir", mdir,
-                    os.path.join(ROOT, "hdl/core/ps2_ascii.sv"),
-                    os.path.join(ROOT, "hdl/sim/ps2_ascii_tb.sv")],
-                   check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    p = subprocess.run([os.path.join(mdir, "Vps2_ascii_tb")], capture_output=True, text=True)
-    assert p.returncode == 0 and "ps2_ascii OK" in p.stdout, p.stdout + p.stderr
+    _testbench("ps2_ascii", "hdl/core/ps2_ascii.sv")
+
+
+def test_midi_in():
+    """MIDI bytes -> clavier/panel words; program change button timing."""
+    if not HAVE_VERILATOR:
+        print("  skip test_midi_in (needs verilator)")
+        return
+    _testbench("midi_in", "hdl/core/midi_in.sv")
 
 
 def read_frame(path):

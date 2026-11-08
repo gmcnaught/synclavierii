@@ -220,6 +220,7 @@ DDR3 and the video/audio outputs.
 | External memory | `hdl/board/ddram_word.sv` | D60–D63's 1024 sectors (512 KB) in DDR3 from 0x30000000, one 16-bit word per Avalon transfer. |
 | Terminal display | `hdl/core/term_display.sv` | D50 output as 80 × 24 text in a 640 × 480 picture (25 MHz pixels from 50 MHz, 59.5 Hz), public-domain 8 × 8 font (`third_party/font8x8`, rows doubled), CR/LF/BS/HT/FF, VT100-style pending wrap, scrolling, blinking cursor; green, amber or white. |
 | Keyboard | `hdl/core/ps2_ascii.sv` | hps_io `ps2_key` → ASCII (US layout, Shift, Caps Lock, Ctrl); Backspace sends BS, which MONITOR takes as delete (`MONCAT/04-IOMOD`). |
+| MIDI | `hdl/core/midi_in.sv` | MIDI in on the UART (MidiLink, `UART31250,MIDI`) to the D130/D131 host port. Channels 1–15: notes 36–96 are the ORK's 61 keys (others moved by octaves). Channel 16: note n presses panel button n (physical button number, `ORK_BUTTONS`). Program change p: `bank.(p/8)` for 100 ms, then 1.5 s later `timb.(p%8)` for 100 ms. CC 120/123: all keys up. |
 | Audio | core | `audio_out.sv`'s 48 kHz samples held on `AUDIO_L/R` (signed). |
 
 OSD: F0 and F1 image slots, text colour, aspect ratio, real-time pacing
@@ -246,6 +247,7 @@ requires the same text.
 | MONITOR boot + `CATALOG` of F1 (18-UTILS): 1,363,060 instructions, 1.043 s simulated | identical |
 | Frame (640 × 480) read back with the font | same text as the screen: banner, `Ready > CATALOG`, the 7 entries, `Ready >` |
 | `ps2_ascii_tb.sv`: Shift, Caps Lock, Ctrl, Backspace, keypad Enter, Delete | as expected |
+| `midi_in_tb.sv`: running status, note-on velocity 0, real-time byte inside a message, octave folding, all notes off, channel-16 panel buttons, SysEx skipped, program-change timing | as expected (4 seeded faults caught) |
 
 Each of these faults is caught: processor type left as Model C, wrong
 loader entry, internal memory not fully cleared, wave memory partly
@@ -274,4 +276,6 @@ bitstream combines it with this project's MIT code.
 | 4.6 | Disk images from SD (D100 floppy) | done: F0/F1 images over hps_io (`sd_floppy.sv`), boot loader; checked in board simulation |
 | — | Synthesis and timing (Quartus) | CI (`build-rbf.yml`); results in the PR |
 | — | On MiSTer hardware: boot to `Ready >`, `CATALOG` | needs a board |
-| M5 | D130/D131, D160–D165 devices; voice engine | done, lockstep-checked (audio sample for sample); MIDI → clavier input, DAC/pan law and output filtering open |
+| M5 | D130/D131, D160–D165 devices; voice engine | done, lockstep-checked (audio sample for sample) |
+| M5 | MIDI → clavier and panel | done (`midi_in.sv`, testbench); on hardware with MidiLink: not yet run |
+| M5 | DAC/pan law, output filtering | open (needs reference recordings, M3.3) |

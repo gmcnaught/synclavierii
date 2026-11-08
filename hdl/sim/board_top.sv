@@ -109,7 +109,7 @@ module board_top (
         .xr_addr, .xr_rd, .xr_wr, .xr_wdata, .xr_rdata, .xr_ack,
         .ce_pix, .vga_r, .vga_g, .vga_b, .vga_hs, .vga_vs, .vga_hblank, .vga_vblank,
         .audio_l(), .audio_r(),
-        .kb_host_we, .kb_host_panel, .kb_host_index, .kb_host_value,
+        .midi_rxd(1'b1), .kb_host_we, .kb_host_panel, .kb_host_index, .kb_host_value,
         .led_disk, .booting, .boot_error, .halted,
         .sim_rx_valid(term_rx_valid), .sim_rx_data(term_rx_data), .term_tx_valid, .term_tx_data,
         .peek_addr, .peek_data, .top_row,

@@ -4,7 +4,8 @@
 //   boot_loader   stands in for the boot ROM: loads MONITOR from F0;
 //   sd_floppy     F0/F1 floppy images on the SD block interface (hps_io);
 //   term_display  the system terminal (D50) as 80 x 24 text on video;
-//   ps2_ascii     the keyboard (hps_io ps2_key) as terminal input.
+//   ps2_ascii     the keyboard (hps_io ps2_key) as terminal input;
+//   midi_in       MIDI (UART, MidiLink) to the original keyboard and panel.
 // External memory (D60-D63, EXT_SECTORS sectors) is a word port (xr_*):
 // DDR3 on MiSTer (hdl/board/ddram_word.sv), a model in simulation.
 // Devices not in the HDL answer no SYN, which halts the CPU as on the real
@@ -55,7 +56,8 @@ module synclavier_core #(
     output logic signed [15:0] audio_l,  // 48 kHz samples, held
     output logic signed [15:0] audio_r,
 
-    input  logic        kb_host_we,     // original keyboard / panel (MIDI later)
+    input  logic        midi_rxd,       // MIDI in, 31250 baud (idle high)
+    input  logic        kb_host_we,     // keyboard / panel words (simulation; beats MIDI)
     input  logic        kb_host_panel,
     input  logic [2:0]  kb_host_index,
     input  logic [15:0] kb_host_value,
@@ -165,7 +167,11 @@ module synclavier_core #(
         .fd_spt0(FD_SPT), .fd_spt1(FD_SPT), .fd_sides0(FD_SIDES), .fd_sides1(FD_SIDES),
         .fd_addr(s_fd_addr), .fd_rd(s_fd_rd), .fd_wr(s_fd_wr), .fd_wdata(s_fd_wdata),
         .fd_rdata(m_rdata), .fd_ack(m_ack),
-        .kb_host_we, .kb_host_panel, .kb_host_index, .kb_host_value, .kb_lights, .kb_display,
+        .kb_host_we(kb_host_we || midi_we),
+        .kb_host_panel(kb_host_we ? kb_host_panel : midi_panel),
+        .kb_host_index(kb_host_we ? kb_host_index : midi_index),
+        .kb_host_value(kb_host_we ? kb_host_value : midi_value),
+        .kb_lights, .kb_display,
         .audio_valid, .audio_l(audio_sum_l), .audio_r(audio_sum_r),
         .pcm_valid, .pcm_l, .pcm_r,
         .ld_voice_we, .ld_voice_addr, .ld_voice_data,
@@ -198,6 +204,16 @@ module synclavier_core #(
             audio_r <= pcm_r;
         end
     end
+
+    // ----------------------------------------------------------------- MIDI
+    logic        midi_we, midi_panel;
+    logic [2:0]  midi_index;
+    logic [15:0] midi_value;
+    midi_in #(.CLK_HZ(CLK_HZ)) midi (
+        .clk, .rst, .rxd(midi_rxd),
+        .host_we(midi_we), .host_panel(midi_panel), .host_index(midi_index), .host_value(midi_value),
+        .byte_valid(), .byte_data()
+    );
 
     // ------------------------------------------------------ terminal, video
     ps2_ascii keys (.clk, .rst, .ps2_key, .valid(kb_rx_valid), .ascii(kb_rx_data));

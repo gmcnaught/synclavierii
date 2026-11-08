@@ -338,8 +338,8 @@ checked against the Release L ORK-LM log. Maps in [`devices/`](devices/).
   are silent. With `06-TIMBD` swapped into F0, `bank.0` reads 34 sectors
   of `.NEWDATA` and `timb.0` loads the timbre; C4 then starts 4 voices.
 * ORK-LM writes whole channel words (`QUELITS` format: state, splice wave
-  memory 8 + voice, channel) to D160, and 16-bit values to D162 for
-  `ONU`/`NNU`/`INC`, contrary to FCODLITS' "8-bit" comment.
+  memory 8 + voice, channel) to D160. (The 16-bit `ONU`/`NNU`/`INC` values
+  first reported here were a simulator fault; see §21.)
 
 ## 20. Later NED timbre libraries (M3 groundwork)
 
@@ -353,6 +353,23 @@ Details in [`timbre-libraries.md`](timbre-libraries.md).
   reports a missing sound file for the sampled timbre, computes wave
   memories for the FM ones, and plays 3 of 7. Interpretation of the other
   parameters is unverified, so these are not calibration data yet.
+
+## 21. Pitch registers decoded (M3.1a)
+
+* **Correction:** the simulator's RTP hand-off (`RUN CONFIGUR`, redirected)
+  never set MONITOR's `PLAY` file pointers, so ORK-LM read its tables file
+  `.STAB-6` from sector 0 of F0 (catalog + MONITOR). The 16-bit, byte-
+  swapped pitch words, the 4-partial timbre 0 and some timbre results in
+  §19/§20 came from those wrong tables. Fixed: `sim.rtp` runs `SET RTP` +
+  `PLAY` first; PLAY records `.STAB-6` at `MEM.SIZ` − 55…−53 (length,
+  sector 297, device F0) and the RTP at −52…−50 before failing on the
+  missing SCRIPT compiler.
+* `.STAB-6` holds the frequency tables (sectors 0–3: 1,024 entries, 4–7:
+  two 512-entry tables), `inc << 8 | divisor`.
+* Release L's frequency routine (015322) matches NED's `COMPUTE.OSYN.FREQ`
+  and patent US 4,345,500 (Do = 256 − Divisor + Increment − 1/16).
+* f = 162.764 Hz × 2^ONU × (INC + 1) / (256 − NNU + INC >> 3); key 45 =
+  440.00 Hz, middle C (36) = 261.64 Hz. Details in [`fm-voice.md`](fm-voice.md).
 
 ## Searched without useful results
 

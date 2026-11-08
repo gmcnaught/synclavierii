@@ -72,20 +72,19 @@ hardware uses bits 8–11 is open.
 
 ## A note (Release L ORK-LM, timbre 0 of bank 0, key C4)
 
-Each of the timbre's 4 partials gets a voice (carrier channels 1, 3, 5, 7
-or 11, 13, 15, 17 alternately). Note-on, per carrier: `TIM` = 44, then
-`ONU`, `NNU`, `INC`, then `EDIV` = 177777, `EADD` = 377, `ELIM` = 372; the
-modulator gets `ISHC`. While the key is held, `VOL` is rewritten about 345
-times a second per voice (software envelope steps). **D162 data is 16-bit
-here** (e.g. C4, partial 1: `ONU` 0, `NNU` 10471, `INC` 7004), not 8-bit as
-FCODLITS' comment says; the hardware's use of the high byte is for M3.
+Timbre 0 has one partial, so C4 uses one voice (modulator channel word
+`4000`, carrier `4001`). Note-on: modulator `ISHC` = 203; carrier `TIM` =
+44, `VOL` = 375, `ONU` = 1, `NNU` = 300, `INC` = 176 (523.3 Hz, see
+[`../fm-voice.md`](../fm-voice.md#pitch-verified)), `EDIV` = 177777,
+`EADD` = 377, `ELIM` = 372. While the key is held, `VOL` = 375 is
+rewritten about 345 times a second. All values fit in 8 bits except
+`EDIV` = 177777 (−1; low byte 377).
 
-| Key | Partial 1 carrier: `ONU` / `NNU` / `INC` | Partial 4 carrier |
-|---|---|---|
-| 36 (C3) | 0 / 177471 / 177404 | 7 / 177777 / 177777 |
-| 48 (C4) | 0 / 10471 / 7004 | 7 / 10647 / 7150 |
-| 49 (C♯4) | 0 / 24071 / 6004 | 7 / 24225 / 6037 |
-| 60 (C5) | 0 / 116071 / 404 | 0 / 116071 / 404 |
+**Correction:** an earlier version of this page reported 16-bit, byte-
+swapped pitch words and four partials for this note. Those came from a
+fault in the simulator's RTP hand-off: MONITOR's `PLAY` file pointers were
+not set, so ORK-LM loaded floppy sectors 0–12 instead of `.STAB-6` as its
+tables. `sim.rtp` now runs `SET RTP` + `PLAY` first.
 
 `python3 -m sim.rtp IMAGE --swap-f0 06-TIMBD --buttons bank.0,timb.0
 --keys 48 --fm-log out.csv` records every write with its time.
@@ -109,5 +108,5 @@ FCODLITS' comment says; the hardware's use of the high byte is for M3.
   the index and envelope interpolators, timbre bits) is milestone M3, from
   the SS1–SS7 card analysis.
 * D160 write `4001`; switch assignments of the six switch bits.
-* How `ONU`/`NNU`/`INC` (16-bit) set the frequency, and what `TIM` = 44
-  selects (M3).
+* `ONU`/`NNU`/`INC` are decoded ([`../fm-voice.md`](../fm-voice.md));
+  the envelope, index, volume and `TIM` registers are next (M3).

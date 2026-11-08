@@ -79,6 +79,7 @@ no extension.
 | `Able/UTILCAT/WINBOOT` | "loaded by the ROM loader" when F0 + LOAD: the boot ROM loads the file `MONITOR` |
 | `Code/Sources/AbleRunTime/XPLRunTimeOSX.cpp` (`set_up_able_core`) | Host runtime synthesises the post-boot low-core/high-core state (no ROM) |
 | `Able/SYNLITS/FCODLITS` (`3b6fb1ca8483`), `GLOBLITS` (`cdf09796191a`); `Able/SYNCOMS/SOME-ORK` (`d629c9aeb9e7`); `Able/SYNRSOU/05-BUTT/076-OLDI` (`9c3914be9a6e`), `075-OLDL` (`c82e92f91580`, button table), `Able/SYNLITS/QUELITS` (`5dddb7b9ad27`, channel words), `08-INIT/600-INIT` (`3f5ebc3a9b73`), `04-SEQ/162-SEQ2` (`adc13e417b2c`), `06-MAIN/390-VOLT` (`6dfe79d16413`), `10-INT/144-TIM3` (`2e820d8ef02d`) | Later-release RTP source (1986–99): FM interface registers and function codes, original keyboard/panel drivers, external clock, A/D converter, CV DACs, voice detection ([`devices/`](devices/)) |
+| `Able/SYNRSOU/11-TIMB/137-COMP` | `COMPUTE.OSYN.FREQ`: log frequency → `ONU`/`NNU`/`INC` ([`fm-voice.md`](fm-voice.md)) |
 | `Code/Includes/XPL.h` (`63ec50b15668`) | NED's C model of the D4567: "write to d5 cleared d4; write to d4 loaded d4; write to d6 computed d5*d6+d4; write to d7 computed (d4:d5) / d7; q to d5, r to d4" |
 | `Able/RTP/DISKREAD` (`31e6bd1cd120`), `DISKSEEK` (`ed70f267b664`); `Able/XPL/DEVUTIL` (`f2701f8292dc`) | XPL runtime floppy driver (D100–D104 commands, status masks, sector→cylinder/side/sector mapping, alternate motor speed beyond 5 × 80 sectors); `d100_disk_check` (index pulse, D3 read) |
 | `Able/MONCAT/MON` (`9f78ba6bf098`), `01-DEFS` (`85dc9e335958`), `11-MAIN` (`e0996ee5b53d`) | MONITOR source (later release): `COLD.BOOT`/`WARM.BOOT`, magic-number check, memory-size words written before overlays, `BOOT` command jumps to the ROM at 176000 |
@@ -86,6 +87,14 @@ no extension.
 
 The ABLE interpreter's execution core (`AbleInterpreterCore` implementation)
 is **not** in this repo; only its headers are.
+
+## FM synthesizer hardware
+
+| Document | Where | Used |
+|---|---|---|
+| *Synclavier FM.docx* (M. Waluga, 2017–2019; quotes a Gearspace analysis by user "acreil") | `Synclavier/Documentation` @ `ee74dbdc…`, `Technical Documentation/Synclavier Internals Documentation/`; SHA-256 `a213e5a3…bd3a` | Card functions SS1–SS7, SF1; 32 × 256-point wave memory; envelope generator structure. Secondary. |
+| US 4,345,500 "High resolution musical note oscillator…" | Google Patents | Oscillator: f = clock × Increment / Divisor; Io/Do encoding |
+| US 4,279,185 "Electronic music sampling techniques" | Google Patents | Waveform sampling background (10-bit phase in the patent; 8-bit in the product) |
 
 ## Primary: NED distribution image
 

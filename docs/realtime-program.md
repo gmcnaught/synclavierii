@@ -31,7 +31,10 @@ compiler, which is only inside the `.SYSTEM` install archive. `sim/rtp.py`
 therefore lets MONITOR do what it does for any `RUN` and only swaps the
 file:
 
-1. Boot MONITOR from `03-SYSTD` and type `ENTER F0:`, `OLD CONFIGUR`, `RUN`.
+1. Boot MONITOR from `03-SYSTD` with the RTP's first floppy in F1, type
+   `SET RTP ORK-LM` and `PLAY`: MONITOR records the RTP and `.STAB-6`
+   (the tables file, F0) in high core, then stops because the SCRIPT
+   compiler is missing. Then `ENTER F0:`, `OLD CONFIGUR`, `RUN`.
 2. MONITOR sets the run state in high core (magic number at
    `MEM.SIZ` − 138, run status, memory-size words) and enters the `.LD-6`
    loader (entry 1, 2 or 3).
@@ -107,7 +110,8 @@ python3 -m sim.rtp IMAGE.simg --seconds 8 --swap-f0 06-TIMBD \
 
 After start-up the timbre library floppy goes into F0 (as a user would
 swap disks); `bank.0` reads the bank and `timb.0` recalls timbre 0; key 48
-(C4) then starts four FM voices: 3,832 FM writes for a 1 s note. Button
+(C4) then plays timbre 0's single partial at 523.3 Hz: 353 FM writes for a
+1 s note. Button
 names: [`devices/d130-original-keyboard.md`](devices/d130-original-keyboard.md#button-map).
 The note-on sequence is in
 [`devices/d160-fm-interface.md`](devices/d160-fm-interface.md#a-note-release-l-ork-lm-timbre-0-of-bank-0-key-c4).

@@ -101,6 +101,8 @@ def test_release_l_ork_lm_plays_a_note():
     from sim.rtp import run_seconds, start_rtp
     cpu, dbg, lay = start_rtp(image, "ORK-LM")
     assert run_seconds(cpu, dbg, 8) is None
+    hi = lay["mem_siz"]
+    assert [cpu.mem[hi - x] for x in (55, 54, 53)] == [3328, 297, 0o1000]   # LOC.P3: .STAB-6 on F0
     insert_floppy(cpu, image, 0, "06-TIMBD")      # timbre library into F0
     for b in ("bank.0", "timb.0"):
         cpu.keyboard.press_button(button_number(b))
@@ -110,11 +112,17 @@ def test_release_l_ork_lm_plays_a_note():
     n0 = len(cpu.fm.log)
     cpu.keyboard.press_key(48)                     # C4
     assert run_seconds(cpu, dbg, 0.05) is None
-    on = [(w & 0o377, fn) for t, w, fn, v in cpu.fm.log[n0:] if fn in (0, 1, 2, 4)]
-    carriers = {ch for ch, fn in on}
-    assert len(carriers) == 4 and all(ch & 1 for ch in carriers), on   # 4 partials
-    for ch in carriers:
-        assert {fn for c, fn in on if c == ch} == {0, 1, 2, 4}          # TIM, ONU, NNU, INC
+    from sim.fm import frequency
+    on = {}
+    for t, w, fn, v in cpu.fm.log[n0:]:
+        if fn in (0, 1, 2, 4):
+            on.setdefault(w & 0o377, {}).setdefault(fn, v)
+    assert len(on) == 1, on                        # timbre 0: one partial
+    (ch, regs), = on.items()
+    assert ch & 1 and set(regs) == {0, 1, 2, 4}    # carrier: TIM, ONU, NNU, INC
+    assert all(v < 256 for v in regs.values())     # 8-bit data
+    hz = frequency(regs[2], regs[1], regs[0])
+    assert abs(hz / 523.25 - 1) < 0.002, hz        # key 48 = C4 (NED middle C = C3 = 36)
 
 
 if __name__ == "__main__":

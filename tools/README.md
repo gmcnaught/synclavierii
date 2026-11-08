@@ -30,6 +30,7 @@ of 541 instruction words and 78 of 78 relative-jump targets match. Run
 ```bash
 python3 tools/ned_disk.py IMAGE                   # list catalogs recursively
 python3 tools/ned_disk.py IMAGE --extract OUTDIR  # extract files (exact word length)
+python3 tools/ned_disk.py IMAGE --floppy 03-SYSTD 03-SYSTD.IMG  # one floppy, for the MiSTer core
 ```
 
 Reads NED ABLE/Synclavier `.simg` images (256-word sectors, big-endian

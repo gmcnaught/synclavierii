@@ -12,6 +12,7 @@
 // address = drive, logical sector, word). Copying a sector between it and
 // the 512-byte buffer takes clocks; floppy accesses wait meanwhile, at no
 // simulated time, so the program sees what Python's instant copy gives.
+(* multstyle = "logic" *)       // small multiplies: keep the DSP blocks for sys/
 module dev_floppy (
     input  logic        clk,
     input  logic        rst,

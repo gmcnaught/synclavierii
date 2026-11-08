@@ -124,12 +124,12 @@ real-hardware recordings is the final acceptance step, once recordings exist.
 ### M4. FPGA core: CPU + memory + terminal + disk
 | # | Task |
 |---|---|
-| 4.1 | Choose the framework: a plain MiSTer template or JTFRAME (see the MiSTer skill in `misterfpga-skill`) |
+| 4.1 | **Done:** Template_MiSTer (D4). Core in `hdl/core/`, MiSTer project in `mister/`; Quartus Lite 17.0 builds in CI ([`hdl.md`](hdl.md#mister-core-hdlcore-hdlboard-mister)) |
 | 4.2 | **Done** (`hdl/able_cpu.sv`, [`hdl.md`](hdl.md)). ABLE CPU in HDL: three-step micro-cycle state machine, register file, ALU (a '181-style function set is enough), flags |
 | 4.3 | **Done** (`sim/lockstep.py`, `hdl/sim/`): random programs, MONITOR boot + `CATALOG` (1.36M instructions) and ORK-LM (6M) agree. **Lockstep verification:** run the same image in an HDL simulator (Verilator) and the software simulator; compare instruction traces |
-| 4.4 | **HDL done** (`hdl/able_system.sv`, `hdl/dev/dev_extmem.sv`; also D3 and D4567), lockstep-checked; SDRAM controller open. Memory in BRAM/SDRAM; external memory in SDRAM/DDR |
-| 4.5 | **Device done** (`hdl/dev/dev_terminal.sv`), lockstep-checked; host side open. Terminal: a character display on the video output plus PS/2/USB keyboard, or a UART |
-| 4.6 | **Controller done** (`hdl/dev/dev_floppy.sv`), lockstep-checked; image loading open. Disk images from the SD card (the M1 high-level boot first, D100 emulation later) |
+| 4.4 | **Done** (`hdl/able_system.sv`, `hdl/dev/dev_extmem.sv`, `hdl/board/ddram_word.sv`; also D3 and D4567). Memory in BRAM; external memory in DDR3 |
+| 4.5 | **Done** (`hdl/dev/dev_terminal.sv`, `hdl/core/term_display.sv`, `hdl/core/ps2_ascii.sv`). Terminal: an 80 × 24 character display on the video output plus the MiSTer keyboard |
+| 4.6 | **Done** (`hdl/dev/dev_floppy.sv`, `hdl/core/sd_floppy.sv`, `hdl/core/boot_loader.sv`). Floppy images from the SD card; the boot loader does the M1 high-level boot in hardware |
 
 **Done when:** the core on real MiSTer hardware boots Release L to `Ready >`
 and lists the catalog.
@@ -206,7 +206,7 @@ In priority order (details in [`bench-checklist.md`](bench-checklist.md)):
 | D1 | Project licence | MIT (matches NED's released software) | **Decided:** MIT, see `LICENSE` |
 | D2 | Workflow | Feature branches + PRs into `main`, with CI on PRs | **Decided:** see `CONTRIBUTING.md` and `.github/workflows/tests.yml` |
 | D3 | Simulator language | Python first; C for hot paths if needed | Open |
-| D4 | FPGA framework | Decide at M4: plain MiSTer template vs JTFRAME | Open |
+| D4 | FPGA framework | Decide at M4: plain MiSTer template vs JTFRAME | **Decided:** Template_MiSTer (no JTFRAME module applies; see [`hdl.md`](hdl.md#mister-core-hdlcore-hdlboard-mister)) |
 | D5 | First keyboard target | ORK (original keyboard) as used by Release L | Open |
 
 ## 10. Next action
@@ -246,10 +246,13 @@ held note in ORK-LM. **M5 started:** the D130/D131 keyboard/panel and
 D160–D165 FM interface (interpolators, wave memory) are in HDL and agree
 too, so ORK-LM runs in HDL with no device answered from the trace. The
 HDL voice engine produces the same audio samples as `sim/voice.py`,
-sample for sample (ORK-LM's note and an FM test program). What remains
-of M4/M5 is board work (MiSTer framework D4, SDRAM, image loading,
-terminal display, audio and MIDI I/O) and needs Quartus and hardware; the
-real-time throttle and 48 kHz PCM stage are done. M3.3 needs recordings.
+sample for sample (ORK-LM's note and an FM test program). **M4 core done in simulation:** the MiSTer core
+(Template_MiSTer, D4) boots Release L from an F0 floppy image from
+power-on, through its boot loader, SD floppies, DDR3 external memory and
+terminal display, and matches the Python run through `CATALOG`; the
+frame shows the catalog. Quartus Lite 17.0 builds run in CI. What remains
+of M4 is the hardware test (boot to `Ready >` on a MiSTer); of M5, the audio path's DAC/pan law (MIDI → clavier and panel is done:
+`hdl/core/midi_in.sv`). M3.3 needs recordings.
 Groundwork: [`timbre-libraries.md`](timbre-libraries.md)
 (Release L bank layout; later NED banks load partly in Release L; FM-only
 entries with parameters in physical units for calibration once the timbre

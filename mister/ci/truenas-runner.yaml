@@ -1,0 +1,40 @@
+# GitHub Actions self-hosted runner for the Quartus build, as a TrueNAS
+# SCALE Custom App (Apps -> Discover Apps -> Custom App -> Install via YAML).
+#
+# It registers to gmcnaught/synclavierii with the label `quartus`; the
+# Build RBF workflow uses it when the repository variable QUARTUS_RUNNER is
+# `truenas` (Settings -> Secrets and variables -> Actions -> Variables),
+# otherwise ubuntu-latest. Jobs run Quartus in raetro/quartus:17.0 through
+# the host's Docker, natively on x86 (the image is pulled once and kept).
+#
+# Before installing, replace:
+#   ACCESS_TOKEN  a fine-grained personal access token for this repository
+#                 only, with "Administration: Read and write" (the runner
+#                 uses it to register and to re-register after restarts)
+#   the dataset paths (here "/mnt/The Pool/github-runners/synclavierii"):
+#                 create work/ and state/ first; quote paths that contain
+#                 spaces as whole strings. RUNNER_WORKDIR must be a path
+#                 without spaces (the runner runs its step scripts from
+#                 there unquoted); the workflow passes files to Quartus's
+#                 container as tar streams, so it need not exist on the host.
+#
+# Security: the runner has the host's Docker socket, i.e. root on the NAS,
+# and runs any workflow job of this repository. Keep the repository
+# private and do not add other people's workflows to it.
+services:
+  runner:
+    image: myoung34/github-runner:ubuntu-noble
+    restart: unless-stopped
+    environment:
+      REPO_URL: https://github.com/gmcnaught/synclavierii
+      RUNNER_SCOPE: repo
+      ACCESS_TOKEN: "github_pat_REPLACE_ME"
+      RUNNER_NAME: truenas-quartus
+      LABELS: quartus,x64
+      RUNNER_WORKDIR: /runner-work
+      CONFIGURED_ACTIONS_RUNNER_FILES_DIR: /runner-state
+      DISABLE_AUTOMATIC_DEREGISTRATION: "true"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - "/mnt/The Pool/github-runners/synclavierii/work:/runner-work"
+      - "/mnt/The Pool/github-runners/synclavierii/state:/runner-state"

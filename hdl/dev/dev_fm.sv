@@ -12,6 +12,7 @@
 // The interpolators run at 192 kHz of simulated time (tick/tick_ns:
 // 192000 / 1e9 = 24 / 125000 clocks per ns), one clock at a time with the
 // closed form of sim/fm.py Interpolator.advance_to.
+(* multstyle = "logic" *)       // small multiplies: keep the DSP blocks for sys/
 module dev_fm #(
     parameter int VOICES = 8
 ) (
@@ -58,7 +59,7 @@ module dev_fm #(
     logic [17:0] rem;                           // (time x 24) mod 125000 (< 2^17)
 
     logic [7:0]  div [NCH], add [NCH], lim [NCH], val [NCH], pre [NCH], acc [NCH], mar [NCH];
-    logic [7:0]  wave [8192];
+    logic [7:0]  wave [8192] /* verilator public */;   // public: board bench reads it
 
     wire [7:0] ch = channel_word[7:0];
     wire       ch_ok = {8'd0, ch} < 16'(NCH);
@@ -172,9 +173,10 @@ module dev_fm #(
         wave_q <= wave[wave_addr];
     end
 
-    for (genvar k = 0; k < NCH; k++) begin : g_env
+    genvar k;
+    generate for (k = 0; k < NCH; k++) begin : g_env
         assign ch_env[k] = val[k];
         assign ch_env_next[k] = val_n[k];
-    end
+    end endgenerate
     assign fm_rem = rem;
 endmodule

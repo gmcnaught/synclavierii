@@ -6,7 +6,7 @@
 //   pcm = round(sum of 4 x 32767 / 2^35)
 // In floating point every step of the Python path is exact for these
 // magnitudes, so the two agree bit for bit.
-module audio_out (
+module pcm_out (
     input  logic        clk,
     input  logic        rst,
     input  logic        in_valid,

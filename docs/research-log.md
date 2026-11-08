@@ -341,6 +341,19 @@ checked against the Release L ORK-LM log. Maps in [`devices/`](devices/).
   memory 8 + voice, channel) to D160, and 16-bit values to D162 for
   `ONU`/`NNU`/`INC`, contrary to FCODLITS' "8-bit" comment.
 
+## 20. Later NED timbre libraries (M3 groundwork)
+
+Details in [`timbre-libraries.md`](timbre-libraries.md).
+
+* The user-supplied `Original-NED-Sample-Patch-Libraries` are 92 banks
+  (2022 export): 462 of 471 timbres use sound files; 9 are FM-only, with
+  parameters in physical units in per-entry text files.
+* Release L's `.NEWDATA` is 8 banks × 49 sectors; a bank button reads 32.
+* A later `.stmb` bank written over bank 0 loads in Release L ORK-LM: it
+  reports a missing sound file for the sampled timbre, computes wave
+  memories for the FM ones, and plays 3 of 7. Interpretation of the other
+  parameters is unverified, so these are not calibration data yet.
+
 ## Searched without useful results
 
 * archive.org full-text and metadata search for "synclavier", "new england

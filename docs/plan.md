@@ -226,4 +226,7 @@ recalled from `06-TIMBD` plays, and every FM write of a note is logged
 (`--fm-log`). **M2's acceptance test passes** (main loop runs, every device
 it touches is documented). Next: **M3.1**, the FM voice spec from the card
 analysis and patents, decoding the logged `ONU`/`NNU`/`INC`, `TIM`,
-envelope and `VOL` writes.
+envelope and `VOL` writes. Groundwork: [`timbre-libraries.md`](timbre-libraries.md)
+(Release L bank layout; later NED banks load partly in Release L; FM-only
+entries with parameters in physical units for calibration once the timbre
+record is decoded).

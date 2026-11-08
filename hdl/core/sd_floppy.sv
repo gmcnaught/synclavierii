@@ -1,41 +1,44 @@
-// Floppy media on the MiSTer SD block interface (hps_io sd_*, BLKSZ 512).
+// SD images on the MiSTer SD block interface (hps_io sd_*, BLKSZ 512):
+//   drive 0, 1  floppies F0, F1: the floppy's logical sectors in order,
+//               512 bytes each, words big-endian (a floppy-sized slice of a
+//               NED .simg; `tools/ned_disk.py --floppy` writes one); logical
+//               sector n is SD block n;
+//   drive 2     a state image for the boot loader (tools/state_image.py),
+//               read only.
 //
-// One mounted image per drive (F0, F1): the floppy's logical sectors in
-// order, 512 bytes each, words big-endian (a floppy-sized slice of a NED
-// .simg; `tools/ned_disk.py --floppy` writes one). Logical sector n of the
-// floppy is SD block n of the image.
-//
-// Word port (dev_floppy's fd_* or the boot loader): {drive, lsn[9:0],
+// Word port (dev_floppy's fd_* or the boot loader): {drive[1:0], block[11:0],
 // word[7:0]}; hold rd/wr until ack, a one-clock pulse; the clock after an
 // ack is ignored (the same handshake as the simulation RAM models). One
-// sector is buffered. A miss reads the sector from the SD card first; the
-// write of a sector's last word (255) writes it back at once. Waiting costs
+// block is buffered. A miss reads the block from the SD card first; the
+// write of a block's last word (255) writes it back at once. Waiting costs
 // no simulated time (dev_floppy holds floppy accesses while it copies).
 module sd_floppy (
     input  logic        clk,
     input  logic        rst,
 
-    input  logic [18:0] addr,
+    input  logic [21:0] addr,
     input  logic        rd,
     input  logic        wr,
     input  logic [15:0] wdata,
     output logic [15:0] rdata,
     output logic        ack,
 
-    output logic [1:0]  present,
+    output logic [2:0]  present,
     output logic [1:0]  protect,
-    output logic [10:0] sectors0,
+    output logic [10:0] sectors0,       // floppy sizes (at most 1024)
     output logic [10:0] sectors1,
+    output logic [12:0] blocks2,        // state image size (at most 4096)
     output logic        active,         // an SD transfer is in progress (LED)
 
-    input  logic [1:0]  img_mounted,
+    input  logic [2:0]  img_mounted,
     input  logic        img_readonly,
     input  logic [63:0] img_size,
     output logic [31:0] sd_lba0,
     output logic [31:0] sd_lba1,
-    output logic [1:0]  sd_rd,
-    output logic [1:0]  sd_wr,
-    input  logic [1:0]  sd_ack,
+    output logic [31:0] sd_lba2,
+    output logic [2:0]  sd_rd,
+    output logic [2:0]  sd_wr,
+    input  logic [2:0]  sd_ack,
     input  logic [8:0]  sd_buff_addr,
     input  logic [7:0]  sd_buff_dout,
     output logic [7:0]  sd_buff_din,
@@ -44,16 +47,17 @@ module sd_floppy (
     typedef enum logic [2:0] {S_IDLE, S_RD, S_RDING, S_WR, S_WRING} state_t;
     state_t state;
 
-    logic        t_valid, t_dirty, t_drive;
-    logic [9:0]  t_lsn;
+    logic        t_valid, t_dirty;
+    logic [1:0]  t_drive;
+    logic [11:0] t_blk;
 
-    wire        drive = addr[18];
-    wire [9:0]  lsn   = addr[17:8];
+    wire [1:0]  drive = addr[21:20];
+    wire [11:0] blk   = addr[19:8];
     wire [7:0]  w     = addr[7:0];
-    wire        hit   = t_valid && t_drive == drive && t_lsn == lsn;
+    wire        hit   = t_valid && t_drive == drive && t_blk == blk;
     wire        req   = (rd || wr) && !ack;
 
-    // sector buffer: high and low bytes of each word, one address for both
+    // block buffer: high and low bytes of each word, one address for both
     // (the CPU side and the SD side never use it in the same state)
     logic [7:0] buf_hi [256];
     logic [7:0] buf_lo [256];
@@ -77,26 +81,30 @@ module sd_floppy (
     assign sd_buff_din = sd_odd ? q_lo : q_hi;
     assign active      = state != S_IDLE;
 
+    wire [31:0] lba = {20'd0, state == S_IDLE ? blk : t_blk};
+
     always_ff @(posedge clk) begin
         ack <= 1'b0;
         if (rst) begin
             state <= S_IDLE;
             t_valid <= 1'b0;
             t_dirty <= 1'b0;
-            sd_rd <= 2'b00;
-            sd_wr <= 2'b00;
-            present <= 2'b00;
+            sd_rd <= 3'b000;
+            sd_wr <= 3'b000;
+            present <= 3'b000;
             protect <= 2'b00;
             sectors0 <= 11'd0;
             sectors1 <= 11'd0;
+            blocks2 <= 13'd0;
         end else begin
-            for (int d = 0; d < 2; d++)
+            for (int d = 0; d < 3; d++)
                 if (img_mounted[d]) begin
                     present[d] <= img_size != 64'd0;
-                    protect[d] <= img_readonly;
                     if (d == 0) sectors0 <= img_size[63:19] != 0 ? 11'd1024 : 11'(img_size[18:9]);
-                    else        sectors1 <= img_size[63:19] != 0 ? 11'd1024 : 11'(img_size[18:9]);
-                    if (t_drive == d[0] && !t_dirty) t_valid <= 1'b0;
+                    if (d == 1) sectors1 <= img_size[63:19] != 0 ? 11'd1024 : 11'(img_size[18:9]);
+                    if (d == 2) blocks2 <= img_size[63:21] != 0 ? 13'd4096 : 13'(img_size[20:9]);
+                    if (d < 2) protect[d] <= img_readonly;
+                    if (t_drive == 2'(d) && !t_dirty) t_valid <= 1'b0;
                 end
 
             case (state)
@@ -113,15 +121,19 @@ module sd_floppy (
                     end else begin
                         t_valid <= 1'b0;
                         t_drive <= drive;
-                        t_lsn <= lsn;
-                        if (drive) sd_lba1 <= {22'd0, lsn}; else sd_lba0 <= {22'd0, lsn};
+                        t_blk <= blk;
+                        case (drive)
+                            2'd0: sd_lba0 <= lba;
+                            2'd1: sd_lba1 <= lba;
+                            default: sd_lba2 <= lba;
+                        endcase
                         sd_rd[drive] <= 1'b1;
                         state <= S_RD;
                     end
                 end
             S_RD:
                 if (sd_ack[t_drive]) begin
-                    sd_rd <= 2'b00;
+                    sd_rd <= 3'b000;
                     state <= S_RDING;
                 end
             S_RDING:
@@ -130,10 +142,14 @@ module sd_floppy (
                     state <= S_IDLE;
                 end
             S_WR: begin
-                if (t_drive) sd_lba1 <= {22'd0, t_lsn}; else sd_lba0 <= {22'd0, t_lsn};
+                case (t_drive)
+                    2'd0: sd_lba0 <= lba;
+                    2'd1: sd_lba1 <= lba;
+                    default: sd_lba2 <= lba;
+                endcase
                 sd_wr[t_drive] <= 1'b1;
                 if (sd_ack[t_drive]) begin
-                    sd_wr <= 2'b00;
+                    sd_wr <= 3'b000;
                     state <= S_WRING;
                 end
             end

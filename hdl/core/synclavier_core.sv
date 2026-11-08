@@ -1,13 +1,16 @@
 // Synclavier II core, board-independent: able_system plus everything the
 // MiSTer top (mister/Synclavier.sv) and the board simulation
 // (hdl/sim/board_top.sv) share:
-//   boot_loader   stands in for the boot ROM: loads MONITOR from F0;
-//   sd_floppy     F0/F1 floppy images on the SD block interface (hps_io);
+//   boot_loader   stands in for the boot ROM: loads MONITOR from F0, or a
+//                 state image (tools/state_image.py, e.g. ORK-LM) from S2;
+//   sd_floppy     F0/F1 floppy images and the state image on the SD block
+//                 interface (hps_io, 3 drives);
 //   term_display  the system terminal (D50) as 80 x 24 text on video;
 //   ps2_ascii     the keyboard (hps_io ps2_key) as terminal input;
 //   midi_in       MIDI (UART, MidiLink) to the original keyboard and panel;
 //   panel_mouse   the mouse: click the panel buttons shown on the screen.
-// External memory (D60-D63, EXT_SECTORS sectors) is a word port (xr_*):
+// External memory (D60-D63: EXT_SECTORS sectors for a floppy boot, a
+// state image's own size otherwise, at most 4096) is a word port (xr_*):
 // DDR3 on MiSTer (hdl/board/ddram_word.sv), a model in simulation.
 // Devices not in the HDL answer no SYN, which halts the CPU as on the real
 // machine.
@@ -28,14 +31,15 @@ module synclavier_core #(
     input  logic [24:0] ps2_mouse,
     input  logic [1:0]  color,
 
-    input  logic [1:0]  img_mounted,
+    input  logic [2:0]  img_mounted,
     input  logic        img_readonly,
     input  logic [63:0] img_size,
     output logic [31:0] sd_lba0,
     output logic [31:0] sd_lba1,
-    output logic [1:0]  sd_rd,
-    output logic [1:0]  sd_wr,
-    input  logic [1:0]  sd_ack,
+    output logic [31:0] sd_lba2,
+    output logic [2:0]  sd_rd,
+    output logic [2:0]  sd_wr,
+    input  logic [2:0]  sd_ack,
     input  logic [8:0]  sd_buff_addr,
     input  logic [7:0]  sd_buff_dout,
     output logic [7:0]  sd_buff_din,
@@ -103,17 +107,21 @@ module synclavier_core #(
     output logic signed [39:0] audio_sum_r
 );
     // ------------------------------------------------------------ floppies
-    logic [18:0] m_addr;
+    logic [21:0] m_addr;
     logic        m_rd, m_wr, m_ack;
     logic [15:0] m_wdata, m_rdata;
-    logic [1:0]  fd_present, fd_protect;
+    logic [2:0]  sd_present;
+    logic [1:0]  fd_protect;
+    logic [12:0] state_blocks;
+    wire  [1:0]  fd_present = sd_present[1:0];
     logic [10:0] fd_sectors0, fd_sectors1;
     sd_floppy media (
         .clk, .rst(rst_hard),
         .addr(m_addr), .rd(m_rd), .wr(m_wr), .wdata(m_wdata), .rdata(m_rdata), .ack(m_ack),
-        .present(fd_present), .protect(fd_protect), .sectors0(fd_sectors0), .sectors1(fd_sectors1),
+        .present(sd_present), .protect(fd_protect), .sectors0(fd_sectors0), .sectors1(fd_sectors1),
+        .blocks2(state_blocks),
         .active(led_disk),
-        .img_mounted, .img_readonly, .img_size, .sd_lba0, .sd_lba1, .sd_rd, .sd_wr, .sd_ack,
+        .img_mounted, .img_readonly, .img_size, .sd_lba0, .sd_lba1, .sd_lba2, .sd_rd, .sd_wr, .sd_ack,
         .sd_buff_addr, .sd_buff_dout, .sd_buff_din, .sd_buff_wr
     );
 
@@ -127,13 +135,15 @@ module synclavier_core #(
     logic [63:0] ld_voice_data;
     logic [4:0]  dbg_addr;
     logic [15:0] dbg_wdata, ld_mem_addr, ld_mem_data;
-    logic [18:0] b_fd_addr;
+    logic [21:0] b_fd_addr;
+    logic [16:0] ext_sectors;
     logic        b_fd_rd, b_xm_wr, msg_valid;
     logic [23:0] b_xm_addr;
     logic [15:0] b_xm_wdata;
     logic [7:0]  msg_data;
     boot_loader boot (
-        .clk, .rst, .f0_present(fd_present[0]), .ext_sectors(EXT_SECTORS),
+        .clk, .rst, .f0_present(fd_present[0]), .state_present(sd_present[2]),
+        .floppy_ext_sectors(EXT_SECTORS), .ext_sectors,
         .cpu_rst, .error(boot_error),
         .ld_dev_we, .ld_dev_sel, .ld_dev_addr, .ld_dev_data,
         .ld_voice_we, .ld_voice_addr, .ld_voice_data,
@@ -164,7 +174,7 @@ module synclavier_core #(
         .dev_rd, .dev_wr, .dev_num, .dev_wdata,
         .dev_rdata(16'd0), .dev_ack(1'b0), .dev_nosyn(dev_rd || dev_wr), .dev_hold(1'b0),
         .dev_irq(12'd0),
-        .ext_sectors(EXT_SECTORS),
+        .ext_sectors,
         .xm_addr(s_xm_addr), .xm_rd(s_xm_rd), .xm_wr(s_xm_wr), .xm_wdata(s_xm_wdata),
         .xm_rdata(xr_rdata), .xm_ack(xr_ack),
         .fd_present, .fd_protect, .fd_sectors0, .fd_sectors1,
@@ -190,7 +200,8 @@ module synclavier_core #(
     );
 
     // the boot loader owns the floppy and external memory ports in reset
-    assign m_addr   = cpu_rst ? b_fd_addr : s_fd_addr;
+    // dev_floppy: {drive, sector[9:0], word} -> {drive[1:0], block[11:0], word}
+    assign m_addr   = cpu_rst ? b_fd_addr : {1'b0, s_fd_addr[18], 2'b00, s_fd_addr[17:0]};
     assign m_rd     = cpu_rst ? b_fd_rd   : s_fd_rd;
     assign m_wr     = cpu_rst ? 1'b0      : s_fd_wr;
     assign m_wdata  = s_fd_wdata;

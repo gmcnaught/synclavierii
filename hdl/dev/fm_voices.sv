@@ -21,6 +21,7 @@
 // = sim/voice.py FMSynth.sample_int. The 8 voices are summed one per clock
 // from the snapshot; FM interface accesses wait meanwhile (`busy`), so a
 // wave-memory write cannot land in the middle.
+(* multstyle = "logic" *)       // small multiplies: keep the DSP blocks for sys/
 module fm_voices #(
     parameter int VOICES = 8
 ) (
@@ -108,6 +109,15 @@ module fm_voices #(
 
     logic        finish;                // second half of a sampled tick
     logic [9:0]  rest_ns;
+    wire  [39:0] x_rest  = rr + OSC_NUM * 40'(rest_ns);
+    wire  [2:0]  n_rest  = osc_n(x_rest);
+    wire  [39:0] rr_rest = x_rest - OSC_D * 40'(n_rest);
+    // the oscillator ticks to apply this clock: sample_now (to the sample
+    // instant), finish (the rest of that tick) and a plain tick never come
+    // together, so one advance per channel serves all three
+    wire  [2:0]  n_sel = sample_now ? n_a : finish ? n_rest : n_all;
+    osc_t        adv [NCH];
+    always_comb for (int c = 0; c < NCH; c++) adv[c] = advance(c, n_sel);
     logic [7:0]  env_s [NCH];
     // snapshot for the mix
     logic [7:0]  sp_mod [VOICES], sp_car [VOICES], sp_idx [VOICES], sp_env [VOICES];
@@ -152,9 +162,7 @@ module fm_voices #(
             if (sample_now) begin
                 // to the sample instant; envelopes as of that instant
                 for (int c = 0; c < NCH; c++) begin
-                    osc_t o;
-                    o = advance(c, n_a);
-                    acc[c] <= o.acc; pre[c] <= o.pre; point[c] <= o.point;
+                    acc[c] <= adv[c].acc; pre[c] <= adv[c].pre; point[c] <= adv[c].point;
                     env_s[c] <= env_after ? ch_env_next[c] : ch_env[c];
                 end
                 rr <= rr_a;
@@ -174,11 +182,9 @@ module fm_voices #(
                     sp_tim[k] <= ch_tim[2*k+1][4:0];
                 end
                 for (int c = 0; c < NCH; c++) begin
-                    osc_t o;
-                    o = advance(c, osc_n(rr + OSC_NUM * 40'(rest_ns)));
-                    acc[c] <= o.acc; pre[c] <= o.pre; point[c] <= o.point;
+                    acc[c] <= adv[c].acc; pre[c] <= adv[c].pre; point[c] <= adv[c].point;
                 end
-                rr <= rr + OSC_NUM * 40'(rest_ns) - OSC_D * 40'(osc_n(rr + OSC_NUM * 40'(rest_ns)));
+                rr <= rr_rest;
                 finish <= 1'b0;
                 mixing <= 1'b1;
                 v <= 4'd0;
@@ -187,9 +193,7 @@ module fm_voices #(
                 sum_r <= 40'sd0;
             end else if (tick) begin
                 for (int c = 0; c < NCH; c++) begin
-                    osc_t o;
-                    o = advance(c, n_all);
-                    acc[c] <= o.acc; pre[c] <= o.pre; point[c] <= o.point;
+                    acc[c] <= adv[c].acc; pre[c] <= adv[c].pre; point[c] <= adv[c].point;
                 end
                 rr <= rr_all;
                 to_next <= to_next - 14'(tick_ns);

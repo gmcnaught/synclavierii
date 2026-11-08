@@ -12,6 +12,7 @@
 // The interpolators run at 192 kHz of simulated time (tick/tick_ns:
 // 192000 / 1e9 = 24 / 125000 clocks per ns), one clock at a time with the
 // closed form of sim/fm.py Interpolator.advance_to.
+(* multstyle = "logic" *)       // small multiplies: keep the DSP blocks for sys/
 module dev_fm #(
     parameter int VOICES = 8
 ) (

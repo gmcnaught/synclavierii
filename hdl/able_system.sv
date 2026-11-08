@@ -13,10 +13,12 @@
 // able_cpu.sv), so device behaviour matches sim/devices/ exactly. On the
 // board a throttle will hold the CPU to that time (risk R3).
 module able_system #(
-    parameter logic [15:0] TERMINAL_BITS = 16'o001000
+    parameter logic [15:0] TERMINAL_BITS = 16'o001000,
+    parameter longint CLK_HZ = 50_000_000
 ) (
     input  logic        clk,
     input  logic        rst,
+    input  logic        rt_enable,         // 1: hold the CPU to real time (throttle.sv)
 
     // devices outside this module
     output logic        dev_rd,
@@ -125,6 +127,9 @@ module able_system #(
     logic [6:0]  io_dev;
     logic [15:0] io_wdata, io_rdata;
     logic [15:4] irq;
+    logic        stall;
+
+    throttle #(.CLK_HZ(CLK_HZ)) pace (.clk, .rst, .enable(rt_enable), .tick, .tick_ns, .stall);
 
     able_cpu cpu (
         .clk, .rst,
@@ -132,7 +137,7 @@ module able_system #(
         .io_rd, .io_wr, .io_dev, .io_wdata, .io_rdata, .io_ack, .io_nosyn, .io_hold,
         .io_held, .tick, .tick_ns,
         .irq, .irq_sample, .irq_psw,
-        .halt_req, .halted, .halt_reason,
+        .stall, .halt_req, .halted, .halt_reason,
         .instr_done, .instr_pc, .instr_word,
         .dbg_we, .dbg_addr, .dbg_wdata, .regs_flat, .flags
     );

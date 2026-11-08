@@ -486,6 +486,7 @@ def test_system_voice_engine():
     try:
         n = record(cpu, path, 2_000_000, audio=True)
         ok, text = check(path, top="system", wav=path + ".hdl.wav")
+        ok_rt, text_rt = check(path, top="system", realtime=True)   # throttle on
         nonzero = _nonzero_samples(path)
         frames = expected_wav(path, path + ".py.wav")
         hdl_wav, py_wav = open(path + ".hdl.wav", "rb").read(), open(path + ".py.wav", "rb").read()
@@ -495,6 +496,7 @@ def test_system_voice_engine():
                 os.unlink(p)
     assert ok, text
     assert frames > 5000 and hdl_wav == py_wav       # audio_out.sv = render() + write_wav()
+    assert ok_rt and "simulated - real" in text_rt, text_rt
     assert cpu.halted and cpu.halted.device == 0o161, cpu.halted
     assert nonzero > 5000 and n > 100_000, (nonzero, n)
 

@@ -50,6 +50,7 @@ module able_cpu #(
     output logic        irq_sample,   // irq is sampled at this clock edge
     output logic        irq_psw,      // ... for a PSW read (else end of instruction)
 
+    input  logic        stall,        // real-time throttle: wait before the next fetch
     input  logic        halt_req,
     output logic        halted,
     output logic [1:0]  halt_reason,  // 1 no SYN on read, 2 no SYN on write, 3 HALT
@@ -180,7 +181,8 @@ module able_cpu #(
             tick = 1'b1;
         end
     end
-    assign io_held = state == S_SRCIO && io_rd && io_hold && !io_ack && !io_nosyn;
+    // a held read is retried (333 ns) only when the throttle allows
+    assign io_held = state == S_SRCIO && io_rd && io_hold && !io_ack && !io_nosyn && !stall;
 
     assign instr_done = (state == S_END);
     assign instr_pc   = pc_at;
@@ -203,7 +205,7 @@ module able_cpu #(
             end
         end else begin
             case (state)
-            S_FETCH: begin
+            S_FETCH: if (!stall) begin
                 pc_at <= r[pcr];
                 state <= S_DECODE;
             end

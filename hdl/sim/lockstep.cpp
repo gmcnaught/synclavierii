@@ -93,6 +93,12 @@ int main(int argc, char** argv) {
 
     top = new Top;
     top->rst = 1;
+#ifdef SYSTEM
+    // LOCKSTEP_REALTIME=1: run with the throttle on; behaviour must not
+    // change, and simulated time must track 20 ns clocks (50 MHz)
+    bool realtime = std::getenv("LOCKSTEP_REALTIME") != nullptr;
+    top->rt_enable = realtime;
+#endif
     top->dev_ack = top->dev_nosyn = top->dev_hold = top->halt_req = 0;
     top->dev_irq = 0;
 #ifdef SYSTEM
@@ -361,7 +367,7 @@ int main(int argc, char** argv) {
         if (was_tick) time_ns += ns;
         if (was_held) held++;
         if (done) held = 0;
-        if (cycles > 64 * (n + 1000) + 64ull * held || held > 10'000'000)
+        if (cycles > 64 * (n + 1000) + 64ull * held + time_ns / 10 || held > 10'000'000)
             fail(n, "HDL stuck (state does not advance)");
     }
 #ifdef SYSTEM
@@ -385,6 +391,13 @@ int main(int argc, char** argv) {
         std::fwrite("data", 1, 4, w); u32(data);
         std::fwrite(pcm.data(), 2, pcm.size(), w);
         std::fclose(w);
+    }
+#endif
+#ifdef SYSTEM
+    if (realtime) {
+        double real = cycles * 20.0, drift = (double)time_ns - real;
+        std::printf("real time %.0f ns, simulated - real = %.0f ns\n", real, drift);
+        if (drift > 2000 || drift < -20000) fail(n, "throttle drift %.0f ns", drift);
     }
 #endif
     std::printf("lockstep OK: %llu instructions, %llu cycles, %llu ns simulated",

@@ -27,6 +27,13 @@ Behavioural, multi-cycle, one instruction per pass through:
 
 About 5.5 clocks per instruction (ORK-LM: 5.62).
 
+**Real time.** `hdl/throttle.sv` holds the CPU before each fetch (and
+before retrying a held read) while simulated time is ahead of real time
+(`rt_enable`; 50 MHz assumed, `CLK_HZ`). It only adds wait clocks, so
+lockstep runs are unchanged with it on (`check --realtime`): the voice
+test program ends 74 ns and MONITOR's boot (1.04 s) 551 ns from real
+time. Credit when the CPU falls behind is capped at 10 µs.
+
 **Time.** As `sim/cpu.py`: an instruction costs 333 ns per bus transfer
 (fetch; source unless immediate; destination unless a transfer not
 taken), and a read the device holds (`io_hold`, Python's `BUS_WAIT`)
@@ -34,7 +41,7 @@ costs 333 ns per clock held. Devices count this simulated time, not
 clocks, so they behave exactly as the Python devices. TICK comes before
 END so that the interrupt check sees the devices after the instruction's
 time, as Python ticks the bus before its check. On the board a throttle
-will hold the CPU to real time at this rate (risk R3).
+holds the CPU to real time at this rate (risk R3; see Real time).
 
 Interfaces:
 
@@ -196,6 +203,7 @@ the clock.
 | 4.4 | Memory: internal in BRAM; external (D60–D63) in SDRAM/DDR | HDL done, lockstep-checked; SDRAM controller open |
 | 4.5 | Terminal (D50/D51) | device done, lockstep-checked; host side (character display or UART) open |
 | — | D3, D4567 | done, lockstep-checked |
+| — | Real-time throttle | done (`hdl/throttle.sv`), checked in lockstep |
 | 4.6 | Disk images from SD (D100 floppy) | controller done, lockstep-checked; loading images from SD into the floppy RAM open |
 | — | Synthesis and timing (Quartus) | needs Quartus (not installed here) |
 | M5 | D130/D131, D160–D165 devices; voice engine | done, lockstep-checked (audio sample for sample); DAC/pan law, output filtering and the audio path on the board open |

@@ -146,7 +146,9 @@ boards/
 
 ## Licence
 
-No licence has been chosen yet for this project's own files. Third-party
-material keeps its own terms: `tests/fixtures/NED-SCSI.LST` is MIT
-(see `tests/fixtures/LICENSE-NED-Software`). Choose a licence that is
-compatible with MIT.
+This project's own files are released under the **MIT licence** (see
+[`LICENSE`](LICENSE)). Third-party material keeps its own terms:
+`tests/fixtures/NED-SCSI.LST` is MIT (see
+`tests/fixtures/LICENSE-NED-Software`). NED disk images such as Release L
+are not licensed for redistribution and are never included; users supply
+their own. Contribution workflow: [`CONTRIBUTING.md`](CONTRIBUTING.md).

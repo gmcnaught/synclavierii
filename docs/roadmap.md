@@ -1,5 +1,7 @@
 # Roadmap: toward an FPGA Synclavier II
 
+*One-page summary. The detailed plan, with tasks, acceptance criteria, verification, risks and decisions, is in [`plan.md`](plan.md).*
+
 Goal: a **behavioural** FPGA implementation (for example a MiSTer core) of a
 Synclavier II: ABLE CPU, memory, terminal, disk, FM voices and keyboard,
 running original NED software.

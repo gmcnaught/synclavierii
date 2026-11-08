@@ -102,7 +102,7 @@ the held-read step at which it arrived.
 python3 -m sim.lockstep random out/r.trace --instructions 3000 --seed 5
 python3 -m sim.lockstep monitor IMAGE.simg out/mon.trace     # boot + CATALOG
 python3 -m sim.lockstep ork-lm IMAGE.simg out/ork.trace --instructions 6000000
-python3 -m sim.lockstep ork-lm-note IMAGE.simg out/note.trace --instructions 5000000
+python3 -m sim.lockstep ork-lm-note IMAGE.simg out/note.trace --instructions 5000000 --audio
 python3 -m sim.lockstep check out/mon.trace                  # CPU top (builds out/hdl-lockstep/)
 python3 -m sim.lockstep check out/mon.trace --top system     # CPU + HDL devices
 ```
@@ -166,6 +166,12 @@ driven by the D160 registers, interpolators and wave memory of `dev_fm.sv`:
 * The sine ROM is generated from `voice.SINE_ROM` (`tools/gen_sine_rom.py`
   → `hdl/dev/sine_rom.svh`), a choice until the SS2 ROMs are dumped.
 
+`hdl/dev/audio_out.sv` turns the 192 kHz sums into 48 kHz 16-bit PCM
+with the arithmetic of `render()` + `write_wav()`: mean of 4, gain ¼,
+round half to even, clip; pcm = round(sum of 4 × 32767 / 2³⁵). Every
+step of Python's float path is exact at these magnitudes, so the WAV
+files are byte-identical.
+
 Audio traces (`record(..., audio=True)`, `--audio`) carry the samples
 Python computes at each instant (a live `FMSynth` fed from the FM log);
 the bench compares every HDL sample with them.
@@ -174,6 +180,7 @@ the bench compares every HDL sample with them.
 |---|---:|---|
 | ORK-LM `ork-lm-note` (timbre 0, C4 for 0.5 s: 96,238 nonzero samples) | 804,572 | identical |
 | Voice test program (FM index ramp with shift 2, pan, `VOL`, loaded wave memory, pitch and octave change while sounding, release) | 21,032 (20,954 nonzero) | identical |
+| 48 kHz WAV from `audio_out.sv` vs `render()` + `write_wav()`: ORK-LM C4 (201,143 frames), voice test program | — | byte-identical |
 
 Each of these engine faults is caught: no reduction after a pitch write,
 envelope taken after a clock that lands exactly on the sample instant,

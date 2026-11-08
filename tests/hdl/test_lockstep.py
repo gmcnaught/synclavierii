@@ -13,7 +13,7 @@ import sys
 import tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
-from sim.lockstep import check, random_cpu, record  # noqa: E402
+from sim.lockstep import check, expected_wav, random_cpu, record  # noqa: E402
 
 HAVE_VERILATOR = shutil.which("verilator") is not None
 
@@ -485,11 +485,16 @@ def test_system_voice_engine():
         path = f.name
     try:
         n = record(cpu, path, 2_000_000, audio=True)
-        ok, text = check(path, top="system")
+        ok, text = check(path, top="system", wav=path + ".hdl.wav")
         nonzero = _nonzero_samples(path)
+        frames = expected_wav(path, path + ".py.wav")
+        hdl_wav, py_wav = open(path + ".hdl.wav", "rb").read(), open(path + ".py.wav", "rb").read()
     finally:
-        os.unlink(path)
+        for p in (path, path + ".hdl.wav", path + ".py.wav"):
+            if os.path.exists(p):
+                os.unlink(p)
     assert ok, text
+    assert frames > 5000 and hdl_wav == py_wav       # audio_out.sv = render() + write_wav()
     assert cpu.halted and cpu.halted.device == 0o161, cpu.halted
     assert nonzero > 5000 and n > 100_000, (nonzero, n)
 

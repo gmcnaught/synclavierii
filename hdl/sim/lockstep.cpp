@@ -189,9 +189,14 @@ int main(int argc, char** argv) {
     std::deque<uint8_t> rx;            // terminal input still to push
     std::deque<std::pair<int64_t, int64_t>> want_audio;   // Python samples not yet matched
     uint64_t samples = 0;
+    std::vector<int16_t> pcm;          // 48 kHz stereo from audio_out (LOCKSTEP_WAV)
     char buf[64];
 #ifdef SYSTEM
     auto audio_check = [&](uint64_t at) {
+        if (audio_trace && top->pcm_valid) {
+            pcm.push_back((int16_t)top->pcm_l);
+            pcm.push_back((int16_t)top->pcm_r);
+        }
         if (!audio_trace || !top->audio_valid) return;     // no audio recorded
         int64_t l = top->audio_l, r = top->audio_r;
         if (l & (1ll << 39)) l -= 1ll << 40;          // 40-bit signed
@@ -361,7 +366,7 @@ int main(int argc, char** argv) {
     }
 #ifdef SYSTEM
     // the last samples finish mixing a few clocks after the trace ends
-    for (int i = 0; i < 64 && !want_audio.empty(); i++) {     // (the engine runs on after a halt)
+    for (int i = 0; i < 64; i++) {                 // (the engine runs on after a halt)
         top->dev_ack = top->dev_nosyn = top->dev_hold = 0;
         top->clk = 0; top->eval();
         audio_check(~0ull);
@@ -369,6 +374,18 @@ int main(int argc, char** argv) {
     }
     if (!want_audio.empty())
         fail(n, "%zu Python audio samples not produced by the HDL", want_audio.size());
+    if (const char* wav = std::getenv("LOCKSTEP_WAV")) {       // 16-bit stereo WAV
+        FILE* w = std::fopen(wav, "wb");
+        if (!w) { std::perror(wav); return 2; }
+        uint32_t data = (uint32_t)pcm.size() * 2, rate = 48000;
+        auto u32 = [&](uint32_t v) { std::fwrite(&v, 4, 1, w); };
+        auto u16 = [&](uint16_t v) { std::fwrite(&v, 2, 1, w); };
+        std::fwrite("RIFF", 1, 4, w); u32(36 + data); std::fwrite("WAVEfmt ", 1, 8, w);
+        u32(16); u16(1); u16(2); u32(rate); u32(rate * 4); u16(4); u16(16);
+        std::fwrite("data", 1, 4, w); u32(data);
+        std::fwrite(pcm.data(), 2, pcm.size(), w);
+        std::fclose(w);
+    }
 #endif
     std::printf("lockstep OK: %llu instructions, %llu cycles, %llu ns simulated",
                 (unsigned long long)n, (unsigned long long)cycles, (unsigned long long)time_ns);

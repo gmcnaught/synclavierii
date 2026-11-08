@@ -388,6 +388,7 @@ TOPS = {
                                 "hdl/dev/dev_extmem.sv", "hdl/dev/dev_terminal.sv",
                                 "hdl/dev/dev_floppy.sv", "hdl/dev/dev_keyboard.sv",
                                 "hdl/dev/dev_fm.sv", "hdl/dev/fm_voices.sv",
+                                "hdl/dev/audio_out.sv",
                                 "hdl/able_system.sv", "hdl/sim/able_sys_top.sv"], ["-DSYSTEM"]),
 }
 
@@ -411,11 +412,59 @@ def build(top="cpu", force=False):
     return exe
 
 
-def check(path, max_instructions=None, top="cpu"):
-    """Run a trace on the HDL. Returns (ok, output text)."""
+def check(path, max_instructions=None, top="cpu", wav=None):
+    """Run a trace on the HDL. Returns (ok, output text). wav: write the
+    system's 48 kHz PCM output (audio_out.sv) to this WAV file."""
     cmd = [build(top), path] + ([str(max_instructions)] if max_instructions else [])
-    p = subprocess.run(cmd, capture_output=True, text=True)
+    env = dict(os.environ, LOCKSTEP_WAV=wav) if wav else None
+    p = subprocess.run(cmd, capture_output=True, text=True, env=env)
     return p.returncode == 0, p.stdout + p.stderr
+
+
+def expected_wav(trace_path, wav_path):
+    """The WAV sim/voice.py render() + write_wav() give for the audio samples
+    in a trace (groups of 4 from the trace start). Returns the frame count."""
+    from .voice import FULL_SCALE, write_wav
+    samples = [s for s in _trace_audio(trace_path)]
+    frames = []
+    for i in range(0, len(samples) - 3, 4):
+        acc_l = acc_r = 0.0
+        for l, r in samples[i:i + 4]:
+            acc_l += l / FULL_SCALE
+            acc_r += r / FULL_SCALE
+        frames.append((acc_l / 4, acc_r / 4))
+    write_wav(wav_path, frames)
+    return len(frames)
+
+
+def _trace_audio(path):
+    """The 'A' samples of a trace, in order."""
+    b = open(path, "rb").read()
+    p = len(MAGIC) + 33 + 131072
+    while True:
+        k = b[p:p + 1]
+        p += 1
+        if k == b"B":
+            break
+        if k == b"X":
+            p += 4 + struct.unpack_from("<I", b, p)[0] * 512
+        elif k == b"F":
+            p += 6 + struct.unpack_from("<H", b, p + 1)[0] * 512
+        elif k == b"V":
+            p += 7
+        elif k == b"O":
+            p += 11 + 64
+    sizes = {b"P": 2, b"R": 3, b"W": 3, b"Q": 2, b"I": 4, b"S": 41, b"H": 1, b"E": 0,
+             b"w": 4, b"K": 4, b"A": 16}
+    while p < len(b):
+        k = b[p:p + 1]
+        p += 1
+        if k == b"T":
+            p += 6 + struct.unpack_from("<H", b, p + 4)[0]
+            continue
+        if k == b"A":
+            yield struct.unpack_from("<qq", b, p)
+        p += sizes[k]
 
 
 def ork_lm_note_actions(cpu, dbg, image):
@@ -450,9 +499,10 @@ def main(argv=None):
     ap.add_argument("--model", default="B")
     ap.add_argument("--top", choices=tuple(TOPS), default="cpu", help="HDL top for check")
     ap.add_argument("--audio", action="store_true", help="also record voice engine samples")
+    ap.add_argument("--wav", help="check --top system: write the HDL's 48 kHz PCM to this WAV")
     a = ap.parse_args(argv)
     if a.mode == "check":
-        ok, text = check(a.args[0], top=a.top)
+        ok, text = check(a.args[0], top=a.top, wav=a.wav)
         print(text, end="")
         return 0 if ok else 1
     t = time.time()

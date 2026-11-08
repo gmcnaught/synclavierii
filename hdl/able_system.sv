@@ -66,6 +66,9 @@ module able_system #(
     output logic        audio_valid,
     output logic signed [39:0] audio_l,
     output logic signed [39:0] audio_r,
+    output logic        pcm_valid,         // 48 kHz 16-bit stereo (audio_out.sv)
+    output logic signed [15:0] pcm_l,
+    output logic signed [15:0] pcm_r,
     input  logic        ld_voice_we,       // voice engine state (simulation)
     input  logic [5:0]  ld_voice_addr,
     input  logic [63:0] ld_voice_data,
@@ -226,6 +229,11 @@ module able_system #(
         .wave_addr, .wave_q, .busy(voices_busy),
         .audio_valid, .audio_l, .audio_r,
         .ld_we(ld_voice_we), .ld_addr(ld_voice_addr), .ld_data(ld_voice_data)
+    );
+
+    audio_out pcm (
+        .clk, .rst, .in_valid(audio_valid), .in_l(audio_l), .in_r(audio_r),
+        .out_valid(pcm_valid), .out_l(pcm_l), .out_r(pcm_r)
     );
 
     assign dev_rd    = sel_ext && io_rd;

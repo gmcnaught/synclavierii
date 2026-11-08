@@ -8,6 +8,8 @@
 #
 # Prints the resource summary and the timing summary; exits non-zero when
 # the compile fails or any clock domain has negative setup or hold slack.
+# (Report printing is never fatal: `| head` ends pipelines early, which
+# pipefail would turn into a SIGPIPE exit.)
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 PROJECT=Synclavier
@@ -34,7 +36,7 @@ echo "== Resources =="
 for stage in map fit; do
     rpt=output_files/$PROJECT.$stage.rpt
     [ -f "$rpt" ] || continue
-    awk '/^; *Resource +; *Usage/{s=1} s{print} s&&/^\+---/{n++} s&&n>=2{exit}' "$rpt" | head -40
+    awk '/^; *Resource +; *Usage/{s=1} s{print} s&&/^\+---/{n++} s&&n>=2{exit}' "$rpt" | head -40 || true
 done
 fit=output_files/$PROJECT.fit.summary
 [ -f "$fit" ] && cat "$fit"
@@ -42,7 +44,7 @@ grep -hE "uninferred|can't infer memory|Error \(" build.log 2>/dev/null | sort -
 
 if [ -f output_files/$PROJECT.sta.rpt ]; then
     "$QBIN/quartus_sta" -t sta_paths.tcl >/dev/null 2>&1 || echo "(worst-path report failed)"
-    [ -f output_files/worst_paths.txt ] && head -80 output_files/worst_paths.txt
+    if [ -f output_files/worst_paths.txt ]; then head -80 output_files/worst_paths.txt || true; fi
 fi
 
 echo

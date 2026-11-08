@@ -170,6 +170,7 @@ def main(argv=None):
     ap.add_argument("--keys", default="", help="keys to hold together, 12-72 (e.g. 48 = C4)")
     ap.add_argument("--hold", type=float, default=1.0, help="simulated seconds to hold the keys")
     ap.add_argument("--fm-log", help="CSV of every FM register write (D162) during the actions")
+    ap.add_argument("--wav", help="render the FM voices during the actions to this WAV file (M3.2)")
     a = ap.parse_args(argv)
 
     quiet = {int(x, 8) for x in a.quiet_devices.split(",") if x}
@@ -191,6 +192,7 @@ def main(argv=None):
     t0 = cpu.time_ns
     stop = run_seconds(cpu, dbg, a.seconds)
     fm0 = len(cpu.fm.log)
+    t_keys = cpu.fm.time_ns     # render from here: the key press, if any
     if not stop and a.swap_f0:
         insert_floppy(cpu, a.image, 0, a.swap_f0)
         print("\n[rtp] F0 <- %s" % a.swap_f0)
@@ -210,6 +212,7 @@ def main(argv=None):
     if keys and not stop:
         print("\n[rtp] keys %s for %.2f s" % (keys, a.hold))
         k0 = len(cpu.fm.log)
+        t_keys = cpu.fm.time_ns
         for k in keys:
             cpu.keyboard.press_key(k)
         stop = run_seconds(cpu, dbg, a.hold)
@@ -225,6 +228,15 @@ def main(argv=None):
             w.writerow(["time_ns", "channel_word", "channel", "function", "value"])
             for t, word, fn, v in cpu.fm.log[fm0:]:
                 w.writerow([t, "%06o" % word, "%03o" % (word & 0o377), "%02o" % fn, "%06o" % v])
+    if a.wav and cpu.fm.log[fm0:]:
+        from .voice import render, write_wav
+        if len(cpu.fm.log) >= cpu.fm.log_len:
+            print("[rtp] warning: FM log full (%d writes); later writes are not rendered"
+                  % cpu.fm.log_len)
+        samples = render(cpu.fm.log, t_keys if keys else cpu.fm.log[fm0][0], cpu.fm.time_ns,
+                         voices=cpu.fm.voices)
+        clipped = write_wav(a.wav, samples)
+        print("[rtp] %s: %.2f s rendered, %d samples clipped" % (a.wav, len(samples) / 48_000, clipped))
     print("\n" + "=" * 60)
     print("[rtp] stop: %s after %.2f simulated s, %d instructions"
           % (stop or "end of script", (cpu.time_ns - t0) / 1e9, cpu.instructions))

@@ -115,8 +115,8 @@ every device it touches has a documented register map.
 | # | Task |
 |---|---|
 | 3.1 | Turn the SS1–SS7 card analysis (*Synclavier FM.docx*) and NED patents US 4,279,185 and 4,345,500 into a voice spec, `docs/fm-voice.md`: phase accumulator, 256-point waveforms ×32, multiplier and shifter, envelope generator (prescaler + rate + up/down counter), 8-bit MDAC chain, pan law |
-| 3.2 | Bit-accurate software model, driven by the D160 writes captured in M2 |
-| 3.3 | Render audio from the simulator. Compare against reference recordings (risk R1), tuning the clock, envelope rates and modulation-index scaling |
+| 3.2 | **Done** (`sim/voice.py`). Bit-accurate software model, driven by the D160 writes captured in M2 |
+| 3.3 | **Rendering done** (`sim.rtp --wav`). Render audio from the simulator. Compare against reference recordings (risk R1), tuning the clock, envelope rates and modulation-index scaling: **waits for recordings** |
 
 **Done when:** known Release L timbres render recognisably. Comparison with
 real-hardware recordings is the final acceptance step, once recordings exist.
@@ -230,8 +230,12 @@ envelope and `VOL` writes. **M3.1a is done:** pitch is decoded and verified
 ([`fm-voice.md`](fm-voice.md): f = 162.764 Hz × 2^ONU × increment /
 divisor; A3 = 440.00 Hz); envelope/index interpolators, D160 limit status,
 shift/pan, wave memory and volume are decoded from NED source, and the
-interpolator is modelled (ORK-LM now ends notes as on hardware). Next:
-M3.2, the bit-accurate voice model and audio.
+interpolator is modelled (ORK-LM now ends notes as on hardware).
+**M3.2 is done** and the rendering half of M3.3: `sim/voice.py` is an
+integer voice model driven by the logged D162 writes, and `sim.rtp --wav`
+renders what ORK-LM plays (Release L timbre 0 renders as a pure sine at
+the right pitches). Tuning against hardware recordings (M3.3) waits for
+recordings (risk R1). Next: **M4**, the FPGA core.
 Groundwork: [`timbre-libraries.md`](timbre-libraries.md)
 (Release L bank layout; later NED banks load partly in Release L; FM-only
 entries with parameters in physical units for calibration once the timbre

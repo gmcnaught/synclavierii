@@ -126,6 +126,17 @@ def test_release_l_ork_lm_plays_a_note():
     # release: ELIM = 0, then ORK-LM polls D160 bit 0 (limit reached) and
     # cleans the voice up (INC = 255, VOL = 0) once the envelope is at 0
     assert cpu.fm.interpolator(ch).value == 250          # attack limit reached
+    # M3.2: the rendered note is a C4 sine (timbre 0 = wave memory 4, a sine)
+    import math
+    from sim.voice import render
+    t = cpu.fm.log[n0][0]
+    x = [l + r for l, r in render(cpu.fm.log, t + 10_000_000, t + 50_000_000, oversample=1)]
+
+    def level(f):
+        w = 2 * math.pi * f / 48_000
+        return 2 * math.hypot(sum(v * math.cos(w * i) for i, v in enumerate(x)),
+                              sum(v * math.sin(w * i) for i, v in enumerate(x))) / len(x)
+    assert level(hz) > 0.9 and level(2 * hz) < 0.01 and level(3 * hz) < 0.01, (level(hz), level(2 * hz))
     cpu.keyboard.press_key(48, False)
     n1 = len(cpu.fm.log)
     assert run_seconds(cpu, dbg, 0.1) is None

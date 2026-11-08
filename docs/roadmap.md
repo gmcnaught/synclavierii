@@ -18,6 +18,7 @@ and boot ROM image are useful references but not prerequisites.
 | Software | Release L disks (Model B binaries); MIT-licensed NED source and tools (later releases) | [`release-l-image.md`](release-l-image.md), [`sources.md`](sources.md) |
 | Boot | Simulator boots Release L `MONITOR` (staged in external memory, started by the real `.LD-6` loader) with an emulated D100 floppy controller to `Ready >`; `CATALOG` works (milestone 1 acceptance) | [`boot-and-loaders.md`](boot-and-loaders.md) §4, [`simulator.md`](simulator.md) |
 | Bus and devices | EZbuss pinout; D4567, D24–D27, D60–D63, PSW/PCW protocols | [`able-reference.md`](able-reference.md), [`boot-and-loaders.md`](boot-and-loaders.md) |
+| FM voices (software) | Register semantics decoded (pitch verified against Release L); integer voice model renders what ORK-LM plays to WAV; sine ROM, DAC and pan laws are still choices (milestone 3, without recordings) | [`fm-voice.md`](fm-voice.md) |
 | FM voice hardware | Card-level analysis (SS1–SS7): 8-bit paths, 256-point waveforms, multiplier and shifter, envelope generator, 8-bit MDACs; NED patents US 4,279,185 and 4,345,500 | `Synclavier/Documentation`: *Synclavier FM.docx* (community analysis) |
 
 ## Gaps (in order of risk)

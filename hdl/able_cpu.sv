@@ -1,5 +1,5 @@
 // ABLE Model B CPU (M4.2). Behavioural, multi-cycle; one instruction is
-// FETCH -> DECODE -> [SRC] -> EXEC -> END.
+// FETCH -> DECODE -> [SRC] -> EXEC -> TICK -> END.
 //
 // Semantics follow sim/cpu.py exactly (docs/instruction-set.md, choices in
 // docs/simulator.md "Behaviour choices"); the two are checked against each
@@ -11,6 +11,13 @@
 // (no device: the CPU halts, as the real machine hangs). Device 001
 // (PSW/PCW) is inside the CPU; `irq` is the device interrupt request bits
 // 15-4 of the PSW.
+//
+// Time (as sim/cpu.py, for device models): each instruction costs 333 ns
+// per bus transfer (fetch, source unless immediate, destination unless a
+// transfer not taken). In TICK the CPU strobes `tick` with that time, so
+// devices advance before END samples `irq`, as Python ticks the bus before
+// its interrupt check. A read the device holds with `io_hold` (Python's
+// BUS_WAIT, e.g. D50 with no character) costs 333 ns per clock held.
 //
 // MODEL_C = 1 enables the ADC/SBB destinations (270-277); on Model B they
 // are no-ops (CHOICE, docs/simulator.md).
@@ -33,6 +40,11 @@ module able_cpu #(
     input  logic [15:0] io_rdata,
     input  logic        io_ack,
     input  logic        io_nosyn,
+    input  logic        io_hold,      // read not ready yet: hold, 333 ns per clock
+
+    output logic        io_held,      // this clock is a held read (ticks 333 ns)
+    output logic        tick,         // devices: advance time by tick_ns
+    output logic [9:0]  tick_ns,
 
     input  logic [15:4] irq,
     output logic        irq_sample,   // irq is sampled at this clock edge
@@ -54,13 +66,14 @@ module able_cpu #(
     output logic [4:0]  flags         // {pcs, ion, m, c, z}
 );
 
-    typedef enum logic [2:0] {S_FETCH, S_DECODE, S_SRCMEM, S_SRCIO, S_EXEC, S_END, S_HALT}
+    typedef enum logic [2:0] {S_FETCH, S_DECODE, S_SRCMEM, S_SRCIO, S_EXEC, S_TICK, S_END, S_HALT}
         state_t;
 
     state_t      state;
     logic [15:0] r [16];
     logic        z, c, m, ion, pcs;
     logic [15:0] ir, pc_at, val;
+    logic        src_xfer, dst_xfer;      // source / destination transfer happened
 
     localparam logic [6:0] PSW_DEV = 7'o001;
 
@@ -156,6 +169,19 @@ module able_cpu #(
         endcase
     end
 
+    localparam logic [9:0] NS_PER_TRANSFER = 10'd333;
+    always_comb begin
+        tick = 1'b0;
+        tick_ns = NS_PER_TRANSFER;
+        if (state == S_TICK) begin
+            tick = 1'b1;
+            tick_ns = NS_PER_TRANSFER * (10'd1 + {9'd0, src_xfer} + {9'd0, dst_xfer});
+        end else if (io_held) begin
+            tick = 1'b1;
+        end
+    end
+    assign io_held = state == S_SRCIO && io_rd && io_hold && !io_ack && !io_nosyn;
+
     assign instr_done = (state == S_END);
     assign instr_pc   = pc_at;
     assign instr_word = ir;
@@ -185,6 +211,8 @@ module able_cpu #(
             S_DECODE: begin
                 ir <= mem_rdata;
                 r[pcr] <= r[pcr] + 16'd1;
+                src_xfer <= sbyte[7:6] != 2'b10;
+                dst_xfer <= 1'b1;
                 state <= S_EXEC;
                 if (!sbyte[7]) state <= S_SRCIO;
                 else if (sbyte[7:6] == 2'b10) val <= imm6;
@@ -216,7 +244,7 @@ module able_cpu #(
             end
 
             S_EXEC: begin
-                state <= S_END;
+                state <= S_TICK;
                 if (!dbyte[7]) begin                              // I/O destination
                     if (dbyte[6:0] == PSW_DEV) begin
                         z <= val[0]; c <= val[1]; m <= val[2];
@@ -263,10 +291,14 @@ module able_cpu #(
                 end else if (dbyte < 8'o340) begin                // transfers
                     if (cond(dbyte[2:0]))
                         r[pcr] <= dbyte[3] ? r[pcr] + val : val;
+                    else
+                        dst_xfer <= 1'b0;                         // no destination write
                 end else begin                                    // memory (write above)
                     if (dbyte[4]) r[dreg] <= r[dreg] + 16'd1;
                 end
             end
+
+            S_TICK: state <= S_END;
 
             S_END: begin
                 if (halt_req) begin

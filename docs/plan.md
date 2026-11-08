@@ -201,15 +201,15 @@ In priority order (details in [`bench-checklist.md`](bench-checklist.md)):
 
 ## 9. Decisions needed
 
-| # | Decision | Recommendation |
-|---|---|---|
-| D1 | Project licence | MIT (matches NED's released software) |
-| D2 | Workflow | Feature branches + PRs into `main`, with CI on PRs |
-| D3 | Simulator language | Python first; C for hot paths if needed |
-| D4 | FPGA framework | Decide at M4: plain MiSTer template vs JTFRAME |
-| D5 | First keyboard target | ORK (original keyboard) as used by Release L |
+| # | Decision | Recommendation | Status |
+|---|---|---|---|
+| D1 | Project licence | MIT (matches NED's released software) | **Decided:** MIT, see `LICENSE` |
+| D2 | Workflow | Feature branches + PRs into `main`, with CI on PRs | **Decided:** see `CONTRIBUTING.md` and `.github/workflows/tests.yml` |
+| D3 | Simulator language | Python first; C for hot paths if needed | Open |
+| D4 | FPGA framework | Decide at M4: plain MiSTer template vs JTFRAME | Open |
+| D5 | First keyboard target | ORK (original keyboard) as used by Release L | Open |
 
 ## 10. Next action
 
-Start **M0** (licence, `.gitignore`, CI), then **M1.1–1.2** (CPU core and
+M0 is done (licence, `.gitignore`, CI, workflow). Next: **M1.1–1.2** (CPU core and
 PSW/PCW with unit tests).

@@ -209,5 +209,8 @@ Not modelled: the splice bits of the channel word (QUELITS: bits 8–11
 splice memory, 12–15 state), `TIM` bit 5, and the NED note that an `INC`
 write also sets `ONU` = 0 and `NNU` = 255.
 
+The HDL voice engine (`hdl/dev/fm_voices.sv`, [`hdl.md`](hdl.md)) computes
+the same integer samples (`FMSynth.sample_int`), checked sample for sample.
+
 M3.3 (tuning against recordings of real hardware) needs those recordings
 (risk R1, [`bench-checklist.md`](bench-checklist.md)).

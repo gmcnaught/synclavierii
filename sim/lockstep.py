@@ -26,6 +26,8 @@ Trace format v2 (little-endian):
           7 D130 (as dev_keyboard.sv; index 31 = strict)
     'F' u8 drive u16 sectors u8 spt u8 sides u8 protected, words
                                            a floppy in that drive
+    'O' u64 rr u16 to_next u8 phase, 16 x (u16 acc u8 prescale u8 point)
+                                           voice engine state (audio traces)
   events, in the order the instruction performs them:
     'P' u16       interrupt bits returned by a PSW read (device 001)
     'w' u32       the next read was held (BUS_WAIT) for this many steps
@@ -38,6 +40,8 @@ Trace format v2 (little-endian):
                   after the preceding instruction
     'T' u32 u16 bytes   terminal input, fed after this many held steps of
                   the current read (0: before the next instruction)
+    'A' i64 i64   audio sample (sim/voice.py FMSynth.sample_int: left, right)
+                  at the next 192 kHz render instant (audio traces only)
     'K' u8 u8 u16 host key/button change before the next instruction: 0
                   clavier octave or 1 panel, index, new word
     'H' u8        halted: 1 no SYN on read, 2 no SYN on write, 3 HALT
@@ -161,20 +165,69 @@ def _device_header(cpu):
     return out
 
 
+OSC_NUM, OSC_D = 656015360, 123_000_000_000      # sim/voice.py OSC_CLOCK = NUM / D per ns
+SAMPLE_RATE = 192_000                             # render instants: 48 kHz x 4
+
+
+class _Audio:
+    """A live sim/voice.py FMSynth fed from the FM interface's log, sampled
+    at the render instants start + k x 1e9 // 192000 (start = trace start)."""
+
+    def __init__(self, fm):
+        from .voice import FMSynth
+        if len(fm.log) >= fm.log_len:
+            raise ValueError("FM log was truncated; cannot rebuild the voice state")
+        self.fm = fm
+        fm.log_len = 1 << 62
+        self.synth = FMSynth(fm.voices)
+        for e in fm.log:
+            self.synth.write(*e)
+        self.n = len(fm.log)
+        self.start = fm.time_ns
+        self.synth.advance_all(self.start)
+        self.k = 0
+
+    def header(self):
+        out = struct.pack("<cQHB", b"O", self.start * OSC_NUM % OSC_D, 0, 0)
+        for ch in self.synth.ch:
+            o = ch.osc
+            out += struct.pack("<HBB", o.acc, o.prescale, o.point)
+        return out
+
+    def samples(self, ev):
+        """After a step: apply its writes, emit the samples before now."""
+        log = self.fm.log
+        while self.n < len(log):
+            self.synth.write(*log[self.n])
+            self.n += 1
+        now = self.fm.time_ns
+        while True:
+            t = self.start + self.k * 1_000_000_000 // SAMPLE_RATE
+            if t >= now:
+                break
+            ev += struct.pack("<cqq", b"A", *self.synth.sample_int(t))
+            self.k += 1
+
+
 def record(cpu, path, instructions, snapshot_every=256, max_steps=None, max_wait=10_000,
-           on_wait=None, actions=()):
+           on_wait=None, actions=(), audio=False):
     """Run `cpu` for `instructions` completed instructions, writing a trace
     to `path`. Stops early if the CPU halts, or if a read stays held for
     `max_wait` steps (a program waiting for terminal input) and
     `on_wait(cpu)` is absent or returns False (it may feed input and
     return True to go on). `actions`: (ns after the start, callable(cpu))
     host actions on devices the HDL does not model (panel buttons, keys),
-    run between instructions. Returns the number recorded."""
+    run between instructions. audio=True also records the voice engine's
+    samples (sim/voice.py), for the system top. Returns the number recorded."""
     actions = sorted(actions, key=lambda a: a[0])
     out = bytearray(MAGIC)
     out += struct.pack("<16HB", *cpu.r, _flags(cpu))
     out += struct.pack("<65536H", *cpu.mem)
-    out += _device_header(cpu) + b"B"
+    out += _device_header(cpu)
+    aud = _Audio(cpu.fm) if audio else None
+    if aud:
+        out += aud.header()
+    out += b"B"
     t0 = cpu.time_ns
     ev = bytearray()
     rbus = _RecordingBus(cpu.bus, ev)
@@ -232,6 +285,8 @@ def record(cpu, path, instructions, snapshot_every=256, max_steps=None, max_wait
                 pc = cpu.pc
                 word = cpu.mem[pc]
                 running = cpu.step()
+                if aud and not cpu.halted and cpu.waiting is not None:
+                    aud.samples(ev)          # a held step: time ran, no instruction
                 if cpu.halted:
                     if cpu.halted.reason == "HALT":
                         ev += struct.pack("<cHH", b"I", pc, word)   # completed, then halted
@@ -253,6 +308,8 @@ def record(cpu, path, instructions, snapshot_every=256, max_steps=None, max_wait
                 snap_at_mark = n % snapshot_every == 0
                 if snap_at_mark:
                     ev += snapshot()
+                if aud:
+                    aud.samples(ev)
                 if len(ev) > 1 << 20:
                     f.write(ev)
                     del ev[:]
@@ -330,7 +387,7 @@ TOPS = {
     "system": ("able_sys_top", ["hdl/able_cpu.sv", "hdl/dev/dev_rtc.sv", "hdl/dev/dev_muldiv.sv",
                                 "hdl/dev/dev_extmem.sv", "hdl/dev/dev_terminal.sv",
                                 "hdl/dev/dev_floppy.sv", "hdl/dev/dev_keyboard.sv",
-                                "hdl/dev/dev_fm.sv",
+                                "hdl/dev/dev_fm.sv", "hdl/dev/fm_voices.sv",
                                 "hdl/able_system.sv", "hdl/sim/able_sys_top.sv"], ["-DSYSTEM"]),
 }
 
@@ -347,6 +404,7 @@ def build(top="cpu", force=False):
         return exe
     os.makedirs(mdir, exist_ok=True)          # older Verilator does not create parents
     subprocess.run(["verilator", "--cc", "--exe", "--build", "-O3", "-Wall", "-Wno-fatal",
+                    "-I" + os.path.join(ROOT, "hdl", "dev"),
                     "--top-module", name, "-Mdir", mdir, "-o", "V" + name,
                     "-CFLAGS", "-O2 " + " ".join(defines)] + srcs,
                    check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -391,6 +449,7 @@ def main(argv=None):
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--model", default="B")
     ap.add_argument("--top", choices=tuple(TOPS), default="cpu", help="HDL top for check")
+    ap.add_argument("--audio", action="store_true", help="also record voice engine samples")
     a = ap.parse_args(argv)
     if a.mode == "check":
         ok, text = check(a.args[0], top=a.top)
@@ -418,7 +477,7 @@ def main(argv=None):
     if a.mode == "ork-lm-note":
         actions = ork_lm_note_actions(cpu, dbg, a.args[0])
     n = record(cpu, path, a.instructions, on_wait=on_wait if a.mode == "monitor" else None,
-               actions=actions)
+               actions=actions, audio=a.audio)
     if a.mode == "monitor":
         print(cpu.terminal.text()[-300:], file=sys.stderr)
     print("recorded %d instructions in %.1f s -> %s%s" % (

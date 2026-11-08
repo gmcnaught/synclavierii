@@ -107,7 +107,7 @@ int main(int argc, char** argv) {
         top->ld_mem_we = 1; top->ld_mem_addr = a; top->ld_mem_data = t.u16(); tick();
     }
     top->ld_mem_we = 0;
-    bool system_state = false;
+    bool system_state = false, audio_trace = false;
     for (;;) {                                     // header sections up to 'B'
         uint8_t k = t.u8();
         if (k == 'B') break;
@@ -140,6 +140,24 @@ int main(int argc, char** argv) {
             (void)drive; (void)spt; (void)sides; (void)prot;
             t.p += (size_t)sectors * 512;
 #endif
+        } else if (k == 'O') {                     // voice engine state
+            uint64_t rr = t.u64(); uint16_t to_next = t.u16(); uint8_t phase = t.u8();
+            audio_trace = true;
+#ifdef SYSTEM
+            top->ld_voice_we = 1;
+            top->ld_voice_addr = 32; top->ld_voice_data = rr; tick();
+            top->ld_voice_addr = 33; top->ld_voice_data = ((uint64_t)phase << 14) | to_next; tick();
+            for (int c = 0; c < 16; c++) {
+                uint16_t acc = t.u16(); uint8_t pre = t.u8(), point = t.u8();
+                top->ld_voice_addr = c;
+                top->ld_voice_data = ((uint64_t)acc << 15) | ((uint64_t)pre << 8) | point;
+                tick();
+            }
+            top->ld_voice_we = 0;
+#else
+            (void)rr; (void)to_next; (void)phase;
+            t.p += 16 * 4;
+#endif
         } else if (k == 'V') {                     // device state
             uint8_t sel = t.u8(); uint16_t addr = t.u16(); uint32_t v = t.u32();
 #ifdef SYSTEM
@@ -158,7 +176,7 @@ int main(int argc, char** argv) {
 #ifdef SYSTEM
     if (!system_state) { std::fprintf(stderr, "trace has no device state: record a system run\n"); return 2; }
 #else
-    (void)system_state;
+    (void)system_state; (void)audio_trace;
 #endif
     tick();
     top->rst = 0;
@@ -169,10 +187,39 @@ int main(int argc, char** argv) {
     bool check_snapshot = false;
     uint16_t snap[16]; uint8_t snap_flags = 0; uint64_t snap_time = 0;
     std::deque<uint8_t> rx;            // terminal input still to push
+    std::deque<std::pair<int64_t, int64_t>> want_audio;   // Python samples not yet matched
+    uint64_t samples = 0;
     char buf[64];
+#ifdef SYSTEM
+    auto audio_check = [&](uint64_t at) {
+        if (!audio_trace || !top->audio_valid) return;     // no audio recorded
+        int64_t l = top->audio_l, r = top->audio_r;
+        if (l & (1ll << 39)) l -= 1ll << 40;          // 40-bit signed
+        if (r & (1ll << 39)) r -= 1ll << 40;
+        if (want_audio.empty()) {
+            if (at == ~0ull) return;                   // after the trace: extra samples
+            fail(at, "HDL audio sample %llu with none expected", (unsigned long long)samples);
+        }
+        auto w = want_audio.front();
+        want_audio.pop_front();
+        if (w.first != l || w.second != r)
+            fail(at, "audio sample %llu: HDL (%lld, %lld), Python (%lld, %lld)",
+                 (unsigned long long)samples, (long long)l, (long long)r,
+                 (long long)w.first, (long long)w.second);
+        samples++;
+    };
+#endif
 
     while (n < max_n) {
         top->clk = 0; top->eval();               // outputs for the current state
+        while (t.peek() == 'A') {                // expected audio, in order
+            t.u8();
+            int64_t l = (int64_t)t.u64(), r = (int64_t)t.u64();
+            want_audio.emplace_back(l, r);
+        }
+#ifdef SYSTEM
+        audio_check(n);
+#endif
         top->dev_ack = top->dev_nosyn = top->dev_hold = 0;
         top->dev_irq = 0;
 #ifdef SYSTEM
@@ -312,8 +359,21 @@ int main(int argc, char** argv) {
         if (cycles > 64 * (n + 1000) + 64ull * held || held > 10'000'000)
             fail(n, "HDL stuck (state does not advance)");
     }
-    std::printf("lockstep OK: %llu instructions, %llu cycles, %llu ns simulated\n",
+#ifdef SYSTEM
+    // the last samples finish mixing a few clocks after the trace ends
+    for (int i = 0; i < 64 && !want_audio.empty(); i++) {     // (the engine runs on after a halt)
+        top->dev_ack = top->dev_nosyn = top->dev_hold = 0;
+        top->clk = 0; top->eval();
+        audio_check(~0ull);
+        top->clk = 1; top->eval();
+    }
+    if (!want_audio.empty())
+        fail(n, "%zu Python audio samples not produced by the HDL", want_audio.size());
+#endif
+    std::printf("lockstep OK: %llu instructions, %llu cycles, %llu ns simulated",
                 (unsigned long long)n, (unsigned long long)cycles, (unsigned long long)time_ns);
+    if (samples) std::printf(", %llu audio samples", (unsigned long long)samples);
+    std::printf("\n");
     delete top;
     return 0;
 }

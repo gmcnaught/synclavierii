@@ -8,8 +8,9 @@ D4567, D50/D51, D60–D63, the D100 floppy controller, the D130/D131
 keyboard and panel, and the D160–D165 FM interface (registers,
 interpolators, wave memory). They agree with the Python devices value for
 value and nanosecond for nanosecond of simulated time, through MONITOR's
-boot and ORK-LM recalling a timbre and playing a note. The voice engine
-(audio) is next.
+boot and ORK-LM recalling a timbre and playing a note. The **voice engine**
+(`hdl/dev/fm_voices.sv`) produces the same integer audio samples as
+`sim/voice.py`, sample for sample.
 
 ## CPU (`hdl/able_cpu.sv`)
 
@@ -137,9 +138,48 @@ survives: Release L's limits 250 and 0 are even.) Faults of 1 ns in
 the character time survive: they change nothing at 333 ns resolution.
 
 `tests/hdl/test_lockstep.py` runs 60 random programs and the device,
-floppy and keyboard/FM test programs on the system top, and MONITOR's boot on both tops when
+floppy, keyboard/FM and voice-engine (with audio) test programs on the
+system top, and MONITOR's boot on both tops when
 `SYNCLAVIER_RELEASE_L` is set; it is skipped without Verilator. CI
 installs Verilator.
+
+## Voice engine (`hdl/dev/fm_voices.sv`, M5)
+
+The integer voice model of `sim/voice.py` ([`fm-voice.md`](fm-voice.md#voice-model-m32)),
+driven by the D160 registers, interpolators and wave memory of `dev_fm.sv`:
+
+* 16 oscillators at 656015360/123 Hz (5.3335 MHz) of simulated time,
+  advanced in closed form at every system tick (≤ 6 oscillator ticks per
+  instruction), so they are always at the current time. A pitch write
+  takes effect from the write's time; the accumulator is reduced modulo
+  the new divisor at its next use (Python: `acc %= divisor` on a write).
+* Samples at Python's render instants, start + ⌊k × 10⁹ / 192000⌋ ns.
+  When one falls inside an instruction's tick, the oscillators are
+  advanced to it first, a snapshot is taken, then they go on. Envelope and
+  index are the interpolators' values before or after their clock in that
+  tick, by whether the clock falls at or before the sample instant.
+* The 8 voices are summed from the snapshot, one wave-memory read per
+  clock: s = (w − 128) × envelope × `VOL`; left += s × (256 − pan),
+  right += s × pan. Output: two 40-bit sums per sample
+  (`FMSynth.sample_int`). FM interface accesses wait while it mixes, so a
+  wave-memory write cannot land mid-sample.
+* The sine ROM is generated from `voice.SINE_ROM` (`tools/gen_sine_rom.py`
+  → `hdl/dev/sine_rom.svh`), a choice until the SS2 ROMs are dumped.
+
+Audio traces (`record(..., audio=True)`, `--audio`) carry the samples
+Python computes at each instant (a live `FMSynth` fed from the FM log);
+the bench compares every HDL sample with them.
+
+| Run | Samples | Result |
+|---|---:|---|
+| ORK-LM `ork-lm-note` (timbre 0, C4 for 0.5 s: 96,238 nonzero samples) | 804,572 | identical |
+| Voice test program (FM index ramp with shift 2, pan, `VOL`, loaded wave memory, pitch and octave change while sounding, release) | 21,032 (20,954 nonzero) | identical |
+
+Each of these engine faults is caught: no reduction after a pitch write,
+envelope taken after a clock that lands exactly on the sample instant,
+shifter off by one, pan without masking the shift bits, points added
+without pulses, sample period 5208 ns throughout, envelope always before
+the clock.
 
 ## Next (M4)
 
@@ -151,4 +191,4 @@ installs Verilator.
 | — | D3, D4567 | done, lockstep-checked |
 | 4.6 | Disk images from SD (D100 floppy) | controller done, lockstep-checked; loading images from SD into the floppy RAM open |
 | — | Synthesis and timing (Quartus) | needs Quartus (not installed here) |
-| M5 | D130/D131, D160–D165 devices | done, lockstep-checked; voice engine (audio) next |
+| M5 | D130/D131, D160–D165 devices; voice engine | done, lockstep-checked (audio sample for sample); DAC/pan law, output filtering and the audio path on the board open |

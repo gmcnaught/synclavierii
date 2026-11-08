@@ -169,9 +169,11 @@ class FMSynth:
         w = self.wave[wave_memory_number(car.tim)][(car.osc.point + off) & 0o377]
         return (w - 128) * env
 
-    def sample(self, time_ns):
-        """(left, right) at time_ns, full scale of one voice = 1.0."""
-        left = right = 0.0
+    def sample_int(self, time_ns):
+        """Integer output at time_ns: (sum of s x (256 - pan), sum of s x pan)
+        over the voices, s = (w - 128) x envelope x VOL. This is what the
+        HDL voice engine (hdl/dev/fm_voices.sv) computes."""
+        left = right = 0
         for v in range(self.voices):
             mod, car = self.ch[2 * v], self.ch[2 * v + 1]
             car.interp.advance_to(time_ns)
@@ -183,10 +185,23 @@ class FMSynth:
             s = self.voice_sample(v) * car.fn13          # (w-128) x env x VOL
             if s:
                 pan, _ = ishc(mod.fn13)
-                a = s / (128 * 256 * 256)
-                right += a * pan / 256
-                left += a * (256 - pan) / 256
+                right += s * pan
+                left += s * (256 - pan)
         return left, right
+
+    def sample(self, time_ns):
+        """(left, right) at time_ns, full scale of one voice = 1.0."""
+        left, right = self.sample_int(time_ns)
+        return left / FULL_SCALE, right / FULL_SCALE
+
+    def advance_all(self, time_ns):
+        """Advance every channel to time_ns (closed form; no audible effect)."""
+        for ch in self.ch:
+            ch.advance_to(time_ns)
+
+
+#: sample_int units per 1.0 of one voice: 128 x 256 (envelope) x 256 (VOL) x 256 (pan)
+FULL_SCALE = 128 * 256 * 256 * 256
 
 
 def render(log, start_ns=None, end_ns=None, rate=48_000, oversample=4, voices=8):

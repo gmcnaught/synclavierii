@@ -17,9 +17,10 @@ Milestone M1 in [`plan.md`](plan.md). This page covers what exists so far:
 | `sim/devices/` | Device models: `extmem.py` (D60–D63), `terminal.py` (D50/D51), `rtc.py` (D3), `muldiv.py` (D4567), `floppy.py` (D100–D104), `stubs.py` (D160–D162 FM interface and D130/D131 keyboard, M1 stand-ins). Each file starts with its evidence. |
 | `sim/system.py` | `make_system()`: a CPU with the devices attached (`floppy=True`, `synth=True` add the floppy controller and the stubs) |
 | `sim/boot.py` | Boot: `MONITOR` staged in external memory, started through the `.LD-6` loader's ECOPY entry; floppies from the `.simg` in F0/F1; console CLI `python3 -m sim.boot IMAGE` |
+| `sim/rtp.py` | Starts a Release L real-time program (`ORK-LM`, `ORK-LFM`) through MONITOR's RUN hand-off and the loader; logs device accesses (`python3 -m sim.rtp IMAGE --log out.csv`) (M2.1) |
 | `sim/trace.py` | `Debugger`: instruction history, device-access log, breakpoints, stop on input wait, halt report, memory inspect (M1.7) |
 | `sim/asm.py` | Small assembler in NED syntax (`SRC TO DST`, `DATA`, `IM()`, `RE(label)`), for tests and experiments |
-| `tests/sim/` | `test_decode.py` (tables, assembler round trip over all 65,536 words), `test_cpu.py` (42 instruction-level tests), `test_devices.py` (17 device tests, mostly small programs written like NED's loaders and runtime), `test_floppy.py` (7), `test_trace.py` (5) and `test_boot.py` (3; boots the real MONITOR to `Ready >` and runs `CATALOG` when `SYNCLAVIER_RELEASE_L` names the image) |
+| `tests/sim/` | `test_decode.py` (tables, assembler round trip over all 65,536 words), `test_cpu.py` (42 instruction-level tests), `test_devices.py` (17 device tests, mostly small programs written like NED's loaders and runtime), `test_floppy.py` (7), `test_trace.py` (5), `test_boot.py` (3; boots the real MONITOR to `Ready >` and runs `CATALOG` when `SYNCLAVIER_RELEASE_L` names the image) and `test_rtp.py` (3; runs ORK-LM for 5 simulated seconds with the image) |
 
 ## Use
 
@@ -136,10 +137,11 @@ million instructions per second booting MONITOR).
 | **D60–D63 external memory** | D60 sector (R/W, 16 bits; writing it starts at word 0); D61 word in the 256-word sector (R/W); D63 data (R/W), each access moves to the next word and carries into D60; D62 data (R/W) without the increment | — | FLPLOAD, WINLOAD, SCSILOAD copy loops; MONITOR `POLL` (D62) |
 | **D50/D51 terminal** | D50 read = received character (held until one arrives), write = send character. D51 read = status: 1 XMIT_IRQ, 2 CHAR_RDY, 4 XMIT_MT, plus card-present bits 8–15 (1000 = D60, 10000 = D100A, 40000 = SCSI…). D51 write clears XMIT_IRQ; with bit 15 set, bits 8–10 choose the baud rate | PSW bit 6 (100) while CHAR_RDY or XMIT_IRQ | NED interpreter header `AbleInterpreter.h`; Model B runtime polling and interrupt code; SYSLITS baud codes |
 | **D3 real-time clock** | Write = acknowledge the interrupt; read = 1 while a tick is pending, else 0 | PSW bit 8 (400) every 5 ms (200 Hz) | *Synclavier Internals* §5; SYSLITS `d03_speed`; runtime dispatch `IM(0) TO D3` |
-| **D4567 multiply/divide** | Multiply-add: a → D5, addend → D4, b → D6 starts; D5 = low, D4 = high of a·b + addend. Divide: lo → D5, hi → D4, divisor → D7 starts; D5 = quotient, D4 = remainder. Unsigned. Only D4/D5 readable | — | SCSILOAD; NED's C runtime (`AbleCatRtns.cpp`) |
+| **D4567 multiply/divide** | Writing D5 loads D5 **and clears D4**; writing D4 loads D4. Multiply-add: D6 write → D4:D5 = D5·D6 + D4. Divide: D7 write → D4:D5 / D7, quotient to D5, remainder to D4 (a quotient over 16 bits adds its high bits into D4). Unsigned. Only D4/D5 readable | — | SCSILOAD; NED's C emulation `XPL.h` ("write to d5 cleared d4"); ORK-LM divides with only D5 and D7 |
 | **D100–D104 floppy (D100)** | FD1771-style. D100 write = command (restore 0–3, seek 20+rate, step/in/out 40–77, read sector 210/214, write sector 250, force interrupt 320), read = status (1 busy, 2 DRQ or index, 4 track 0 or lost data, 20 RNF/seek error, 100 protect, 200 not ready). D101 track, D102 sector, D103 data (first byte = low half of the word). D104 write = drive + 2·side + … | — | FLPLOAD; RTP `DISKREAD`/`DISKSEEK`; DEVUTIL `d100_disk_check` |
 | **D160–D162 FM interface** (stub) | Writes recorded (channel D160, function D161, value D162); reads halt | — | MONITOR `SILENCE.VOICES` |
 | **D130/D131 keyboard** (stub) | D131 = 105 then D130 read → 1 (original keyboard); other D130 writes recorded; other reads halt | — | MONITOR `CLEAR.KEYBOARD` |
+| Anything else (probe mode) | `sim.rtp` sets `strict=False`: the stubs' unknown reads return 0, and a `ProbeDevice` on `bus.fallback` answers every unclaimed device number (reads 0) and counts accesses | — | M2.1 logging |
 
 **Unknown registers halt on purpose.** Reading D6, D7 or D104, an
 unmodelled floppy command (read address, read/write track, multi-sector),
@@ -194,14 +196,15 @@ The manual leaves these open. Each choice is marked `CHOICE` in the code.
 | Registers and flags after INIT | Cleared | The manual only gives PC = R17 and interrupts off. |
 | When an ION enable takes effect | Immediately: IRQ is sampled at the end of the PCW-writing instruction | The manual describes no delay. |
 | `PCI` (377) at interrupt level | Reads through R17, not R16 | Codes name physical registers; nothing in the manual remaps them. |
-| ADC/SBB destinations (270–277) on Model B | Halt with "unimplemented instruction" | Model B hardware behaviour is unknown; Model C support is M6. |
+| ADC/SBB destinations (270–277) on Model B | No operation (accumulator and flags unchanged); ADC/SBB work when `cpu.model = "C"` | [HYP] ORK-LM's Model C test (`IM(5) TO ADC0` must leave R0 = 0 on a Model B); see [`instruction-set.md`](instruction-set.md) §9. |
 | `MR12I` destination (372) | Ordinary post-increment | The Model C pre-decrement (`MR12D`) is M6. |
 | PSW read side effects (ACK̅) | None | The runtime acknowledges each device explicitly (D3 write, D50 read, D51 write), so no device needs ACK̅ so far. |
 | Terminal interrupt enable | Always enabled at the card; software masks with ION | NED code shows no enable bits. |
 | Reading D50 with no character waiting | The read is held (the CPU repeats the instruction, no interrupts) until a character arrives | [HYP] MONITOR's input routine reads D50 without testing CHAR_RDY. |
 | Writing D50 while the transmitter is busy | Character is still sent | A real UART might drop it. |
 | External memory beyond the installed size | Reads 177777, writes ignored | MONITOR's `POLL` needs the D62 read-back to differ from the 0 it stored. |
-| D4567 divide by zero, or quotient over 16 bits | ÷0: D5 = 177777, D4 = dividend low word. Overflow: low 16 bits | Unknown. |
+| D4567 divide by zero | D5 = 177777, D4 = dividend low word | Unknown (NED's C emulation divides by zero too). |
+| Processor type in MONITOR's configuration | Set to Model B at boot (`processor="B"`); the disks say Model C | Matches the simulated CPU; the loader passes it to every program. |
 | D3 read value | 1 while a tick is pending, else 0 | DEVUTIL tests it as an XPL condition (bit 0). Other bits unknown. |
 | D6/D7 read | Halt (no SYN) | No NED code found that reads them. |
 | Floppy timing | Steps at the FD1771 rates (6/6/10/20 ms); 360 rpm with a 4 ms index pulse; 50 µs to the first DRQ; no lost data (the controller waits for the CPU) | Data rate and rotation of the real drives unknown. |

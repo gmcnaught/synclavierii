@@ -78,6 +78,7 @@ no extension.
 | `Able/W0X/*SYSTEM/*LD-7.sdat` (`0d20fd48681d`; same as `Able/LOADER/HIGHLOAD`) | Compiled `.LD-7` high-memory loader (3 × 768 words) |
 | `Able/UTILCAT/WINBOOT` | "loaded by the ROM loader" when F0 + LOAD: the boot ROM loads the file `MONITOR` |
 | `Code/Sources/AbleRunTime/XPLRunTimeOSX.cpp` (`set_up_able_core`) | Host runtime synthesises the post-boot low-core/high-core state (no ROM) |
+| `Code/Includes/XPL.h` (`63ec50b15668`) | NED's C model of the D4567: "write to d5 cleared d4; write to d4 loaded d4; write to d6 computed d5*d6+d4; write to d7 computed (d4:d5) / d7; q to d5, r to d4" |
 | `Able/RTP/DISKREAD` (`31e6bd1cd120`), `DISKSEEK` (`ed70f267b664`); `Able/XPL/DEVUTIL` (`f2701f8292dc`) | XPL runtime floppy driver (D100–D104 commands, status masks, sector→cylinder/side/sector mapping, alternate motor speed beyond 5 × 80 sectors); `d100_disk_check` (index pulse, D3 read) |
 | `Able/MONCAT/MON` (`9f78ba6bf098`), `01-DEFS` (`85dc9e335958`), `11-MAIN` (`e0996ee5b53d`) | MONITOR source (later release): `COLD.BOOT`/`WARM.BOOT`, magic-number check, memory-size words written before overlays, `BOOT` command jumps to the ROM at 176000 |
 | `Able/LOADER/FLPLOAD` (`f15efb098d69`), `SCSILOAD` (`229ac2c68340`), `WINLOAD` (`ccf40fd24b15`), `MRGLOAD` (`97887427fa70`) | High-memory loaders and the HIGHLOAD build ([`boot-and-loaders.md`](boot-and-loaders.md)) |

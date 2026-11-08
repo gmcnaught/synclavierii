@@ -284,6 +284,32 @@ Sources: Release L image; NED `Able/RTP/DISKREAD`, `DISKSEEK`,
   remaining, matching `tools/ned_disk.py`. `OLD CONFIGUR` / `RUN` loads a
   program through the `.LD-6` floppy loader and returns to MONITOR.
 
+## 17. Release L real-time program runs (M2.1)
+
+Details in [`realtime-program.md`](realtime-program.md).
+
+* **`PLAY` cannot run from the floppies alone:** it opens the SCRIPT
+  compiler (`.SCOM-6`, `.SSYM-6`, `.SCON-6`), which exists only inside the
+  6-floppy `.SYSTEM` install archive. Release L is a Winchester system.
+* **Hand-off:** MONITOR's own `RUN` of a small program is stopped at the
+  loader entry and redirected to ECOPY with the RTP staged in external
+  memory, so the real loader places the object code and the 519-sector
+  swap file.
+* **Correction:** the Release L system configurations are **Model C**
+  (options 141031/141011, processor type 2), not Model B as first written
+  in [`release-l-image.md`](release-l-image.md) §3.3. The binaries are
+  Model B code.
+* **ORK-LM probes for a Model C** with `IM(5) TO ADC0` after clearing R0
+  and C, and enables `D10` repeat loops if R0 changed. With the Model C
+  configuration it ran Model C paths and wrote D10; configured as Model B
+  it still runs the probe, so a Model B must leave R0 at 0 for 270–277.
+* **D4567: writing D5 clears D4** (NED `XPL.h`). ORK-LM divides with only
+  `R0 TO D5; IM(20) TO D7`; with a stale D4 the quotient was wrong, a
+  bitmap routine wrote into code, and the program ran wild after ~2 s.
+* **Result:** ORK-LM draws its VT100 welcome screen and runs its main loop
+  for 10 simulated seconds without a halt. Devices touched: D3, D4–D7,
+  D100–D104, D130/D131, D160, D161, D163, D164, D165.
+
 ## Searched without useful results
 
 * archive.org full-text and metadata search for "synclavier", "new england

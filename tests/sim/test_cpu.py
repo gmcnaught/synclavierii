@@ -173,11 +173,40 @@ def test_destination_io_no_syn_halts():
     assert cpu.halted.reason == HALT_NO_SYN_WRITE and cpu.halted.device == 0o100
 
 
-def test_model_c_destinations_halt_on_model_b():
-    for d in ("ADC0", "SBB3"):
-        cpu = make("R1 TO %s" % d)
-        assert not cpu.step()
-        assert cpu.halted.reason == HALT_UNIMPLEMENTED
+def test_model_c_destinations_do_nothing_on_model_b():
+    # ORK-LM's Model C probe must find R0 still 0 on a Model B
+    cpu = make("""
+        IM(0) TO R0
+        IM(0) TO ADD0
+        IM(5) TO ADC0
+        R1 TO SBB3
+    """)
+    cpu.r[1], cpu.r[3] = 7, 9
+    for _ in range(4):
+        assert cpu.step()
+    assert cpu.r[0] == 0 and cpu.r[3] == 9 and cpu.z and not cpu.c
+
+
+def test_adc_sbb_32_bit_arithmetic_on_model_c():
+    # 32-bit add R1:R0 + R3:R2 the way the Model C runtime does it
+    cpu = make("""
+        R2 TO ADD0
+        R3 TO ADC1
+        R2 TO SUB0
+        R3 TO SBB1
+    """)
+    cpu.model = "C"
+    cpu.r[0], cpu.r[1] = 0xFFFF, 0x0001      # 0x1FFFF
+    cpu.r[2], cpu.r[3] = 0x0001, 0x0002      # 0x20001
+    cpu.step(); cpu.step()
+    assert (cpu.r[1], cpu.r[0]) == (0x0004, 0x0000) and not cpu.c
+    cpu.step(); cpu.step()                   # subtract it again
+    assert (cpu.r[1], cpu.r[0]) == (0x0001, 0xFFFF) and cpu.c   # C = no borrow
+    cpu = make("IM(5) TO ADC0")              # Release L ORK-LM, Model C path
+    cpu.model = "C"
+    cpu.c = True
+    cpu.step()
+    assert cpu.r[0] == 6 and not cpu.z
 
 
 # --------------------------------------------------- arithmetic and logic

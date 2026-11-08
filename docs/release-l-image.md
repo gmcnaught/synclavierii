@@ -89,9 +89,16 @@ backward-compatibility test programs.
   | `03-SYSTD` | 340 sectors = 56K | 141031 (adds D40 printer) | F0, F1, W0 |
   | `19-DIAGS` | 200 sectors = 32K | 421 | F0 |
 
-  Options 141031 = D160 (100000), D130 (40000), Model B (processor type 1
-  in bits 8–10), D40 (20), D4567 (10), bit 0. F0/F1 entries: 5 sectors per
-  cylinder, 80 cylinders, 5 sectors per track, stepping rate 1.
+  Options 141031 = D160 (100000), D130 (40000), **Model C** (processor
+  type 2 in bits 8–10, field 3400), D40 (20), D4567 (10), bit 0. 141011 is
+  the same without D40, also Model C; `CONFIGUR` displays "Model C".
+  F0/F1 entries: 5 sectors per cylinder, 80 cylinders, 5 sectors per
+  track, stepping rate 1.
+* **The binaries are compiled for Model B, the shipped configurations say
+  Model C.** The loader copies the system configuration into every program
+  it starts, and `ORK-LM` checks for Model C features at run time (see
+  [`realtime-program.md`](realtime-program.md)). The simulator writes
+  Model B into MONITOR's configuration by default to match its CPU.
 * Each floppy in the image is 404 sectors and several use all of them
   (`08-INST1`…`16-RTPO3`), one more cylinder than the configured 80.
   NED's `DISKREAD` retries sectors beyond 5 × 80 at an "alternate motor
@@ -99,7 +106,22 @@ backward-compatibility test programs.
 * Boots to `Ready >` and runs `CATALOG` in the simulator from `03-SYSTD`;
   see [`boot-and-loaders.md`](boot-and-loaders.md) §4.
 
-### 3.4 Still not found
+### 3.4 Multi-floppy files and the install set
+
+* Catalog type 8 ("large executable") files span floppies. Each part starts
+  with a one-sector header: name length, name (4 words, space padded), 1,
+  word length mod 64K, **total sectors after the headers**, **disk
+  number**; the data follows. `ORK-LM` = `14-RTPO1` (disk 1, 396 data
+  sectors) + `15-RTPO2` (disk 2, 277) = 673 sectors. `ORK-LFM` = disks 1–3
+  on `15-RTPO2`, `16-RTPO3`, `17-RTPO4` (646 sectors). **[OBS]**
+* `08-INST1` … `13-INST6` hold a 6-floppy `.SYSTEM` file plus an installer
+  `MONITOR`, `MONITOR6`, `CONFIGUR`, `FORMCOPY` and `SHUFFLE`. Release L is
+  installed onto a Winchester; the SCRIPT compiler files that `PLAY` opens
+  (`.SCOM-6`, `.SSYM-6`, `.SCON-6`) and `.SYN-6` exist only inside
+  `.SYSTEM` (format not decoded yet). `PROFILE` on `02-BOOTF` and
+  `14-RTPO1` is "set rtp ork-lfm / ork-lm; play".
+
+### 3.5 Still not found
 * The **MFC/D40Q boot ROM** image. It is not in this disk set.
 * A **CPU diagnostic**. None in Release L's diagnostics disk.
 * Model C-compiled binaries. A later release, if one turns up, would supply

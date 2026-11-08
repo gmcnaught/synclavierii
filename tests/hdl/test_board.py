@@ -44,11 +44,14 @@ def _testbench(name, rtl, args=()):
     """Build and run a self-checking SystemVerilog testbench hdl/sim/NAME_tb.sv."""
     mdir = os.path.join(BUILD_DIR, name)
     os.makedirs(mdir, exist_ok=True)
-    subprocess.run(["verilator", "--binary", "-Wno-fatal", "-Wno-WIDTH", "-Wno-UNUSED",
-                    "-I" + os.path.join(ROOT, "hdl/core"),
-                    "--top-module", name + "_tb", "-Mdir", mdir,
-                    os.path.join(ROOT, rtl), os.path.join(ROOT, "hdl/sim/%s_tb.sv" % name)],
-                   check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    b = subprocess.run(["verilator", "--binary", "-Wno-fatal", "-Wno-WIDTH", "-Wno-UNUSED",
+                        "-I" + os.path.join(ROOT, "hdl/core"),
+                        "--top-module", name + "_tb", "-Mdir", mdir,
+                        os.path.join(ROOT, rtl), os.path.join(ROOT, "hdl/sim/%s_tb.sv" % name)],
+                       capture_output=True, text=True)
+    assert b.returncode == 0, "building %s_tb failed:\n%s" % (
+        name, "\n".join(ln for ln in (b.stdout + b.stderr).splitlines()
+                        if "rror" in ln or "%Warning" not in ln)[-3000:])
     p = subprocess.run([os.path.join(mdir, "V%s_tb" % name)] + list(args),
                        capture_output=True, text=True)
     assert p.returncode == 0 and "%s OK" % name in p.stdout, p.stdout + p.stderr

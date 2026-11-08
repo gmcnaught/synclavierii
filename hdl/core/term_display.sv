@@ -42,6 +42,9 @@ module term_display #(
     input  logic [31:0] lag_us,         // real-time health (hex on panel row 2)
     input  logic [15:0] underruns,
     input  logic [15:0] overruns,
+    input  logic [15:0] midi_count,     // MIDI bytes received, the last, framing errors
+    input  logic [7:0]  midi_last,
+    input  logic [15:0] midi_errs,
 
     output logic        ce_pix,
     output logic [7:0]  r,
@@ -372,6 +375,13 @@ module term_display #(
                     7'd39: p_ch = "r"; 7'd40: p_ch = "u"; 7'd41: p_ch = "n";
                     7'd43: p_ch = hex_char(overruns[15:12]); 7'd44: p_ch = hex_char(overruns[11:8]);
                     7'd45: p_ch = hex_char(overruns[7:4]);   7'd46: p_ch = hex_char(overruns[3:0]);
+                    7'd50: p_ch = "M"; 7'd51: p_ch = "I"; 7'd52: p_ch = "D"; 7'd53: p_ch = "I";
+                    7'd55: p_ch = hex_char(midi_count[15:12]); 7'd56: p_ch = hex_char(midi_count[11:8]);
+                    7'd57: p_ch = hex_char(midi_count[7:4]);   7'd58: p_ch = hex_char(midi_count[3:0]);
+                    7'd60: p_ch = hex_char(midi_last[7:4]);    7'd61: p_ch = hex_char(midi_last[3:0]);
+                    7'd63: p_ch = "E"; 7'd64: p_ch = "r"; 7'd65: p_ch = "r";
+                    7'd67: p_ch = hex_char(midi_errs[15:12]);  7'd68: p_ch = hex_char(midi_errs[11:8]);
+                    7'd69: p_ch = hex_char(midi_errs[7:4]);    7'd70: p_ch = hex_char(midi_errs[3:0]);
                     default: ;
                 endcase
             end

@@ -7,7 +7,7 @@ module midi_in_tb;
     logic        host_we, host_panel;
     logic [2:0]  host_index;
     logic [15:0] host_value;
-    logic        byte_valid;
+    logic        byte_valid, frame_err;
     logic [7:0]  byte_data;
     longint      cyc = 0;
 

@@ -225,8 +225,19 @@ module synclavier_core #(
     midi_in #(.CLK_HZ(CLK_HZ)) midi (
         .clk, .rst, .rxd(midi_rxd),
         .host_we(midi_we), .host_panel(midi_panel), .host_index(midi_index), .host_value(midi_value),
-        .byte_valid(), .byte_data()
+        .byte_valid(midi_byte), .byte_data(midi_data), .frame_err(midi_ferr)
     );
+    // for the status line: bytes received, the last one, framing errors
+    logic        midi_byte, midi_ferr;
+    logic [7:0]  midi_data, midi_last;
+    logic [15:0] midi_count, midi_errs;
+    always_ff @(posedge clk)
+        if (rst) begin
+            midi_count <= '0; midi_errs <= '0; midi_last <= '0;
+        end else begin
+            if (midi_byte) begin midi_count <= midi_count + 16'd1; midi_last <= midi_data; end
+            if (midi_ferr) midi_errs <= midi_errs + 16'd1;
+        end
 
     // ------------------------------------------------- mouse; host port mux
     logic        mouse_we, ptr_on;
@@ -284,6 +295,7 @@ module synclavier_core #(
         .in_data(cpu_rst ? msg_data : term_tx_data),
         .color, .lights(kb_lights), .display(kb_display),
         .ptr_on, .ptr_x, .ptr_y, .lag_us, .underruns, .overruns,
+        .midi_count, .midi_last, .midi_errs,
         .ce_pix, .r(vga_r), .g(vga_g), .b(vga_b), .hs(vga_hs), .vs(vga_vs),
         .hblank(vga_hblank), .vblank(vga_vblank),
         .peek_addr, .peek_data, .top_row

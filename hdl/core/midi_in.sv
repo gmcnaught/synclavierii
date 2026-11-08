@@ -28,8 +28,9 @@ module midi_in #(
     output logic [2:0]  host_index,
     output logic [15:0] host_value,
 
-    output logic        byte_valid,     // (for tests) a received byte
-    output logic [7:0]  byte_data
+    output logic        byte_valid,     // a received byte (tests, the status line)
+    output logic [7:0]  byte_data,
+    output logic        frame_err       // a byte whose stop bit was low (dropped)
 );
     // ---------------------------------------------------------- UART receiver
     localparam int DIV = int'(CLK_HZ / BAUD);
@@ -42,6 +43,7 @@ module midi_in #(
     always_ff @(posedge clk) begin
         sync <= {sync[1:0], rxd};
         byte_valid <= 1'b0;
+        frame_err <= 1'b0;
         if (rst) begin
             busy <= 1'b0;
             sync <= 3'b111;
@@ -64,7 +66,7 @@ module midi_in #(
                 if (sync[2]) begin                  // stop bit: the byte is good
                     byte_valid <= 1'b1;
                     byte_data <= sh;
-                end
+                end else frame_err <= 1'b1;
             end
             bitn <= bitn + 4'd1;
         end

@@ -16,7 +16,7 @@ jobs:
       - name: Run tests (stdlib only)
         run: |
           set -e
-          for t in tests/test_*.py; do
+          for t in tests/test_*.py tests/*/test_*.py; do
             echo "== $t"
             python "$t"
           done

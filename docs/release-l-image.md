@@ -81,13 +81,23 @@ backward-compatibility test programs.
 ### 3.3 MONITOR
 
 * Banner: `N.E.D. ABLE Series System Monitor - 1 December 1985`.
-* Configured for 60K words of memory (configuration table at 74, entry 16
-  = 360 sectors), D4567 present.
-* The three boot/system disks' `MONITOR` files differ only in word 115
-  (configuration entry 17, the options word): each disk carries its own
-  configuration.
-* Boots in the simulator up to its first floppy access; see
-  [`boot-and-loaders.md`](boot-and-loaders.md) §4.
+* Each disk's `MONITOR` carries its own configuration table (at 74):
+
+  | Disk | Memory | Options word | Storage devices (system first) |
+  |---|---|---|---|
+  | `01-BOOTD`, `02-BOOTF` (identical) | 360 sectors = 60K | 141011 | W0 (SCSI, 401), F0, F1, W1 (421) |
+  | `03-SYSTD` | 340 sectors = 56K | 141031 (adds D40 printer) | F0, F1, W0 |
+  | `19-DIAGS` | 200 sectors = 32K | 421 | F0 |
+
+  Options 141031 = D160 (100000), D130 (40000), Model B (processor type 1
+  in bits 8–10), D40 (20), D4567 (10), bit 0. F0/F1 entries: 5 sectors per
+  cylinder, 80 cylinders, 5 sectors per track, stepping rate 1.
+* Each floppy in the image is 404 sectors and several use all of them
+  (`08-INST1`…`16-RTPO3`), one more cylinder than the configured 80.
+  NED's `DISKREAD` retries sectors beyond 5 × 80 at an "alternate motor
+  speed" on drives that support it.
+* Boots to `Ready >` and runs `CATALOG` in the simulator from `03-SYSTD`;
+  see [`boot-and-loaders.md`](boot-and-loaders.md) §4.
 
 ### 3.4 Still not found
 * The **MFC/D40Q boot ROM** image. It is not in this disk set.

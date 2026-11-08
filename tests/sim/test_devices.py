@@ -96,9 +96,38 @@ def test_extmem_registers_and_carry():
     assert x.read(0o63) == 256 + 5  # D61 moves within the current sector (2)
     x.write(0o60, 0o12345)      # D60 holds any 16-bit value (SCSILOAD parks data there)
     assert x.read(0o60) == 0o12345
-    assert x.read(0o63) == 0    # beyond installed memory: reads 0
+    assert x.read(0o63) == 0o177777  # beyond installed memory: undriven bus
     x.write(0o63, 7)            # and ignores writes
     assert x.dump(0, 1) == [0]
+
+
+def test_extmem_d62_and_poll():
+    x = ExternalMemory(sectors=1024)
+    x.write(0o60, 3)
+    x.write(0o61, 7)
+    x.write(0o62, 0o4321)       # D62: no auto-increment
+    assert x.read(0o61) == 7 and x.read(0o62) == 0o4321
+    assert x.dump(3, 8)[7] == 0o4321
+    # MONITOR's POLL (MONCAT:MON): step half cards (256 sectors) until a
+    # stored zero does not read back
+    cpu = system("""
+            IM(1) TO D60
+            D60 TO LOA0
+            IM(0) TO D62
+            D62 TO LOA0
+            PCI TO R1
+            DATA 400
+    LOOP:   R1 TO D60
+            IM(0) TO D62
+            D62 TO LOA0
+            RE(DONE) TO RTNZ
+            PCI TO ADD1
+            DATA 400
+            RE(LOOP) TO RTRA
+    DONE:   RE(DONE) TO RTRA
+    """, ext_sectors=1024)
+    run_to(cpu, "DONE")
+    assert cpu.r[1] == 1024
 
 
 def test_extmem_core_to_external_and_back():
@@ -143,7 +172,7 @@ def test_rtc_period_and_ack():
     assert c.ticks == 5
     c.write(0o3, 0)
     assert c.irq_bits() == 0
-    assert c.read(0o3) is None
+    assert c.read(0o3) == 0
 
 
 def test_rtc_interrupt_counts_in_handler():
@@ -163,10 +192,18 @@ def test_rtc_interrupt_counts_in_handler():
     assert cpu.r[1] == cpu.rtc.ticks == 20
 
 
-def test_rtc_read_halts():
-    cpu = system("D3 TO R0")
-    assert not cpu.step()
-    assert cpu.halted.reason == HALT_NO_SYN_READ and cpu.halted.device == 0o3
+def test_rtc_read_reports_pending_tick():
+    # DEVUTIL d100_disk_check: "if read(d03) then do; ...; write(d03) = 0; end"
+    cpu = system("""
+    WAIT:   D3 TO LOA0
+            RE(WAIT) TO RTZE
+            IM(0) TO D3
+            D3 TO R1
+    DONE:   RE(DONE) TO RTRA
+    """)
+    run_to(cpu, "DONE")
+    assert cpu.r[0] == 1 and cpu.r[1] == 0
+    assert 5_000_000 <= cpu.time_ns < 5_010_000
 
 
 # --------------------------------------------------------- D50/D51 terminal
@@ -269,17 +306,44 @@ def test_interrupt_driven_input():
     assert cpu.pcs and cpu.ion and cpu.r[3] > 0
 
 
+def test_terminal_d50_read_waits_for_a_character():
+    # MONITOR's input routine reads D50 without testing CHAR_RDY
+    cpu = system("""
+            D50 TO R0
+    DONE:   RE(DONE) TO RTRA
+    """)
+    for _ in range(1000):
+        assert cpu.step()                # held, not halted
+    assert cpu.pc == 0 and cpu.waiting == 0o50 and cpu.instructions == 0
+    assert cpu.wait_ns == 1000 * cpu.ns_per_transfer
+    cpu.terminal.feed("A")
+    run_to(cpu, "DONE")
+    assert cpu.r[0] == ord("A") and cpu.waiting is None
+
+
+def test_synth_stubs():
+    from sim.devices import FMInterface, OriginalKeyboard
+    fm = FMInterface()
+    for reg, v in ((0o160, 5), (0o161, 1), (0o162, 255)):
+        assert fm.write(reg, v)
+    assert fm.channels == {(5, 1): 255} and fm.read(0o162) is None
+    kb = OriginalKeyboard()
+    kb.write(0o131, 0o105)               # CHECK KEYBOARD TYPE
+    assert kb.read(0o130) == 1           # old keyboard (ORK)
+    kb.write(0o131, 3)
+    assert kb.read(0o130) is None        # anything else: M2
+
+
 # ------------------------------------------------------------ system
 
 
 def test_system_device_map_and_missing_devices():
     cpu = make_system()
     assert cpu.terminal.read(0o51) & T.D60_EXISTS
-    for dev, reason in ((0o62, HALT_NO_SYN_READ), (0o100, HALT_NO_SYN_READ),
-                        (0o6, HALT_NO_SYN_READ)):
+    for dev, reason in ((0o100, HALT_NO_SYN_READ), (0o6, HALT_NO_SYN_READ)):
         c = system("D%o TO R0" % dev)
         assert not c.step() and c.halted.reason == reason and c.halted.device == dev
-    c = system("IM(0) TO D62")
+    c = system("IM(0) TO D104")         # no floppy controller unless asked for
     assert not c.step() and c.halted.reason == HALT_NO_SYN_WRITE
     c = make_system(ext_sectors=0)
     assert c.extmem is None and not c.terminal.read(0o51) & T.D60_EXISTS

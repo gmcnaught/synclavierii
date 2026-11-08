@@ -6,7 +6,7 @@ document. Choices the manual leaves open are listed in docs/simulator.md
 """
 from collections import namedtuple
 
-from .bus import NO_SYN, Bus
+from .bus import BUS_WAIT, NO_SYN, Bus
 from .decode import (
     C_ALWAYS, C_C, C_M, C_NC, C_NEVER, C_NM, C_NZ, C_Z,
     D_ALU, D_BSOR, D_IO, D_JABS, D_JREL, D_MEM, D_MEMI, D_REG,
@@ -66,6 +66,8 @@ class CPU:
         self.instructions = 0
         self.transfers = 0
         self.time_ns = 0
+        self.wait_ns = 0     # time spent holding reads (BUS_WAIT)
+        self.waiting = None  # device whose read is being held, if any
 
     @property
     def pc_reg(self):
@@ -184,6 +186,7 @@ class CPU:
             self.trace(self, pc, w)
         transfers = 1
 
+        self.waiting = None
         # 2. Source READ (skipped for immediates)
         sk, sv = SRC_TABLE[w & 0o377]
         if sk == S_IMM:
@@ -208,6 +211,8 @@ class CPU:
                     val = self.bus.read(sv)
                     if val is NO_SYN:
                         return self._stop(HALT_NO_SYN_READ, pc, w, sv)
+                    if val is BUS_WAIT:
+                        return self._wait(pcr, pc, sv)
                     val &= M16
 
         # 3. Destination WRITE (skipped for a failed conditional transfer)
@@ -269,6 +274,16 @@ class CPU:
             # Interrupt entry (§8): disable interrupts, fetch from R16
             self.ion = False
             self.pcs = False
+        return True
+
+    def _wait(self, pcr, pc, dev):
+        """Hold a read the device has not answered yet: undo the fetch and
+        let one transfer time pass. No interrupt can be taken mid-transfer."""
+        self.r[pcr] = pc
+        self.waiting = dev
+        self.wait_ns += self.ns_per_transfer
+        self.time_ns += self.ns_per_transfer
+        self.bus.tick(self.ns_per_transfer)
         return True
 
     def run(self, max_instructions=None):

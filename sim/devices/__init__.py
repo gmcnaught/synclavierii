@@ -5,8 +5,10 @@ Reads or writes of registers whose behaviour is unknown return NO_SYN on
 purpose, so the CPU halts and reports the device instead of guessing.
 """
 from .extmem import ExternalMemory
+from .floppy import FloppyController, Media
 from .muldiv import MulDiv
 from .rtc import RealTimeClock
+from .stubs import FMInterface, OriginalKeyboard
 from .terminal import Terminal
 
-__all__ = ["ExternalMemory", "MulDiv", "RealTimeClock", "Terminal"]
+__all__ = ["ExternalMemory", "FloppyController", "Media", "MulDiv", "OriginalKeyboard", "FMInterface", "RealTimeClock", "Terminal"]

@@ -9,8 +9,14 @@ Evidence: NED's FLPLOAD, WINLOAD and SCSILOAD loaders (MIT).
     D63 after setting D60 once, then read D60/D61 to find where they ended.
   * Writing D60 starts at word 0 of that sector ("R0 to D60 send starting
     sector number", then D63 reads the sector from its start).
-  * D62 exists (XPL-to-C translator has _read_62/_write_62) but its function
-    is unknown, so it is not modelled: accessing it halts the CPU.
+  * D62 = data port WITHOUT auto-increment. MONITOR's POLL (NED MONCAT:MON,
+    same code in the Release L binary at 13072) sizes the memory with
+    "WRITE("62") = 0; /* STORE A ZERO THERE */ IF READ("62") <> 0 THEN ...
+    RETURN (AMOUNT)" after selecting each half card with D60, never
+    touching D61 in between.
+  * Beyond the installed memory, POLL needs the D62 read-back to differ
+    from the 0 it stored. CHOICE: reads there return 177777 (an undriven
+    bus), and writes are ignored.
 """
 from array import array
 
@@ -20,7 +26,7 @@ SECTOR_WORDS = 256
 
 
 class ExternalMemory(Device):
-    numbers = (0o60, 0o61, 0o63)
+    numbers = (0o60, 0o61, 0o62, 0o63)
 
     def __init__(self, sectors=1024):
         """sectors: size in 256-word sectors (1024 = 256K words = 512 KB)."""
@@ -37,8 +43,8 @@ class ExternalMemory(Device):
             self.sector = (self.sector + 1) & 0xFFFF
 
     def _index(self):
-        # CHOICE: addresses beyond the installed memory read as 0 and ignore
-        # writes (no evidence for wrap-around or a bus error).
+        # CHOICE: addresses beyond the installed memory read as 177777 and
+        # ignore writes (POLL relies on the read-back differing).
         if self.sector >= self.sectors:
             return None
         return self.sector * SECTOR_WORDS + self.word
@@ -49,8 +55,9 @@ class ExternalMemory(Device):
         if dev == 0o61:
             return self.word
         i = self._index()
-        v = 0 if i is None else self.data[i]
-        self._advance()
+        v = 0xFFFF if i is None else self.data[i]
+        if dev == 0o63:
+            self._advance()
         return v
 
     def write(self, dev, value):
@@ -63,7 +70,8 @@ class ExternalMemory(Device):
             i = self._index()
             if i is not None:
                 self.data[i] = value & 0xFFFF
-            self._advance()
+            if dev == 0o63:
+                self._advance()
         return True
 
     # host-side helpers

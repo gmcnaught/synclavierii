@@ -127,14 +127,15 @@ The SCSILOAD source shows the register protocol:
 consecutive words, so it auto-increments. The Model C interrupt routine saves and restores D60/D61 when
 swapping code is present (compiler, `l_in2`/`l_in3`).
 
-## 4. Booting Release L in the simulator (M1.6 step A)
+## 4. Booting Release L in the simulator (M1.6)
 
 `sim/boot.py` boots Release L `MONITOR` without the boot ROM:
 
 1. `MEM.SIZ` comes from MONITOR's own configuration table. Word 0 of every
    XPL program is `PCI TO LOA0` and word 1 points to the table; entry 16
-   (`C#MEMSIZ`) is the size in sectors. Release L `01-BOOTD/MONITOR`: table
-   at 74, size 360 sectors = **60K words, `MEM.SIZ` = 170000**. **[OBS]**
+   (`C#MEMSIZ`) is the size in sectors. Release L `03-SYSTD/MONITOR` (the
+   default): 340 sectors = **56K, `MEM.SIZ` = 160000**; `01-BOOTD` and
+   `02-BOOTF`: 360 sectors = 60K, `MEM.SIZ` = 170000. **[OBS]**
 2. The floppy slot of `.LD-6` (first 512 words) goes to
    `LOC.LOAD = MEM.SIZ − 1024` = 166000. **[HYP, supported]**: see the
    layout check below.
@@ -149,14 +150,25 @@ using the configuration table's `C#VSTART`/`C#VLNGTH`, stores R4 (swap file
 address) if `C#SWPRAM` is set, and jumps to `C#OBJLOC`. It does no memory
 sizing, so no memory-size words need to be planted. **[OBS]**
 
-**Result:** MONITOR prints `N.E.D. ABLE Series System Monitor - 1 December
-1985` and starts its cold boot (NED `MONCAT:MON`, `COLD.BOOT`). After about
-216,000 instructions it reads **D100 at 011571** in its own code: the
-floppy head restore for F0 (`FIND_DEVICE(2)` → `RESTORE.HEAD`). The cold
-boot then reads the system catalog and reloads `.LD-x` through MONITOR's
-own disk driver, not the loader's. **So trapping the loader's entry points
-cannot get past this point: `CATALOG` and `Ready >` need D100 emulation
-(step B) or a trap of MONITOR's disk driver.**
+**Step A result:** MONITOR prints `N.E.D. ABLE Series System Monitor - 1
+December 1985` and starts its cold boot (NED `MONCAT:MON`, `COLD.BOOT`).
+After about 216,000 instructions it reads **D100 at 011571** in its own
+code: the floppy head restore for F0 (`FIND_DEVICE(2)` → `RESTORE.HEAD`).
+The cold boot reads the system catalog and reloads `.LD-x` through
+MONITOR's own disk driver, not the loader's.
+
+**Step B result:** with the D100 controller (`sim/devices/floppy.py`) and
+`03-SYSTD` in F0, the cold boot restores the heads, reads the catalog,
+sizes external memory (`POLL`, through D62), silences the voices (D160–
+D162), checks the keyboard type (D130/D131) and prints `Ready > ` after
+about 883,000 instructions (1.4 s simulated). `CATALOG` then lists the
+user catalog (F1). `OLD CONFIGUR` + `RUN` loads a program through the
+`.LD-6` loader's floppy code and returns to MONITOR. **[OBS]**
+
+**Which boot disk.** `01-BOOTD` and `02-BOOTF` are configured with a SCSI
+Winchester (W0, device type 401) as the system device. With them MONITOR
+checks D51 for the SCSI card (40000), gets −3, and ends in a bell loop at
+052046. `03-SYSTD` has F0 as the system device (F0, F1, then W0).
 
 **Release L high-core layout** (written by MONITOR's cold boot; offsets
 from `MEM.SIZ`) **[OBS]**, against the `-7` SYSLITS values:

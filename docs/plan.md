@@ -88,11 +88,11 @@ Each milestone has tasks, deliverables and **acceptance criteria**.
 | 1.1 | **Done** (`sim/cpu.py`, `docs/simulator.md`). CPU core: decode via the shared tables in `tools/able_disasm.py`; implement all Model B sources and destinations, flags, conditional/relative transfers, PCI literals, post-increment | `instruction-set.md` §2–7 |
 | 1.2 | **Done.** PSW/PCW (D1), interrupt entry (R16 as PC, ION/ICS/PCS), INIT state | `instruction-set.md` §8 |
 | 1.3 | **Done** (`sim/devices/`). Memory 64K words; external memory D60 (sector), D61 (word), D63 (data, auto-increment) | `boot-and-loaders.md` §3 |
-| 1.4 | **Done** (`sim/devices/`), except the live host-console bridge, which comes with the M1.7 tooling (`feed()` and `output` hooks exist). Terminal D50 (data) and D51 (status), bridged to the host console; TTI/TTO interrupts | XPL manual §IX; loaders |
+| 1.4 | **Done** (`sim/devices/`; console bridge in `python3 -m sim.boot`). Terminal D50 (data) and D51 (status), bridged to the host console; TTI/TTO interrupts | XPL manual §IX; loaders |
 | 1.5 | **Done** (`sim/devices/`). D3 real-time clock (200 Hz interrupt) and D4567 multiply/divide (documented protocol) | `boot-and-loaders.md` §3 |
-| 1.6 | Disk: **step A done** (`sim/boot.py`): `MONITOR` staged in external memory and started through the real `.LD-6` ECOPY entry; it prints its banner and halts at its first D100 access (F0 head restore). **Step B** register-level D100–D104 floppy emulation from the FLPLOAD/`.LD-6` code and MONITOR's disk driver | `boot-and-loaders.md` §4, `release-l-image.md` |
-| 1.7 | **Done** (`sim/trace.py`) except a live console: instruction history (disassembled), breakpoints, device-access log and counts, HOP-like halt report and memory inspect; `python3 -m sim.boot IMAGE` | — |
-| 1.8 | **Started** (`tests/sim/`: 42 CPU, 14 device, 4 trace and 3 boot tests). CPU unit tests: one per source/destination class, flag edge cases (SUB/SBB borrow, rotates, shifts), relative targets | `data/able-opcodes.csv` |
+| 1.6 | **Done.** Step A (`sim/boot.py`): `MONITOR` staged in external memory and started through the real `.LD-6` ECOPY entry. Step B (`sim/devices/floppy.py`): D100–D104 floppy controller on the `.simg` floppies; also D62, D3 reads, a held D50 read, and M1 stubs for D160–D162 and D130/D131 | `boot-and-loaders.md` §4, `release-l-image.md` |
+| 1.7 | **Done** (`sim/trace.py`, `python3 -m sim.boot`): instruction history (disassembled), breakpoints, device-access log and counts, stop on input wait, HOP-like halt report, memory inspect, interactive/scripted console | — |
+| 1.8 | **Started** (`tests/sim/`: 42 CPU, 17 device, 7 floppy, 5 trace and 3 boot tests). CPU unit tests: one per source/destination class, flag edge cases (SUB/SBB borrow, rotates, shifts), relative targets | `data/able-opcodes.csv` |
 
 **Deliverables:** `sim/` package, `tests/sim/`, user doc `docs/simulator.md`.
 **Done when:**
@@ -211,6 +211,8 @@ In priority order (details in [`bench-checklist.md`](bench-checklist.md)):
 
 ## 10. Next action
 
-M0, M1.1–1.5, M1.6 step A and M1.7 are done. Next: **M1.6 step B**, the
-D100–D104 floppy controller backed by the `.simg`, so MONITOR's cold boot
-can restore the heads, read the catalog and reach `Ready >`.
+**M1's acceptance test passes:** Release L `MONITOR` boots from a
+user-supplied `.simg` (`03-SYSTD`), prints `Ready >`, and `CATALOG` lists
+the disk (`python3 -m sim.boot IMAGE --f1 18-UTILS`). M1.8 (more CPU unit
+tests) remains open. Next: **M2.1**, load `ORK-LM`/`ORK-LFM` under the
+simulator with the D160/D130 stubs logging every access.

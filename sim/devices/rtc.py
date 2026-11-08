@@ -8,9 +8,14 @@ Evidence:
   * The Model B runtime's interrupt dispatch acknowledges it with
     IM(0) TO D3 (*RTB-7 address 705), and XPL says D03 interrupts are
     "automatically cleared by the XPL runtime system".
-  * No NED code reads D3, so a read halts the CPU (NO_SYN) until we know.
+  * Reading D3 tests for a pending tick: DEVUTIL d100_disk_check polls
+    with interrupts off: "if read(d03) then do; i = i + 1; write(d03) = 0;
+    end" and "while (read(d03)) write(d03) = 0". The same code tests the
+    D100 busy bit (bit 0) with "read(d100)" as a condition, so XPL
+    conditions test bit 0: a read returns 1 while a tick is pending, else
+    0. [HYP: the other bits.]
 """
-from ..bus import NO_SYN, Device
+from ..bus import Device
 
 IRQ_BIT = 0o400  # PSW bit 8
 
@@ -25,7 +30,7 @@ class RealTimeClock(Device):
         self.ticks = 0
 
     def read(self, dev):
-        return NO_SYN
+        return 1 if self.pending else 0
 
     def write(self, dev, value):
         self.pending = False

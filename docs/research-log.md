@@ -310,6 +310,26 @@ Details in [`realtime-program.md`](realtime-program.md).
   for 10 simulated seconds without a halt. Devices touched: D3, D4–D7,
   D100–D104, D130/D131, D160, D161, D163, D164, D165.
 
+## 18. Register maps of the synthesizer devices (M2.2)
+
+Source: NED's later RTP source (`Able/SYNLITS`, `SYNRSOU`, `SYNCOMS`; MIT),
+checked against the Release L ORK-LM log. Maps in [`devices/`](devices/).
+
+* **D130/D131** follow `076-OLDI` ("release-M modules", 5/15/86) exactly:
+  octave scan `20, 100…105` with negative key logic, panels `10+I/110+I`,
+  display strobe `40`. MONITOR's "keyboard type" check is a read of
+  octave 5 (idle 1). The M2.1 probe's 0 made every key read as held.
+* **D160 read** carries three things: bit 0 channel-exists (voice
+  detection, one probe per 16-channel card), bit 1 the external clock
+  input (the main-loop poll), bits 2–7 the old panel's switches.
+* **D163** is the old panel's A/D converter (write `2 + 4·ch`, read the
+  value, `3` starts a conversion) and `1` toggles the external clock out;
+  this explains ORK-LM's writes 2, 3, 6, 22.
+* **D164/D165** are the CV board's DAC select/value.
+* ORK-LM loads four 256-point wave memories at start (`TIM` 32–35, `ZMA`,
+  256 × `MEM`). A key press is read but plays nothing yet (no timbre
+  recalled).
+
 ## Searched without useful results
 
 * archive.org full-text and metadata search for "synclavier", "new england

@@ -3,7 +3,7 @@
 
 The multi-floppy file format is tested on a synthetic image. If
 SYNCLAVIER_RELEASE_L points to the user-supplied Release L .simg, ORK-LM is
-started and run for 5 simulated seconds as well (skipped otherwise).
+started and run for 9 simulated seconds as well (skipped otherwise).
 
 Run:  python3 tests/sim/test_rtp.py
 """
@@ -64,13 +64,14 @@ def test_release_l_ork_lm_runs():
     assert lay["rtp_words"] == 673 * S
     n0 = len(cpu.terminal.out)
     t0 = cpu.time_ns
-    while cpu.time_ns - t0 < 5e9:
+    while cpu.time_ns - t0 < 9e9:
         assert dbg.run(1_000_000) is None, dbg.report()
     text = bytes(b & 0o177 for b in cpu.terminal.out[n0:]).decode("latin-1")
     assert "WELCOME TO THE SYNCLAVIER" in text
     assert dbg.io_counts[(0o130, "R")] > 0 and dbg.io_counts[(0o160, "R")] > 0
-    # unmodelled devices it touches: only the rest of the D160 family
-    assert {d for d, _ in cpu.probe.counts} <= {0o163, 0o164, 0o165}, cpu.probe.counts
+    assert not cpu.probe.counts, cpu.probe.counts       # every device it touches is modelled
+    assert cpu.keyboard.unknown_reads == 0 and cpu.fm.unknown_reads == 0
+    assert "9  VOICES" in text                  # one 8-voice card detected (shown + 1)
 
 
 if __name__ == "__main__":

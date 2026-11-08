@@ -14,13 +14,13 @@ Milestone M1 in [`plan.md`](plan.md). This page covers what exists so far:
 | `sim/cpu.py` | `CPU`: Model B instruction execution, flags, PSW/PCW, interrupt entry, HALT, timing counters |
 | `sim/decode.py` | 256-entry source and destination decode tables (checked against `tools/able_disasm.py`) |
 | `sim/bus.py` | `Bus` and the `Device` base class for I/O devices 000–177 |
-| `sim/devices/` | Device models: `extmem.py` (D60–D63), `terminal.py` (D50/D51), `rtc.py` (D3), `muldiv.py` (D4567), `floppy.py` (D100–D104), `stubs.py` (D160–D162 FM interface and D130/D131 keyboard, M1 stand-ins). Each file starts with its evidence. |
+| `sim/devices/` | Device models: `extmem.py` (D60–D63), `terminal.py` (D50/D51), `rtc.py` (D3), `muldiv.py` (D4567), `floppy.py` (D100–D104), `synth.py` (D130/D131 original keyboard, D160–D163 FM interface and old-panel inputs, D164/D165 control voltages; see [`devices/`](devices/)), `stubs.py` (`ProbeDevice` for M2 exploration). Each file starts with its evidence. |
 | `sim/system.py` | `make_system()`: a CPU with the devices attached (`floppy=True`, `synth=True` add the floppy controller and the stubs) |
 | `sim/boot.py` | Boot: `MONITOR` staged in external memory, started through the `.LD-6` loader's ECOPY entry; floppies from the `.simg` in F0/F1; console CLI `python3 -m sim.boot IMAGE` |
 | `sim/rtp.py` | Starts a Release L real-time program (`ORK-LM`, `ORK-LFM`) through MONITOR's RUN hand-off and the loader; logs device accesses (`python3 -m sim.rtp IMAGE --log out.csv`) (M2.1) |
 | `sim/trace.py` | `Debugger`: instruction history, device-access log, breakpoints, stop on input wait, halt report, memory inspect (M1.7) |
 | `sim/asm.py` | Small assembler in NED syntax (`SRC TO DST`, `DATA`, `IM()`, `RE(label)`), for tests and experiments |
-| `tests/sim/` | `test_decode.py` (tables, assembler round trip over all 65,536 words), `test_cpu.py` (42 instruction-level tests), `test_devices.py` (17 device tests, mostly small programs written like NED's loaders and runtime), `test_floppy.py` (7), `test_trace.py` (5), `test_boot.py` (3; boots the real MONITOR to `Ready >` and runs `CATALOG` when `SYNCLAVIER_RELEASE_L` names the image) and `test_rtp.py` (3; runs ORK-LM for 5 simulated seconds with the image) |
+| `tests/sim/` | `test_decode.py` (tables, assembler round trip over all 65,536 words), `test_cpu.py` (42 instruction-level tests), `test_devices.py` (17 device tests, mostly small programs written like NED's loaders and runtime), `test_floppy.py` (7), `test_synth.py` (6), `test_trace.py` (5), `test_boot.py` (3; boots the real MONITOR to `Ready >` and runs `CATALOG` when `SYNCLAVIER_RELEASE_L` names the image) and `test_rtp.py` (3; runs ORK-LM for 5 simulated seconds with the image) |
 
 ## Use
 
@@ -139,8 +139,9 @@ million instructions per second booting MONITOR).
 | **D3 real-time clock** | Write = acknowledge the interrupt; read = 1 while a tick is pending, else 0 | PSW bit 8 (400) every 5 ms (200 Hz) | *Synclavier Internals* §5; SYSLITS `d03_speed`; runtime dispatch `IM(0) TO D3` |
 | **D4567 multiply/divide** | Writing D5 loads D5 **and clears D4**; writing D4 loads D4. Multiply-add: D6 write → D4:D5 = D5·D6 + D4. Divide: D7 write → D4:D5 / D7, quotient to D5, remainder to D4 (a quotient over 16 bits adds its high bits into D4). Unsigned. Only D4/D5 readable | — | SCSILOAD; NED's C emulation `XPL.h` ("write to d5 cleared d4"); ORK-LM divides with only D5 and D7 |
 | **D100–D104 floppy (D100)** | FD1771-style. D100 write = command (restore 0–3, seek 20+rate, step/in/out 40–77, read sector 210/214, write sector 250, force interrupt 320), read = status (1 busy, 2 DRQ or index, 4 track 0 or lost data, 20 RNF/seek error, 100 protect, 200 not ready). D101 track, D102 sector, D103 data (first byte = low half of the word). D104 write = drive + 2·side + … | — | FLPLOAD; RTP `DISKREAD`/`DISKSEEK`; DEVUTIL `d100_disk_check` |
-| **D160–D162 FM interface** (stub) | Writes recorded (channel D160, function D161, value D162); reads halt | — | MONITOR `SILENCE.VOICES` |
-| **D130/D131 keyboard** (stub) | D131 = 105 then D130 read → 1 (original keyboard); other D130 writes recorded; other reads halt | — | MONITOR `CLEAR.KEYBOARD` |
+| **D130/D131 original keyboard** | Clavier scan, panel buttons/lights, display; host `press_key(12–72)`, `press_button(0–127)`. Map: [`devices/d130-original-keyboard.md`](devices/d130-original-keyboard.md) | — | NED `076-OLDI`; MONITOR; ORK-LM traffic |
+| **D160–D163 FM interface** | Channel / function / 8-bit data writes (logged per channel and function); D160 read = channel-exists, external clock, switches; D163 = A/D and clock out. `voices` (default 8). Map: [`devices/d160-fm-interface.md`](devices/d160-fm-interface.md) | — | NED `FCODLITS`, `076-OLDI`, `600-INIT`; ORK-LM traffic |
+| **D164/D165 control voltages** | DAC select / value, recorded. [`devices/d164-control-voltages.md`](devices/d164-control-voltages.md) | — | NED `390-VOLT`, `144-TIM3` |
 | Anything else (probe mode) | `sim.rtp` sets `strict=False`: the stubs' unknown reads return 0, and a `ProbeDevice` on `bus.fallback` answers every unclaimed device number (reads 0) and counts accesses | — | M2.1 logging |
 
 **Unknown registers halt on purpose.** Reading D6, D7 or D104, an

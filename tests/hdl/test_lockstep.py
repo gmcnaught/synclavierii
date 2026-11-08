@@ -257,6 +257,103 @@ def test_system_floppy_program():
     assert n > 10_000
 
 
+SYNTH_PROGRAM = """
+        IM(3) TO D160       ; channel 3 (carrier of voice 1)
+        IM(10) TO D161      ; divisor 370 (8 clocks per pulse)
+        PCI TO D162
+        DATA 370
+        IM(11) TO D161      ; adder 177 (half a step per pulse)
+        PCI TO D162
+        DATA 177
+        IM(12) TO D161      ; limit 200: ramp up
+        PCI TO D162
+        DATA 200
+        IM(0) TO R4
+UP:     IM(1) TO ADD0       ; count polls until the limit is reached
+        D160 TO R1
+        IM(1) TO TAND1
+        RE(UP) TO RTNZ
+        R0 TO R4
+        IM(0) TO D162       ; limit 0: ramp down, then poll again
+        IM(0) TO R0
+DOWN:   IM(1) TO ADD0
+        D160 TO R1
+        IM(1) TO TAND1
+        RE(DOWN) TO RTNZ
+        IM(4) TO D161       ; wave memory 9 through channel 20 (absent: ignored)
+        PCI TO D160
+        DATA 20
+        PCI TO D162
+        DATA 51
+        IM(6) TO D161
+        IM(0) TO D162
+        IM(7) TO D161
+        IM(5) TO D162
+        PCI TO D160         ; channel 20 (16): beyond 8 voices
+        DATA 20
+        D160 TO R5          ; bit 0 clear
+        IM(5) TO D160       ; wave memory 9 through channel 5
+        IM(4) TO D161
+        PCI TO D162
+        DATA 51
+        IM(6) TO D161
+        IM(0) TO D162
+        IM(7) TO D161
+        IM(5) TO D162
+        IM(6) TO D162
+        IM(12) TO D163      ; A/D channel 2
+        D163 TO R6
+        IM(1) TO D163       ; toggle the external clock
+        PCI TO D131         ; keyboard: wait for a key in octave 3
+        DATA 103
+KEY:    D130 TO R2
+        IM(-1) TO XOR2
+        RE(KEY) TO RTZE
+        PCI TO D131         ; panel 6 buttons
+        DATA 116
+        D130 TO R3
+        PCI TO D131         ; panel 2 lights
+        DATA 12
+        R2 TO D130
+        IM(1) TO D131       ; display word 1: data, then the strobe
+        R0 TO D130
+        PCI TO D131
+        DATA 41
+        IM(1) TO D131
+        D161 TO R7          ; no SYN (strict): halt
+"""
+
+
+def test_system_synth_devices_program():
+    """D130/D131 and D160-D165 in HDL against Python: interpolator ramps
+    polled through D160 bit 0, wave memory loads, A/D and clock, keys and
+    buttons from the host, lights, display, and a D161 read that halts."""
+    if not HAVE_VERILATOR:
+        print("  skip test_system_synth_devices_program (verilator not found)")
+        return
+    from sim.asm import assemble
+    from sim.devices.synth import button_number
+    from sim.system import make_system
+    cpu = make_system(synth=True)
+    words, _ = assemble(SYNTH_PROGRAM)
+    cpu.load(words)
+    kb = cpu.keyboard
+    acts = [(3_000_000, lambda c: kb.press_button(button_number("timb.3"))),
+            (6_000_000, lambda c: kb.press_key(52))]
+    with tempfile.NamedTemporaryFile(suffix=".trace", delete=False) as f:
+        path = f.name
+    try:
+        n = record(cpu, path, 400_000, actions=acts)
+        ok, text = check(path, top="system")
+    finally:
+        os.unlink(path)
+    assert ok, text
+    assert cpu.halted and cpu.halted.device == 0o161, cpu.halted
+    assert cpu.r[4] > 20 and cpu.r[0] > 20                  # both ramps took many polls
+    assert cpu.fm.wave[9][:2] == bytearray([5, 6]) and cpu.r[3] == 1 << 11
+    assert kb.lights[2] == cpu.r[2] and kb.display[1] == cpu.r[0] and cpu.r[5] == 0 and n > 100
+
+
 def test_release_l_monitor_boot_and_catalog():
     image = os.environ.get("SYNCLAVIER_RELEASE_L")
     if not image or not HAVE_VERILATOR:

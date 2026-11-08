@@ -5,9 +5,9 @@
 //   able_sim_top (default): the CPU alone; every device access is answered
 //     from the trace.
 //   able_sys_top (-DSYSTEM): able_system with the HDL devices (D3, D4-D7,
-//     D50/D51, D60-D63, D100-D104); their reads, writes, interrupt bits and
-//     timing are compared with the trace. Other devices are answered from
-//     the trace.
+//     D50/D51, D60-D63, D100-D104, D130/D131, D160-D165); their reads,
+//     writes, interrupt bits and timing are compared with the trace. Any
+//     other device is answered from the trace.
 // Each I/O transfer, PSW read, interrupt check and completed instruction
 // must match; register snapshots (and, for the system, simulated time)
 // are compared every 256 instructions.
@@ -141,7 +141,7 @@ int main(int argc, char** argv) {
             t.p += (size_t)sectors * 512;
 #endif
         } else if (k == 'V') {                     // device state
-            uint8_t sel = t.u8(), addr = t.u8(); uint32_t v = t.u32();
+            uint8_t sel = t.u8(); uint16_t addr = t.u16(); uint32_t v = t.u32();
 #ifdef SYSTEM
             top->ld_dev_we = 1; top->ld_dev_sel = sel; top->ld_dev_addr = addr;
             top->ld_dev_data = v; tick();
@@ -201,8 +201,18 @@ int main(int argc, char** argv) {
         }
         if (t.peek() == 'E') break;
 
-#ifndef SYSTEM
-        while (t.peek() == 'T') { t.u8(); t.u32(); t.p += t.u16(); }   // D50 is replayed
+#ifdef SYSTEM
+        top->kb_host_we = 0;
+        if (t.peek() == 'K') {                   // host key/button change
+            t.u8();
+            top->kb_host_panel = t.u8(); top->kb_host_index = t.u8(); top->kb_host_value = t.u16();
+            top->kb_host_we = 1;
+        }
+#else
+        while (t.peek() == 'T' || t.peek() == 'K') {    // D50, D130 are replayed
+            if (t.u8() == 'K') t.p += 4;
+            else { t.u32(); t.p += t.u16(); }
+        }
 #endif
         // terminal input: pushed on the recorded held-read clock
         if (t.peek() == 'T') {

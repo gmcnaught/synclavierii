@@ -29,6 +29,10 @@ module able_sys_top (
     input  logic        ld_fd_we,
     input  logic [18:0] ld_fd_addr,
     input  logic [15:0] ld_fd_data,
+    input  logic        kb_host_we,
+    input  logic        kb_host_panel,
+    input  logic [2:0]  kb_host_index,
+    input  logic [15:0] kb_host_value,
     input  logic        term_rx_valid,
     input  logic [7:0]  term_rx_data,
     output logic        term_tx_valid,
@@ -44,7 +48,7 @@ module able_sys_top (
     input  logic [15:0] dbg_wdata,
     input  logic        ld_dev_we,
     input  logic [2:0]  ld_dev_sel,
-    input  logic [4:0]  ld_dev_addr,
+    input  logic [12:0] ld_dev_addr,
     input  logic [31:0] ld_dev_data,
     output logic        instr_done,
     output logic [15:0] instr_pc,
@@ -93,6 +97,9 @@ module able_sys_top (
             fd_rdata <= fram[fd_addr];
         end
     end
+
+    logic [15:0] kb_lights [8];
+    logic [15:0] kb_display [3];
 
     able_system sys (.*);
 endmodule

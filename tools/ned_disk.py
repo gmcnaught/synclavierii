@@ -56,6 +56,23 @@ def walk(W, base=0, path="", max_sectors=4, depth=0):
             yield from walk(W, abs_start, p, 1 if typ == 7 else 4, depth + 1)
 
 
+def file_words(W, start, length, words):
+    """Words of a catalog entry, trimmed to its exact word length."""
+    nwords = words if words else length * SECTOR_WORDS
+    if (nwords + SECTOR_WORDS - 1) // SECTOR_WORDS != length:
+        nwords = length * SECTOR_WORDS  # length field is only 16 bits; fall back to whole sectors
+    return list(W[start * SECTOR_WORDS: start * SECTOR_WORDS + nwords])
+
+
+def read_file(W, path):
+    """Words of the file at path (e.g. '01-BOOTD/MONITOR'); KeyError if absent."""
+    want = "/" + path.strip("/")
+    for p, typ, start, length, words in walk(W):
+        if p == want and typ not in (6, 7):
+            return file_words(W, start, length, words)
+    raise KeyError(path)
+
+
 def safe(component):
     c = re.sub(r"[^A-Za-z0-9._#+-]", "_", component)
     return c if c not in ("", ".", "..") else "_" + c
@@ -70,10 +87,8 @@ def main():
     for p, typ, start, length, words in walk(W):
         print("%-30s %-11s start=%6d sectors=%4d words=%06o" % (p, TYPES.get(typ, str(typ)), start, length, words))
         if a.extract and typ not in (6, 7):
-            nwords = words if words else length * SECTOR_WORDS
-            if (nwords + SECTOR_WORDS - 1) // SECTOR_WORDS != length:
-                nwords = length * SECTOR_WORDS  # length field is only 16 bits; fall back to whole sectors
-            data = struct.pack(">%dH" % nwords, *W[start * SECTOR_WORDS: start * SECTOR_WORDS + nwords])
+            fw = file_words(W, start, length, words)
+            data = struct.pack(">%dH" % len(fw), *fw)
             out = os.path.join(a.extract, *[safe(c) for c in p.strip("/").split("/")])
             root = os.path.realpath(a.extract)
             if not os.path.realpath(out).startswith(root + os.sep):

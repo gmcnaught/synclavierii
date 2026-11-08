@@ -113,7 +113,7 @@ module able_system #(
     output logic [15:0] mon_data
 );
     // ------------------------------------------------------------ memory
-    logic [15:0] mem [65536];
+    logic [15:0] mem [65536] /* verilator public */;   // public: board bench reads it
     logic [15:0] mem_addr, mem_wdata, mem_rdata;
     logic        mem_we;
     always_ff @(posedge clk) begin

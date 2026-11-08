@@ -439,6 +439,23 @@ Details in [`timbre-libraries.md`](timbre-libraries.md).
   or after the interpolator clock by the same rule as Python's lazy
   advance.
 
+## 25. MiSTer core (M4.1, M4.4-M4.6)
+
+* Decision D4: Template_MiSTer. JTFRAME's MiSTer target ties off the HPS
+  UART (MidiLink), uses the SD block interface for one cartridge-save slot
+  only and turns the PS/2 keyboard into joystick bits; none of its modules
+  applies (checked in `jotego/jtcores` `modules/jtframe/target/mister`).
+* The boot ROM is not available, so `hdl/core/boot_loader.sv` does
+  `sim/boot.py`'s high-level boot in hardware from the F0 image. Run from
+  power-on with random register and memory contents, it leaves exactly
+  Python's start state, and the core then matches Python through MONITOR's
+  boot and `CATALOG` (1,363,060 instructions).
+* MONITOR's line input deletes on BS, DEL or ^Z and echoes BS SP BS (NED
+  `MONCAT/04-IOMOD`); the core's Backspace key sends BS.
+* Quartus Lite 17.0 builds run on GitHub Actions in the
+  `raetro/quartus:17.0` image (no self-hosted runner is registered for this
+  repository).
+
 ## Searched without useful results
 
 * archive.org full-text and metadata search for "synclavier", "new england

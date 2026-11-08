@@ -58,7 +58,7 @@ module dev_fm #(
     logic [17:0] rem;                           // (time x 24) mod 125000 (< 2^17)
 
     logic [7:0]  div [NCH], add [NCH], lim [NCH], val [NCH], pre [NCH], acc [NCH], mar [NCH];
-    logic [7:0]  wave [8192];
+    logic [7:0]  wave [8192] /* verilator public */;   // public: board bench reads it
 
     wire [7:0] ch = channel_word[7:0];
     wire       ch_ok = {8'd0, ch} < 16'(NCH);

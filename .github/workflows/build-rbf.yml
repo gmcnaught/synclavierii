@@ -1,0 +1,82 @@
+name: Build RBF
+
+# Compiles the MiSTer core (mister/Synclavier.qpf) with Quartus Lite 17.0 in
+# the raetro/quartus:17.0 Docker image on ubuntu-latest; no self-hosted
+# runner. Runs on pull requests and pushes to main that touch the HDL or
+# the MiSTer project, and on demand. The RBF and the Quartus reports are
+# uploaded as artifacts; mister/build.sh fails the job on a failed compile
+# or negative slack (after the reports are saved).
+#
+# workflow_dispatch is only listed once this file is on the default branch.
+
+on:
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: Fitter seed override (integer; blank = the QSF's)
+        required: false
+        default: ''
+  pull_request:
+    paths:
+      - 'hdl/**'
+      - '!hdl/sim/**'
+      - 'mister/**'
+      - '.github/workflows/build-rbf.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'hdl/**'
+      - '!hdl/sim/**'
+      - 'mister/**'
+      - '.github/workflows/build-rbf.yml'
+
+concurrency:
+  group: build-rbf-${{ github.ref }}-${{ github.event.inputs.seed || 'qsf' }}
+  cancel-in-progress: true
+
+jobs:
+  rbf:
+    name: RBF (Quartus Lite 17.0)
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space (Quartus needs ~24 GB)
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          swap-storage: true
+
+      # Non-login `bash -c`: the image's entrypoint puts Quartus on PATH; a
+      # login shell re-reads /etc/profile and loses it.
+      - name: Compile
+        id: compile
+        env:
+          SYNCLAVIER_SEED: ${{ github.event.inputs.seed }}
+        run: |
+          docker run --rm -v "$PWD:/build" -e SYNCLAVIER_SEED raetro/quartus:17.0 \
+            bash -c "cd /build && mister/build.sh _out"
+
+      - name: Upload Quartus reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quartus-reports
+          path: |
+            mister/output_files/*.rpt
+            mister/output_files/*.summary
+            mister/build.log
+          if-no-files-found: warn
+
+      - name: Upload RBF
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: synclavier-rbf
+          path: mister/_out/*.rbf
+          if-no-files-found: warn

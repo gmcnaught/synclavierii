@@ -58,7 +58,10 @@ sim/                         software simulator (M1-M3): Model B CPU, devices, t
   devices/                   D60-D63 external memory, D50/D51 terminal, D3 clock, D4567,
                              D100 floppy, D130/D131 keyboard, D160-D165 FM interface
 hdl/                         FPGA core (M4-M5): able_cpu.sv, able_system.sv, dev/ (every
-                             Release L device, fm_voices.sv); sim/ Verilator lockstep benches
+                             Release L device, fm_voices.sv); core/ the MiSTer core (boot
+                             loader, SD floppies, terminal display, keyboard); board/ DDR3;
+                             sim/ Verilator lockstep benches
+mister/                      Quartus project (Template_MiSTer, sys/ GPL-2.0), build.sh
 tools/
   able_disasm.py             ABLE disassembler (NED syntax, Model C aware)
   ned_disk.py                NED .simg catalog lister / extractor

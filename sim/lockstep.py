@@ -382,44 +382,53 @@ def random_cpu(seed, model="B"):
     return cpu
 
 
+SYSTEM_RTL = ["hdl/able_cpu.sv", "hdl/dev/dev_rtc.sv", "hdl/dev/dev_muldiv.sv",
+              "hdl/dev/dev_extmem.sv", "hdl/dev/dev_terminal.sv",
+              "hdl/dev/dev_floppy.sv", "hdl/dev/dev_keyboard.sv",
+              "hdl/dev/dev_fm.sv", "hdl/dev/fm_voices.sv",
+              "hdl/dev/audio_out.sv", "hdl/throttle.sv", "hdl/able_system.sv"]
+CORE_RTL = ["hdl/core/sd_floppy.sv", "hdl/core/boot_loader.sv", "hdl/core/term_display.sv",
+            "hdl/core/ps2_ascii.sv", "hdl/core/synclavier_core.sv", "hdl/board/ddram_word.sv"]
 TOPS = {
     "cpu": ("able_sim_top", ["hdl/able_cpu.sv", "hdl/sim/able_sim_top.sv"], []),
-    "system": ("able_sys_top", ["hdl/able_cpu.sv", "hdl/dev/dev_rtc.sv", "hdl/dev/dev_muldiv.sv",
-                                "hdl/dev/dev_extmem.sv", "hdl/dev/dev_terminal.sv",
-                                "hdl/dev/dev_floppy.sv", "hdl/dev/dev_keyboard.sv",
-                                "hdl/dev/dev_fm.sv", "hdl/dev/fm_voices.sv",
-                                "hdl/dev/audio_out.sv",
-                                "hdl/throttle.sv", "hdl/able_system.sv",
-                                "hdl/sim/able_sys_top.sv"], ["-DSYSTEM"]),
+    "system": ("able_sys_top", SYSTEM_RTL + ["hdl/sim/able_sys_top.sv"], ["-DSYSTEM"]),
+    # the MiSTer core from power-on (boot loader, SD floppies, DDR3, display)
+    "board": ("board_top", SYSTEM_RTL + CORE_RTL + ["hdl/sim/board_top.sv"], ["-DBOARD"]),
 }
+INCLUDES = ["hdl/core/boot_defaults.svh", "hdl/core/font8x8.svh", "hdl/dev/sine_rom.svh"]
 
 
 def build(top="cpu", force=False):
-    """Build the Verilator bench for `top` ("cpu" or "system"); returns the
-    executable path."""
+    """Build the Verilator bench for `top` ("cpu", "system" or "board");
+    returns the executable path."""
     name, rtl, defines = TOPS[top]
     mdir = os.path.join(BUILD_DIR, top)
     exe = os.path.join(mdir, "V" + name)
-    srcs = [os.path.join(ROOT, p) for p in rtl + ["hdl/sim/lockstep.cpp"]]
+    srcs = [os.path.join(ROOT, p) for p in rtl + ["hdl/sim/lockstep.cpp"] + INCLUDES]
     if not force and os.path.exists(exe) and \
             os.path.getmtime(exe) > max(os.path.getmtime(s) for s in srcs):
         return exe
     os.makedirs(mdir, exist_ok=True)          # older Verilator does not create parents
     subprocess.run(["verilator", "--cc", "--exe", "--build", "-O3", "-Wall", "-Wno-fatal",
-                    "-I" + os.path.join(ROOT, "hdl", "dev"),
+                    "--x-assign", "unique", "--x-initial", "unique",
+                    "-I" + os.path.join(ROOT, "hdl", "dev"), "-I" + os.path.join(ROOT, "hdl", "core"),
                     "--top-module", name, "-Mdir", mdir, "-o", "V" + name,
-                    "-CFLAGS", "-O2 " + " ".join(defines)] + srcs,
+                    "-CFLAGS", "-O2 " + " ".join(defines)]
+                   + [x for x in srcs if not x.endswith(".svh")],
                    check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return exe
 
 
-def check(path, max_instructions=None, top="cpu", wav=None, realtime=False):
+def check(path, max_instructions=None, top="cpu", wav=None, realtime=False, frame=None):
     """Run a trace on the HDL. Returns (ok, output text). wav: write the
     system's 48 kHz PCM output (audio_out.sv) to this WAV file. realtime:
     run the system with the throttle on (50 MHz); behaviour must not change
-    and simulated time must track the clock."""
+    and simulated time must track the clock. frame (board): write a video
+    frame (PGM) taken after the run."""
     cmd = [build(top), path] + ([str(max_instructions)] if max_instructions else [])
     env = dict(os.environ)
+    if frame:
+        env["LOCKSTEP_FRAME"] = frame
     if wav:
         env["LOCKSTEP_WAV"] = wav
     if realtime:

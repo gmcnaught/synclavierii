@@ -12,6 +12,14 @@
 // must match; register snapshots (and, for the system, simulated time)
 // are compared every 256 instructions.
 //
+//   board_top (-DBOARD): the MiSTer core (synclavier_core) from power-on.
+//     Nothing is loaded: the bench plays the HPS (the trace's floppies as
+//     mounted SD images) and DDR3; the core's boot loader boots MONITOR
+//     from F0; the state it leaves must equal the trace's start (memory,
+//     external memory, registers), then the run is compared as for the
+//     system. At the end the screen is printed (and LOCKSTEP_FRAME=path
+//     writes one video frame as a PGM).
+//
 // Usage: V<top> TRACE [max_instructions]
 // Exit 0 on full agreement, 1 on the first mismatch (with context).
 
@@ -25,9 +33,20 @@
 #include <vector>
 
 #include "verilated.h"
-#ifdef SYSTEM
+#if defined(BOARD)
+#include "Vboard_top.h"
+#include "Vboard_top___024root.h"
+#include "Vboard_top_able_system.h"         // able_system's memory is public
+#include "Vboard_top_board_top.h"
+#include "Vboard_top_synclavier_core.h"
+#include "Vboard_top_dev_fm.h"               // and the FM interface's wave memory
+typedef Vboard_top Top;
+#define SYSTEM_DEVICES 1
+static const uint16_t INTERNAL_IRQ = 0400 | 0100;   // D3, D50/D51 (D100 has none)
+#elif defined(SYSTEM)
 #include "Vable_sys_top.h"
 typedef Vable_sys_top Top;
+#define SYSTEM_DEVICES 1
 static const uint16_t INTERNAL_IRQ = 0400 | 0100;   // D3, D50/D51 (D100 has none)
 #else
 #include "Vable_sim_top.h"
@@ -73,6 +92,223 @@ uint16_t reg(int i) { return (top->regs_flat[i / 2] >> ((i & 1) * 16)) & 0xFFFF;
     std::exit(1);
 }
 
+
+#ifdef BOARD
+// ---------------------------------------------------------------- board
+// HPS side of hps_io's SD block interface: one 512-byte block per request.
+struct SdModel {
+    std::vector<uint8_t> img[2];
+    bool present[2] = {false, false}, prot[2] = {false, false};
+    int drive = -1, phase = 0, wait = 0, i = 0;
+    bool writing = false;
+    uint64_t reads = 0, writes = 0;
+    void step(Top* top) {
+        top->sd_buff_wr = 0;
+        if (wait > 0) { wait--; return; }
+        switch (phase) {
+        case 0:                                    // idle: pick a request
+            for (int d = 0; d < 2; d++)
+                if ((top->sd_rd | top->sd_wr) >> d & 1) {
+                    drive = d; writing = top->sd_wr >> d & 1;
+                    phase = 1; wait = 40; return;
+                }
+            return;
+        case 1:
+            top->sd_ack = 1 << drive; top->sd_buff_addr = 0; i = 0;
+            phase = writing ? 3 : 2; wait = 4; return;
+        case 2: {                                  // block -> FPGA
+            uint32_t lba = drive ? top->sd_lba1 : top->sd_lba0;
+            size_t off = (size_t)lba * 512 + i;
+            top->sd_buff_addr = i;
+            top->sd_buff_dout = off < img[drive].size() ? img[drive][off] : 0;
+            top->sd_buff_wr = 1;
+            wait = 3;
+            if (++i == 512) { phase = 4; reads++; }
+            return; }
+        case 3: {                                  // block <- FPGA
+            top->sd_buff_addr = i; phase = 5; wait = 3; return; }
+        case 5: {
+            uint32_t lba = drive ? top->sd_lba1 : top->sd_lba0;
+            size_t off = (size_t)lba * 512 + i;
+            if (off < img[drive].size()) img[drive][off] = top->sd_buff_din;
+            if (++i == 512) { phase = 4; writes++; } else phase = 3;
+            return; }
+        case 4:
+            top->sd_ack = 0; phase = 0; wait = 8; return;
+        }
+    }
+} sd;
+
+// DDR3 behind DDRAM_*: Avalon-MM, burst 1, BUSY now and then, reads
+// answered after a latency.
+struct DdrModel {
+    std::vector<uint64_t> mem;
+    uint32_t base = 0x30000000u >> 3;
+    std::deque<std::pair<int, uint64_t>> reads;    // (cycles left, data)
+    uint64_t n = 0;
+    void step(Top* top) {
+        n++;
+        top->DDRAM_DOUT_READY = 0;
+        if (!reads.empty() && --reads.front().first <= 0) {
+            top->DDRAM_DOUT = reads.front().second;
+            top->DDRAM_DOUT_READY = 1;
+            reads.pop_front();
+        }
+        top->DDRAM_BUSY = (n % 7) == 3;            // accepted on a clock with BUSY low
+        if (top->DDRAM_BUSY) return;
+        uint32_t a = top->DDRAM_ADDR - base;
+        if ((top->DDRAM_RD || top->DDRAM_WE) && a >= mem.size()) {
+            std::fprintf(stderr, "DDR3 access outside the model: %08x\n", top->DDRAM_ADDR << 3);
+            std::exit(1);
+        }
+        if (top->DDRAM_WE) {
+            uint64_t m = 0;
+            for (int b = 0; b < 8; b++) if (top->DDRAM_BE >> b & 1) m |= 0xFFull << (8 * b);
+            mem[a] = (mem[a] & ~m) | (top->DDRAM_DIN & m);
+        }
+        if (top->DDRAM_RD) reads.emplace_back(12, mem[a]);
+    }
+    uint16_t word(uint32_t w) const { return mem[w >> 2] >> (16 * (w & 3)) & 0xFFFF; }
+} ddr;
+
+void models() {
+    if (top->rst_hard) return;                     // HPS and DDR3 idle in reset
+    sd.step(top); ddr.step(top);
+}
+
+void board_tick() {
+    top->clk = 0; top->eval();
+    models(); top->eval();
+    top->clk = 1; top->eval();
+    cycles++;
+}
+
+// Power-on, mount the trace's floppies, let the boot loader run; compare the
+// state it leaves with the trace's start state.
+void board_start(Trace& t, bool& audio_trace) {
+    uint16_t want_regs[16];
+    for (int i = 0; i < 16; i++) want_regs[i] = t.u16();
+    uint8_t want_flags = t.u8();
+    std::vector<uint16_t> want_mem(65536), want_xm;
+    for (auto& w : want_mem) w = t.u16();
+    for (;;) {
+        uint8_t k = t.u8();
+        if (k == 'B') break;
+        if (k == 'X') {
+            uint32_t sectors = t.u32();
+            if (sectors != 1024) { std::fprintf(stderr, "board: external memory must be 1024 sectors\n"); std::exit(2); }
+            want_xm.resize(sectors * 256);
+            for (auto& w : want_xm) w = t.u16();
+            ddr.mem.assign(sectors * 256 / 4, 0x5A5A5A5A5A5A5A5Aull);   // not zero: the loader clears it
+        } else if (k == 'F') {
+            uint8_t drive = t.u8(); uint16_t sectors = t.u16();
+            uint8_t spt = t.u8(), sides = t.u8(), prot = t.u8();
+            if (spt != 5 || sides != 1) { std::fprintf(stderr, "board: floppies are 5 sectors x 1 side\n"); std::exit(2); }
+            sd.present[drive] = true; sd.prot[drive] = prot;
+            for (uint32_t a = 0; a < (uint32_t)sectors * 256; a++) {
+                uint16_t w = t.u16();
+                sd.img[drive].push_back(w >> 8); sd.img[drive].push_back(w & 0xFF);
+            }
+        } else if (k == 'O') {
+            t.p += 8 + 2 + 1 + 16 * 4;
+            audio_trace = true;
+        } else if (k == 'V') {
+            t.p += 1 + 2 + 4;                      // fresh device state: boot_defaults.svh
+        } else { std::fprintf(stderr, "bad header section '%c'\n", k); std::exit(2); }
+    }
+    top->rst_hard = 1; top->rst = 1; top->rt_enable = 0;
+    top->dev_ack = top->dev_nosyn = top->dev_hold = top->halt_req = 0;
+    top->dev_irq = 0; top->ps2_key = 0; top->img_mounted = 0;
+    top->sd_ack = 0; top->sd_buff_wr = 0; top->DDRAM_BUSY = 0; top->DDRAM_DOUT_READY = 0;
+    for (int i = 0; i < 8; i++) board_tick();
+    top->rst_hard = 0;
+    for (int d = 0; d < 2; d++) if (sd.present[d]) {    // the HPS mounts the images
+        top->img_mounted = 1 << d; top->img_size = sd.img[d].size(); top->img_readonly = sd.prot[d];
+        board_tick();
+        top->img_mounted = 0;
+        board_tick();
+    }
+    for (int i = 0; i < 8; i++) board_tick();
+    top->rst = 0;
+    uint64_t boot_cycles = 0;
+    while (top->booting) {
+        board_tick();
+        if (top->boot_error) { std::fprintf(stderr, "board: boot loader failed\n"); std::exit(1); }
+        if (++boot_cycles > 200'000'000) { std::fprintf(stderr, "board: boot loader stuck\n"); std::exit(1); }
+    }
+    // compare with the trace's start state
+    auto& mem = top->rootp->board_top->core->sys->mem;
+    int bad = 0;
+    for (int a = 0; a < 65536; a++)
+        if (mem[a] != want_mem[a] && bad++ < 8)
+            std::fprintf(stderr, "board: memory %06o = %06o, Python %06o\n", a, mem[a], want_mem[a]);
+    auto& wave = top->rootp->board_top->core->sys->fm->wave;
+    for (int a = 0; a < 8192; a++)
+        if (wave[a] != 0 && bad++ < 12)
+            std::fprintf(stderr, "board: wave memory %d = %d, Python 0\n", a, wave[a]);
+    for (size_t a = 0; a < want_xm.size(); a++)
+        if (ddr.word(a) != want_xm[a] && bad++ < 16)
+            std::fprintf(stderr, "board: external word %zu = %06o, Python %06o\n", a, ddr.word(a), want_xm[a]);
+    top->clk = 0; top->eval();
+    for (int i = 0; i < 16; i++)
+        if (reg(i) != want_regs[i] && bad++ < 24)
+            std::fprintf(stderr, "board: R%o = %06o, Python %06o\n", i, reg(i), want_regs[i]);
+    if (top->flags != want_flags && bad++ < 25)
+        std::fprintf(stderr, "board: flags %02o, Python %02o\n", top->flags, want_flags);
+    if (bad) { std::fprintf(stderr, "board: boot state differs (%d)\n", bad); std::exit(1); }
+    std::printf("board: boot loader done in %llu clocks (%llu SD reads); state matches\n",
+                (unsigned long long)boot_cycles, (unsigned long long)sd.reads);
+}
+
+// The text on the screen (through the display's peek port), then one frame.
+void board_screen() {
+    std::vector<std::string> rows;
+    for (int r = 0; r < 24; r++) {
+        std::string line;
+        for (int c = 0; c < 80; c++) {
+            top->peek_addr = (((top->top_row + r) % 24) << 7) | c;
+            board_tick(); board_tick();
+            uint8_t ch = top->peek_data;
+            line.push_back(ch >= 32 && ch < 127 ? (char)ch : '?');
+        }
+        while (!line.empty() && line.back() == ' ') line.pop_back();
+        rows.push_back(line);
+    }
+    std::printf("screen:\n");
+    for (auto& l : rows) std::printf("|%s\n", l.c_str());
+    if (const char* path = std::getenv("LOCKSTEP_FRAME")) {
+        // wait for a vertical blank to end, then take 640 x 480 pixels
+        uint64_t guard = 0;
+        while (!top->vga_vblank && guard++ < 4'000'000) board_tick();
+        while (top->vga_vblank && guard++ < 4'000'000) board_tick();
+        std::vector<uint8_t> px;
+        int x = 0, lines = 0, width = -1;
+        bool in_line = false;
+        while (guard++ < 4'000'000) {
+            top->clk = 0; top->eval();
+            models(); top->eval();
+            if (top->ce_pix) {
+                if (top->vga_vblank) break;
+                if (!top->vga_hblank) { px.push_back(top->vga_g); x++; in_line = true; }
+                else if (in_line) {
+                    if (width < 0) width = x;
+                    if (x != width) { std::fprintf(stderr, "board: line %d has %d pixels\n", lines, x); std::exit(1); }
+                    lines++; x = 0; in_line = false;
+                }
+            }
+            top->clk = 1; top->eval();
+            cycles++;
+        }
+        FILE* f = std::fopen(path, "wb");
+        if (!f) { std::perror(path); std::exit(2); }
+        std::fprintf(f, "P5\n%d %d\n255\n", width, lines);
+        std::fwrite(px.data(), 1, (size_t)width * lines, f);
+        std::fclose(f);
+        std::printf("frame: %d x %d -> %s\n", width, lines, path);
+    }
+}
+#endif
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -91,7 +327,17 @@ int main(int argc, char** argv) {
     }
     t.p = 8;
 
+#ifdef BOARD
+    // power up with random contents everywhere (registers and memories), as
+    // after a user reset on the board: the boot loader must set all of it
+    Verilated::randReset(2);
+#endif
     top = new Top;
+#ifdef BOARD
+    bool realtime = false, audio_trace = false;
+    board_start(t, audio_trace);
+    cycles = 0;
+#else
     top->rst = 1;
 #ifdef SYSTEM
     // LOCKSTEP_REALTIME=1: run with the throttle on; behaviour must not
@@ -187,6 +433,7 @@ int main(int argc, char** argv) {
     tick();
     top->rst = 0;
     cycles = 0;
+#endif
 
     uint64_t n = 0, time_ns = 0;
     uint32_t held = 0;                 // held-read clocks in the current read
@@ -197,7 +444,7 @@ int main(int argc, char** argv) {
     uint64_t samples = 0;
     std::vector<int16_t> pcm;          // 48 kHz stereo from audio_out (LOCKSTEP_WAV)
     char buf[64];
-#ifdef SYSTEM
+#ifdef SYSTEM_DEVICES
     auto audio_check = [&](uint64_t at) {
         if (audio_trace && top->pcm_valid) {
             pcm.push_back((int16_t)top->pcm_l);
@@ -223,17 +470,20 @@ int main(int argc, char** argv) {
 
     while (n < max_n) {
         top->clk = 0; top->eval();               // outputs for the current state
+#ifdef BOARD
+        models();
+#endif
         while (t.peek() == 'A') {                // expected audio, in order
             t.u8();
             int64_t l = (int64_t)t.u64(), r = (int64_t)t.u64();
             want_audio.emplace_back(l, r);
         }
-#ifdef SYSTEM
+#ifdef SYSTEM_DEVICES
         audio_check(n);
 #endif
         top->dev_ack = top->dev_nosyn = top->dev_hold = 0;
         top->dev_irq = 0;
-#ifdef SYSTEM
+#ifdef SYSTEM_DEVICES
         top->term_rx_valid = 0;
 #endif
 
@@ -241,7 +491,7 @@ int main(int argc, char** argv) {
             for (int i = 0; i < 16; i++)
                 if (reg(i) != snap[i]) fail(n, "R%o = %06o, Python %06o", i, reg(i), snap[i]);
             if (top->flags != snap_flags) fail(n, "flags %02o, Python %02o", top->flags, snap_flags);
-#ifdef SYSTEM
+#ifdef SYSTEM_DEVICES
             if (time_ns != snap_time)
                 fail(n, "time %llu ns, Python %llu ns", (unsigned long long)time_ns,
                      (unsigned long long)snap_time);
@@ -259,7 +509,7 @@ int main(int argc, char** argv) {
         }
         if (t.peek() == 'E') break;
 
-#ifdef SYSTEM
+#ifdef SYSTEM_DEVICES
         top->kb_host_we = 0;
         if (t.peek() == 'K') {                   // host key/button change
             t.u8();
@@ -282,7 +532,7 @@ int main(int argc, char** argv) {
                 if (waits) held = (uint32_t)-1;          // +1 at this edge -> 0
             }
         }
-#ifdef SYSTEM
+#ifdef SYSTEM_DEVICES
         if (!rx.empty()) { top->term_rx_valid = 1; top->term_rx_data = rx.front(); rx.pop_front(); }
 #else
         rx.clear();
@@ -327,7 +577,7 @@ int main(int argc, char** argv) {
             if (dev != top->mon_dev || v != top->mon_data)
                 fail(n, "HDL %s D%o = %06o, Python D%o = %06o", top->mon_wr ? "writes" : "reads",
                      top->mon_dev, top->mon_data, dev, v);
-#ifdef SYSTEM
+#ifdef SYSTEM_DEVICES
             if (!top->mon_wr && w != held)
                 fail(n, "read of D%o held %u clocks, Python %u steps", dev, held, w);
 #else
@@ -370,11 +620,14 @@ int main(int argc, char** argv) {
         if (cycles > 64 * (n + 1000) + 64ull * held + time_ns / 10 || held > 10'000'000)
             fail(n, "HDL stuck (state does not advance)");
     }
-#ifdef SYSTEM
+#ifdef SYSTEM_DEVICES
     // the last samples finish mixing a few clocks after the trace ends
     for (int i = 0; i < 64; i++) {                 // (the engine runs on after a halt)
         top->dev_ack = top->dev_nosyn = top->dev_hold = 0;
         top->clk = 0; top->eval();
+#ifdef BOARD
+        models(); top->eval();
+#endif
         audio_check(~0ull);
         top->clk = 1; top->eval();
     }
@@ -393,12 +646,15 @@ int main(int argc, char** argv) {
         std::fclose(w);
     }
 #endif
-#ifdef SYSTEM
+#ifdef SYSTEM_DEVICES
     if (realtime) {
         double real = cycles * 20.0, drift = (double)time_ns - real;
         std::printf("real time %.0f ns, simulated - real = %.0f ns\n", real, drift);
         if (drift > 2000 || drift < -20000) fail(n, "throttle drift %.0f ns", drift);
     }
+#endif
+#ifdef BOARD
+    board_screen();
 #endif
     std::printf("lockstep OK: %llu instructions, %llu cycles, %llu ns simulated",
                 (unsigned long long)n, (unsigned long long)cycles, (unsigned long long)time_ns);

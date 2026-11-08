@@ -16,6 +16,10 @@ Format (worked out from the Release L image and hansliss/syncextract):
 Usage:
   ned_disk.py IMAGE                     # list everything
   ned_disk.py IMAGE --extract OUTDIR    # extract (files get the exact word length)
+  ned_disk.py IMAGE --floppy NAME OUT   # write floppy NAME (a type-7 sub-catalog,
+                                        # e.g. 03-SYSTD) as a floppy image for the
+                                        # MiSTer core: its sectors from the catalog
+                                        # on, 512 bytes each, words big-endian
 
 Treat images as untrusted data: names are sanitised and output is confined
 to OUTDIR.
@@ -82,8 +86,18 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("image")
     ap.add_argument("--extract", metavar="OUTDIR")
+    ap.add_argument("--floppy", nargs=2, metavar=("NAME", "OUT"))
     a = ap.parse_args()
     W = load(a.image)
+    if a.floppy:
+        name, out = a.floppy
+        for p, typ, start, length, words in walk(W):
+            if p == "/" + name.strip("/") and typ == 7:
+                fw = W[start * SECTOR_WORDS:(start + length) * SECTOR_WORDS]
+                open(out, "wb").write(struct.pack(">%dH" % len(fw), *fw))
+                print("%s: %d sectors -> %s" % (name, length, out))
+                return
+        raise SystemExit("no floppy (type-7 sub-catalog) named %s" % name)
     for p, typ, start, length, words in walk(W):
         print("%-30s %-11s start=%6d sectors=%4d words=%06o" % (p, TYPES.get(typ, str(typ)), start, length, words))
         if a.extract and typ not in (6, 7):

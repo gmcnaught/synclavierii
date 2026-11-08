@@ -2,7 +2,10 @@
 
 M4 builds the core in SystemVerilog. Status: the **ABLE Model B CPU**
 (`hdl/able_cpu.sv`, M4.2) runs in **lockstep** with the Python simulator
-(M4.3) on random programs and on Release L's MONITOR and ORK-LM.
+(M4.3) on random programs and on Release L's MONITOR and ORK-LM. The
+**system** (`hdl/able_system.sv`) adds the first HDL devices (D3, D4567,
+D50/D51, D60–D63), which also agree value for value and nanosecond for
+nanosecond of simulated time.
 
 ## CPU (`hdl/able_cpu.sv`)
 
@@ -14,19 +17,29 @@ Behavioural, multi-cycle, one instruction per pass through:
 | DECODE | instruction word from memory; PC + 1; immediate/register source (with post-increment); memory address for a memory source | 1 |
 | SRCMEM / SRCIO | memory source data; or I/O read held until SYN (`io_ack`); or PSW read | 1 / 1 + wait |
 | EXEC | destination: ALU, test, shift, register, transfer, memory write, I/O write (held until SYN), PCW | 1 + wait |
+| TICK | `tick` strobe: devices advance by the instruction's time | 1 |
 | END | `HALT` request; interrupt entry (ION and PCS set and any request bit: ION = 0, PCS = 0) | 1 |
 
-About 4.5 clocks per instruction (random code: 4.50, ORK-LM: 4.46). The
-real Model B takes about 1 µs (plan §3); the core will need a throttle to
-keep real-time code on time (risk R3).
+About 5.5 clocks per instruction (ORK-LM: 5.62).
+
+**Time.** As `sim/cpu.py`: an instruction costs 333 ns per bus transfer
+(fetch; source unless immediate; destination unless a transfer not
+taken), and a read the device holds (`io_hold`, Python's `BUS_WAIT`)
+costs 333 ns per clock held. Devices count this simulated time, not
+clocks, so they behave exactly as the Python devices. TICK comes before
+END so that the interrupt check sees the devices after the instruction's
+time, as Python ticks the bus before its check. On the board a throttle
+will hold the CPU to real time at this rate (risk R3).
 
 Interfaces:
 
 * Memory: 16-bit address, synchronous read (data the cycle after the
   address), synchronous write. Fits block RAM.
 * I/O bus: `io_rd`/`io_wr` with `io_dev` (000–177) are held until the
-  device answers `io_ack` (SYN) or `io_nosyn` (no device: the CPU halts,
-  `halt_reason` 1/2, as the real machine hangs). Device 001 (PSW/PCW) is
+  device answers `io_ack` (SYN), `io_nosyn` (no device: the CPU halts,
+  `halt_reason` 1/2, as the real machine hangs) or keeps `io_hold` (not
+  ready; simulated time runs). Waiting without `io_hold` (a RAM or the
+  divider being slow) costs no simulated time. Device 001 (PSW/PCW) is
   inside the CPU; `irq[15:4]` are the device request bits.
 * `halt_req`: stop after the current instruction (`halt_reason` 3).
 * Debug: register/flag load during reset; `regs_flat`, `flags`,
@@ -54,14 +67,34 @@ same state and compares, instruction by instruction:
    checks, and compares every (pc, word) and snapshot. It stops at the
    first difference with the last 16 instructions and the HDL registers.
 
-So the HDL CPU runs real code without HDL devices; the devices come later
-and get their own checks.
+So the HDL CPU runs real code without HDL devices.
+
+## System (`hdl/able_system.sv`, `hdl/dev/`)
+
+CPU, 64K words of block RAM, and the devices ported so far; every other
+device number goes out on a `dev_*` port.
+
+| Device | Module | Notes |
+|---|---|---|
+| D3 real-time clock | `dev_rtc.sv` | 5 ms in simulated time; PSW bit 8 |
+| D4–D7 multiply/divide | `dev_muldiv.sv` | multiply in one clock; 32/16 divide in 32 clocks (CPU waits, no simulated time); D6/D7 reads: no SYN |
+| D50/D51 terminal | `dev_terminal.sv` | character time from the baud rate in simulated time; input FIFO from the host, received as eagerly as Python does; D50 read held until a character; PSW bit 6 |
+| D60–D63 external memory | `dev_extmem.sv` | words in an external RAM (`xm_*` request/ack port: SDRAM on the board, an array in simulation); beyond the installed size reads 177777 |
+
+The system lockstep top (`hdl/sim/able_sys_top.sv`, `--top system`)
+compares these devices' read values, interrupt bits, held-read lengths
+and the simulated time at every snapshot; floppy, keyboard and FM
+accesses are still answered from the trace. The trace carries the
+external memory contents, the devices' state at the start (so a trace can
+start in the middle of a run, as ORK-LM's does) and terminal input with
+the held-read step at which it arrived.
 
 ```bash
 python3 -m sim.lockstep random out/r.trace --instructions 3000 --seed 5
 python3 -m sim.lockstep monitor IMAGE.simg out/mon.trace     # boot + CATALOG
 python3 -m sim.lockstep ork-lm IMAGE.simg out/ork.trace --instructions 6000000
-python3 -m sim.lockstep check out/mon.trace                  # builds out/hdl-lockstep/ first
+python3 -m sim.lockstep check out/mon.trace                  # CPU top (builds out/hdl-lockstep/)
+python3 -m sim.lockstep check out/mon.trace --top system     # CPU + HDL devices
 ```
 
 Results:
@@ -71,16 +104,24 @@ Results:
 | 300 random programs (3,000 instructions each; random device data, half edge values; random interrupt requests) | 900,000 | agree; all 256 source and 256 destination codes executed; 1,263 interrupt entries |
 | MONITOR: cold boot from `03-SYSTD`, `CATALOG` of `18-UTILS` | 1,363,060 | agree |
 | ORK-LM: loader, start-up, welcome screen, main loop with RTC interrupts | 6,000,000 | agree |
+| System top: MONITOR boot + `CATALOG` (typed while D50 is held) | 1,363,060 | agree, 1.043 s simulated |
+| System top: ORK-LM, device state loaded mid-run | 6,000,000 | agree, 4.806 s simulated |
+| System top: device test program (multiply, divide with quotients over 16 bits, external memory across sectors and past the end, terminal output, held D50 read with input, RTC and terminal interrupts, D6 read halts) | 36,934 | agree |
 
 The check is sensitive: each of these single changes to the HDL makes
 random runs fail (8–27 of 40 seeds): SUB carry with `>` instead of `≥`,
 RTL carry from bit 14, SHRA carry from the result, PCS = 0 not clearing
 ION; and post-increment of the PC register without the fetch increment
 (36 of 40). (Reading ION instead of ION ∧ PCS in the PSW is equivalent:
-PCS = 0 always clears ION.)
+PCS = 0 always clears ION.) Device faults are caught the same way: RTC
+period + 333 ns, D5 write not clearing D4, quotient high word dropped,
+no sector carry on D63, no 177777 past the end, XMIT_IRQ never set,
+9600-baud character time 1.000 ms instead of 1.042 ms. Faults of 1 ns in
+the character time survive: they change nothing at 333 ns resolution.
 
-`tests/hdl/test_lockstep.py` runs 60 random programs, and MONITOR's boot
-when `SYNCLAVIER_RELEASE_L` is set; it is skipped without Verilator. CI
+`tests/hdl/test_lockstep.py` runs 60 random programs and the device test
+program on the system top, and MONITOR's boot on both tops when
+`SYNCLAVIER_RELEASE_L` is set; it is skipped without Verilator. CI
 installs Verilator.
 
 ## Next (M4)
@@ -88,7 +129,8 @@ installs Verilator.
 | # | Task | Status |
 |---|---|---|
 | 4.1 | Framework: plain MiSTer template vs JTFRAME (decision D4) | open |
-| 4.4 | Memory: internal in BRAM; external (D60–D63) in SDRAM/DDR | open |
-| 4.5 | Terminal (D50/D51) | open |
+| 4.4 | Memory: internal in BRAM; external (D60–D63) in SDRAM/DDR | HDL done, lockstep-checked; SDRAM controller open |
+| 4.5 | Terminal (D50/D51) | device done, lockstep-checked; host side (character display or UART) open |
+| — | D3, D4567 | done, lockstep-checked |
 | 4.6 | Disk images from SD (D100 floppy) | open |
 | — | Synthesis and timing (Quartus) | needs Quartus (not installed here) |

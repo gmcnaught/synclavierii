@@ -1,0 +1,161 @@
+// ABLE system (M4.4/M4.5): CPU, 64K words of internal memory, and the
+// devices ported to HDL so far:
+//   D3 real-time clock, D4-D7 multiply/divide, D50/D51 terminal,
+//   D60-D63 external memory (words in an external RAM behind xm_*).
+// Every other device number goes out on the dev_* port (floppy, keyboard,
+// FM interface: still in Python; the lockstep bench replays them).
+//
+// Device time is the CPU's simulated time (333 ns per bus transfer, see
+// able_cpu.sv), so device behaviour matches sim/devices/ exactly. On the
+// board a throttle will hold the CPU to that time (risk R3).
+module able_system #(
+    parameter logic [15:0] TERMINAL_BITS = 16'o001000
+) (
+    input  logic        clk,
+    input  logic        rst,
+
+    // devices outside this module
+    output logic        dev_rd,
+    output logic        dev_wr,
+    output logic [6:0]  dev_num,
+    output logic [15:0] dev_wdata,
+    input  logic [15:0] dev_rdata,
+    input  logic        dev_ack,
+    input  logic        dev_nosyn,
+    input  logic        dev_hold,
+    input  logic [15:4] dev_irq,
+
+    // external memory RAM (D60-D63)
+    input  logic [16:0] ext_sectors,
+    output logic [23:0] xm_addr,
+    output logic        xm_rd,
+    output logic        xm_wr,
+    output logic [15:0] xm_wdata,
+    input  logic [15:0] xm_rdata,
+    input  logic        xm_ack,
+
+    // terminal, host side
+    input  logic        term_rx_valid,
+    input  logic [7:0]  term_rx_data,
+    output logic        term_tx_valid,
+    output logic [7:0]  term_tx_data,
+
+    input  logic        halt_req,
+    output logic        halted,
+    output logic [1:0]  halt_reason,
+
+    // simulation/debug: loads while in reset, observation
+    input  logic        ld_mem_we,
+    input  logic [15:0] ld_mem_addr,
+    input  logic [15:0] ld_mem_data,
+    input  logic        dbg_we,
+    input  logic [4:0]  dbg_addr,
+    input  logic [15:0] dbg_wdata,
+    input  logic        ld_dev_we,         // device state: ld_dev_sel 0 rtc,
+    input  logic [1:0]  ld_dev_sel,        // 1 muldiv, 2 extmem, 3 terminal
+    input  logic [3:0]  ld_dev_addr,
+    input  logic [31:0] ld_dev_data,
+    output logic        instr_done,
+    output logic [15:0] instr_pc,
+    output logic [15:0] instr_word,
+    output logic [255:0] regs_flat,
+    output logic [4:0]  flags,
+    output logic        irq_sample,
+    output logic        irq_psw,
+    output logic [15:4] irq_all,
+    output logic        io_held,
+    output logic        tick,
+    output logic [9:0]  tick_ns,
+    output logic        mon_valid,         // an I/O transfer completes this clock
+    output logic        mon_wr,
+    output logic [6:0]  mon_dev,
+    output logic [15:0] mon_data
+);
+    // ------------------------------------------------------------ memory
+    logic [15:0] mem [65536];
+    logic [15:0] mem_addr, mem_wdata, mem_rdata;
+    logic        mem_we;
+    always_ff @(posedge clk) begin
+        if (rst && ld_mem_we) mem[ld_mem_addr] <= ld_mem_data;
+        else if (mem_we) mem[mem_addr] <= mem_wdata;
+        mem_rdata <= mem[mem_addr];
+    end
+
+    // --------------------------------------------------------------- CPU
+    logic        io_rd, io_wr, io_ack, io_nosyn, io_hold;
+    logic [6:0]  io_dev;
+    logic [15:0] io_wdata, io_rdata;
+    logic [15:4] irq;
+
+    able_cpu cpu (
+        .clk, .rst,
+        .mem_addr, .mem_we, .mem_wdata, .mem_rdata,
+        .io_rd, .io_wr, .io_dev, .io_wdata, .io_rdata, .io_ack, .io_nosyn, .io_hold,
+        .io_held, .tick, .tick_ns,
+        .irq, .irq_sample, .irq_psw,
+        .halt_req, .halted, .halt_reason,
+        .instr_done, .instr_pc, .instr_word,
+        .dbg_we, .dbg_addr, .dbg_wdata, .regs_flat, .flags
+    );
+
+    // ----------------------------------------------------------- devices
+    wire io = io_rd || io_wr;
+    wire sel_rtc  = io && io_dev == 7'o003;
+    wire sel_md   = io && io_dev[6:2] == 5'b00001;            // 004-007
+    wire sel_term = io && io_dev[6:1] == 6'b010100;           // 050-051
+    wire sel_xm   = io && io_dev[6:2] == 5'b01100;            // 060-063
+    wire sel_ext  = io && !(sel_rtc || sel_md || sel_term || sel_xm);
+
+    logic [15:0] rtc_rdata, md_rdata, term_rdata, xm_rdata_cpu;
+    logic        rtc_irq, md_ack, md_nosyn, term_ack, term_hold, term_irq, xm_cpu_ack;
+
+    dev_rtc rtc (
+        .clk, .rst, .acc(sel_rtc), .wr(io_wr), .rdata(rtc_rdata),
+        .tick, .tick_ns, .irq(rtc_irq),
+        .ld_we(ld_dev_we && ld_dev_sel == 2'd0), .ld_addr(ld_dev_addr), .ld_data(ld_dev_data)
+    );
+    dev_muldiv muldiv (
+        .clk, .rst, .sel(sel_md), .rd(io_rd), .wr(io_wr), .reg_sel(io_dev[1:0]),
+        .wdata(io_wdata), .rdata(md_rdata), .ack(md_ack), .nosyn(md_nosyn),
+        .ld_we(ld_dev_we && ld_dev_sel == 2'd1), .ld_addr(ld_dev_addr), .ld_data(ld_dev_data)
+    );
+    dev_extmem extmem (
+        .clk, .rst, .sel(sel_xm), .rd(io_rd), .wr(io_wr), .reg_sel(io_dev[1:0]),
+        .wdata(io_wdata), .rdata(xm_rdata_cpu), .ack(xm_cpu_ack), .sectors(ext_sectors),
+        .xm_addr, .xm_rd, .xm_wr, .xm_wdata, .xm_rdata, .xm_ack,
+        .ld_we(ld_dev_we && ld_dev_sel == 2'd2), .ld_addr(ld_dev_addr), .ld_data(ld_dev_data)
+    );
+    dev_terminal #(.DEVICE_BITS(TERMINAL_BITS)) terminal (
+        .clk, .rst, .sel(sel_term), .rd(io_rd), .wr(io_wr), .reg_sel(io_dev[0]),
+        .wdata(io_wdata), .rdata(term_rdata), .ack(term_ack), .hold(term_hold),
+        .tick, .tick_ns, .irq(term_irq),
+        .host_rx_valid(term_rx_valid), .host_rx_data(term_rx_data),
+        .host_tx_valid(term_tx_valid), .host_tx_data(term_tx_data),
+        .ld_we(ld_dev_we && ld_dev_sel == 2'd3), .ld_addr(ld_dev_addr), .ld_data(ld_dev_data)
+    );
+
+    assign dev_rd    = sel_ext && io_rd;
+    assign dev_wr    = sel_ext && io_wr;
+    assign dev_num   = io_dev;
+    assign dev_wdata = io_wdata;
+
+    always_comb begin
+        io_rdata = dev_rdata;
+        io_ack   = sel_ext && dev_ack;
+        io_nosyn = sel_ext && dev_nosyn;
+        io_hold  = sel_ext && dev_hold;
+        if (sel_rtc)  begin io_rdata = rtc_rdata;    io_ack = 1'b1;       end
+        if (sel_md)   begin io_rdata = md_rdata;     io_ack = md_ack;     io_nosyn = md_nosyn; end
+        if (sel_term) begin io_rdata = term_rdata;   io_ack = term_ack;   io_hold = term_hold; end
+        if (sel_xm)   begin io_rdata = xm_rdata_cpu; io_ack = xm_cpu_ack; end
+    end
+
+    // PSW bits 8 (D3) and 6 (D50/D51); bits of devices outside from dev_irq
+    assign irq = dev_irq | {7'd0, rtc_irq, 1'b0, term_irq, 2'd0};    // bits 15-4
+    assign irq_all = irq;
+
+    assign mon_valid = io && io_ack && !io_nosyn;
+    assign mon_wr    = io_wr;
+    assign mon_dev   = io_dev;
+    assign mon_data  = io_wr ? io_wdata : io_rdata;
+endmodule

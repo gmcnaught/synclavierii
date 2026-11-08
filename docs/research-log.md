@@ -416,6 +416,11 @@ Details in [`timbre-libraries.md`](timbre-libraries.md).
   `CATALOG` (1,363,060 instructions), ORK-LM start-up and main loop
   (6,000,000). Single-bit HDL mutations (carry rules, ION clearing, PC
   post-increment) are caught. [`hdl.md`](hdl.md).
+* HDL devices D3, D4567, D50/D51, D60–D63 (`hdl/able_system.sv`) count the
+  CPU's simulated time (333 ns per transfer, ticked before the interrupt
+  check), so they agree with the Python devices exactly: MONITOR boot +
+  `CATALOG` with input typed during a held D50 read, ORK-LM from a mid-run
+  device state (6M instructions, 4.806 s), and a device test program.
 
 ## Searched without useful results
 

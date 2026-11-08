@@ -57,7 +57,8 @@ sim/                         software simulator (M1-M3): Model B CPU, devices, t
   lockstep.py                traces for checking the HDL CPU against the simulator
   devices/                   D60-D63 external memory, D50/D51 terminal, D3 clock, D4567,
                              D100 floppy, D130/D131 keyboard, D160-D165 FM interface
-hdl/                         FPGA core (M4): able_cpu.sv; sim/ Verilator lockstep bench
+hdl/                         FPGA core (M4): able_cpu.sv, able_system.sv, dev/ (D3, D4567,
+                             D50/D51, D60-D63); sim/ Verilator lockstep benches
 tools/
   able_disasm.py             ABLE disassembler (NED syntax, Model C aware)
   ned_disk.py                NED .simg catalog lister / extractor

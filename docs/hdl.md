@@ -252,6 +252,7 @@ requires the same text.
 | `panel_mouse_tb.sv`: pointer movement and clamping, press/drag/release on a label, click outside the buttons | as expected (3 seeded faults caught) |
 | ORK-LM from a state image (taken in its main loop, 8 s after start): boot loader loads it from S2 (2,329 SD blocks); state equals the trace start; timbre recall + C4 for 0.5 s | 5,000,000 instructions and 804,572 audio samples identical; panel lights and the display's segment codes as Python's model (`Bk1`, `Tb1` lit; display `000 100 200 001`) |
 | `term_display_tb.sv` (one clock per pixel, as on MiSTer): frame read back with the font: terminal text, display `1234` with the decimal point, three lit buttons inverted, pointer | as expected (3 seeded faults caught) |
+| `audio_fifo_tb.sv`: jittered input played in order at a steady rate; a stall = one underrun, last sample held; restart at half full | as expected (3 seeded faults caught) |
 | `midi_in_tb.sv`: running status, note-on velocity 0, real-time byte inside a message, octave folding, all notes off, channel-16 panel buttons, SysEx skipped, program-change timing | as expected (4 seeded faults caught) |
 
 Each of these faults is caught: processor type left as Model C, wrong
@@ -262,7 +263,8 @@ glyph pixel off by one, LF ignored.
 ### Quartus build
 
 `mister/build.sh` compiles `mister/Synclavier.qpf` with Quartus Lite 17.0
-and fails on a failed compile or negative slack;
+and fails on a failed compile or negative slack; `sta_paths.tcl` writes the
+worst paths per clock (`worst_paths_core.txt`, `worst_paths_video.txt`);
 `.github/workflows/build-rbf.yml` runs it on `ubuntu-latest` in the
 `raetro/quartus:17.0` image on pull requests that touch `hdl/` or
 `mister/`, and uploads the RBF and reports. `mister/sys/` is Template_MiSTer's

@@ -108,6 +108,7 @@ module able_sys_top (
         end
     end
 
+    logic [31:0] lag_us;
     logic [15:0] kb_lights [8];
     logic [15:0] kb_display [3];
 

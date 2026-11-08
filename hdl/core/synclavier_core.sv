@@ -168,9 +168,10 @@ module synclavier_core #(
     logic [15:0] kb_display [3];
     logic        kb_rx_valid;
     logic [7:0]  kb_rx_data;
+    logic [31:0] lag_us;
 
     able_system #(.CLK_HZ(CLK_HZ)) sys (
-        .clk, .rst(cpu_rst), .rt_enable,
+        .clk, .rst(cpu_rst), .rt_enable, .lag_us,
         .dev_rd, .dev_wr, .dev_num, .dev_wdata,
         .dev_rdata(16'd0), .dev_ack(1'b0), .dev_nosyn(dev_rd || dev_wr), .dev_hold(1'b0),
         .dev_irq(12'd0),
@@ -210,15 +211,12 @@ module synclavier_core #(
     assign xr_wr    = cpu_rst ? b_xm_wr   : s_xm_wr;
     assign xr_wdata = cpu_rst ? b_xm_wdata : s_xm_wdata;
 
-    always_ff @(posedge clk) begin
-        if (rst) begin
-            audio_l <= '0;
-            audio_r <= '0;
-        end else if (pcm_valid) begin
-            audio_l <= pcm_l;
-            audio_r <= pcm_r;
-        end
-    end
+    // to real time: a FIFO played at a steady 48 kHz (audio_fifo.sv)
+    logic [15:0] underruns, overruns;
+    audio_fifo #(.CLK_HZ(CLK_HZ)) to_real_time (
+        .clk, .rst, .in_valid(pcm_valid), .in_l(pcm_l), .in_r(pcm_r),
+        .out_l(audio_l), .out_r(audio_r), .out_strobe(), .underruns, .overruns
+    );
 
     // ----------------------------------------------------------------- MIDI
     logic        midi_we, midi_panel;
@@ -285,7 +283,7 @@ module synclavier_core #(
         .in_valid(cpu_rst ? msg_valid : term_tx_valid),
         .in_data(cpu_rst ? msg_data : term_tx_data),
         .color, .lights(kb_lights), .display(kb_display),
-        .ptr_on, .ptr_x, .ptr_y,
+        .ptr_on, .ptr_x, .ptr_y, .lag_us, .underruns, .overruns,
         .ce_pix, .r(vga_r), .g(vga_g), .b(vga_b), .hs(vga_hs), .vs(vga_vs),
         .hblank(vga_hblank), .vblank(vga_vblank),
         .peek_addr, .peek_data, .top_row

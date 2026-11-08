@@ -388,7 +388,7 @@ SYSTEM_RTL = ["hdl/able_cpu.sv", "hdl/dev/dev_rtc.sv", "hdl/dev/dev_muldiv.sv",
               "hdl/dev/dev_fm.sv", "hdl/dev/fm_voices.sv",
               "hdl/dev/pcm_out.sv", "hdl/throttle.sv", "hdl/able_system.sv"]
 CORE_RTL = ["hdl/core/sd_floppy.sv", "hdl/core/boot_loader.sv", "hdl/core/term_display.sv",
-            "hdl/core/ps2_ascii.sv", "hdl/core/midi_in.sv", "hdl/core/panel_mouse.sv",
+            "hdl/core/ps2_ascii.sv", "hdl/core/midi_in.sv", "hdl/core/panel_mouse.sv", "hdl/core/audio_fifo.sv",
             "hdl/core/synclavier_core.sv",
             "hdl/board/ddram_word.sv"]
 TOPS = {

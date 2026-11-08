@@ -1,0 +1,32 @@
+// Real-time throttle (M4): holds the CPU so that simulated time (the
+// devices' time base, 333 ns per bus transfer) tracks real time.
+//   debt = simulated ns - real ns, in 1/65536 ns. Each tick adds tick_ns;
+//   each clock subtracts 1e9 / CLK_HZ. `stall` while debt > 0: the CPU
+//   waits before its next fetch (and before retrying a held read). When the
+//   CPU falls behind (debt < 0) it runs free; the credit is capped at
+//   CATCHUP_NS so it never races ahead in a burst.
+// `enable` = 0 (simulation, lockstep): never stall.
+module throttle #(
+    parameter longint CLK_HZ = 50_000_000,
+    parameter int CATCHUP_NS = 10_000
+) (
+    input  logic clk,
+    input  logic rst,
+    input  logic enable,
+    input  logic tick,
+    input  logic [9:0] tick_ns,
+    output logic stall
+);
+    localparam longint NS_PER_CLK_Q16 = (64'd1_000_000_000 * 64'd65536) / CLK_HZ;
+    localparam longint FLOOR_Q16 = -(64'(CATCHUP_NS) * 64'd65536);
+
+    logic signed [47:0] debt;
+    wire  signed [47:0] next = debt - 48'(NS_PER_CLK_Q16) + (tick ? 48'(tick_ns) <<< 16 : 48'sd0);
+
+    assign stall = enable && debt > 48'sd0;
+
+    always_ff @(posedge clk) begin
+        if (rst || !enable) debt <= '0;
+        else debt <= next < 48'(FLOOR_Q16) ? 48'(FLOOR_Q16) : next;
+    end
+endmodule

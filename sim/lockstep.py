@@ -389,7 +389,8 @@ TOPS = {
                                 "hdl/dev/dev_floppy.sv", "hdl/dev/dev_keyboard.sv",
                                 "hdl/dev/dev_fm.sv", "hdl/dev/fm_voices.sv",
                                 "hdl/dev/audio_out.sv",
-                                "hdl/able_system.sv", "hdl/sim/able_sys_top.sv"], ["-DSYSTEM"]),
+                                "hdl/throttle.sv", "hdl/able_system.sv",
+                                "hdl/sim/able_sys_top.sv"], ["-DSYSTEM"]),
 }
 
 
@@ -412,11 +413,17 @@ def build(top="cpu", force=False):
     return exe
 
 
-def check(path, max_instructions=None, top="cpu", wav=None):
+def check(path, max_instructions=None, top="cpu", wav=None, realtime=False):
     """Run a trace on the HDL. Returns (ok, output text). wav: write the
-    system's 48 kHz PCM output (audio_out.sv) to this WAV file."""
+    system's 48 kHz PCM output (audio_out.sv) to this WAV file. realtime:
+    run the system with the throttle on (50 MHz); behaviour must not change
+    and simulated time must track the clock."""
     cmd = [build(top), path] + ([str(max_instructions)] if max_instructions else [])
-    env = dict(os.environ, LOCKSTEP_WAV=wav) if wav else None
+    env = dict(os.environ)
+    if wav:
+        env["LOCKSTEP_WAV"] = wav
+    if realtime:
+        env["LOCKSTEP_REALTIME"] = "1"
     p = subprocess.run(cmd, capture_output=True, text=True, env=env)
     return p.returncode == 0, p.stdout + p.stderr
 
@@ -500,9 +507,10 @@ def main(argv=None):
     ap.add_argument("--top", choices=tuple(TOPS), default="cpu", help="HDL top for check")
     ap.add_argument("--audio", action="store_true", help="also record voice engine samples")
     ap.add_argument("--wav", help="check --top system: write the HDL's 48 kHz PCM to this WAV")
+    ap.add_argument("--realtime", action="store_true", help="check --top system with the throttle on")
     a = ap.parse_args(argv)
     if a.mode == "check":
-        ok, text = check(a.args[0], top=a.top, wav=a.wav)
+        ok, text = check(a.args[0], top=a.top, wav=a.wav, realtime=a.realtime)
         print(text, end="")
         return 0 if ok else 1
     t = time.time()

@@ -57,7 +57,7 @@ module able_sim_top (
         .io_rdata(dev_rdata), .io_ack(dev_ack), .io_nosyn(dev_nosyn), .io_hold(dev_hold),
         .io_held, .tick, .tick_ns,
         .irq(dev_irq), .irq_sample, .irq_psw,
-        .halt_req, .halted, .halt_reason,
+        .stall(1'b0), .halt_req, .halted, .halt_reason,
         .instr_done, .instr_pc, .instr_word,
         .dbg_we, .dbg_addr, .dbg_wdata, .regs_flat, .flags
     );

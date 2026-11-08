@@ -5,6 +5,7 @@
 module able_sys_top (
     input  logic        clk,
     input  logic        rst,
+    input  logic        rt_enable,
     output logic        dev_rd,
     output logic        dev_wr,
     output logic [6:0]  dev_num,

@@ -225,6 +225,33 @@ Sources: NED's loaders (FLPLOAD, WINLOAD, SCSILOAD), the interpreter header
   the next clock tick. The simulator treats the write as an acknowledgement
   only.
 
+## 15. First boot of Release L MONITOR (M1.6 step A, M1.7)
+
+Sources: Release L image (user-supplied, SHA-256 checked against
+[`sources.md`](sources.md)); NED `Able/LOADER/FLPLOAD`, `Able/MONCAT/*`,
+`Able/-XPL/SYSLITS` and `XPLRunTimeOSX.cpp` (MIT, `jbemond/Software` @
+`a237bf2`). Details in [`boot-and-loaders.md`](boot-and-loaders.md) §4.
+
+* NED's `set_up_able_core` builds high core for **host-native** XPL
+  programs on the Mac. Booting the real MONITOR binary does not need it:
+  MONITOR's own `COLD.BOOT` initialises high core when the magic number is
+  absent.
+* FLPLOAD's entry 4 (ECOPY, external memory → core) runs the same end of
+  load (first-sector configuration check, configuration copy, jump to the
+  program) as a floppy boot. Staging MONITOR in external memory and entering
+  ECOPY runs the real `.LD-6` code with no floppy emulation.
+* **Result:** MONITOR prints `N.E.D. ABLE Series System Monitor - 1
+  December 1985`, then reads D100 (F0 head restore) after about 216,000
+  instructions. Its catalog reads use MONITOR's own disk driver, so the
+  next step is D100 emulation (step B), not a trap of the loader.
+* The Release L high-core layout differs from SYSLITS `-7` (prompt at
+  `MEM.SIZ` − 136, configuration copy at −189). The `.LD-6` offsets for the
+  head positions and magic number fit that layout if the loader sits at
+  `MEM.SIZ − 1024`, as `-7` documents.
+* Correction to [`roadmap.md`](roadmap.md) "Boot": synthesising the
+  post-boot state the way the Mac runtime does is not needed; the loader +
+  MONITOR cold boot do it.
+
 ## Searched without useful results
 
 * archive.org full-text and metadata search for "synclavier", "new england

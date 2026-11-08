@@ -2,8 +2,8 @@
 
 Milestone M1 in [`plan.md`](plan.md). This page covers what exists so far:
 **M1.1** (CPU core), **M1.2** (PSW/PCW, interrupts, INIT) and **M1.3–1.5**
-(external memory, terminal, real-time clock, multiply/divide). Boot and
-debug tooling (M1.6 and M1.7) come next.
+(external memory, terminal, real-time clock, multiply/divide), **M1.6 step
+A** (high-level boot of Release L `MONITOR`) and **M1.7** (debug tooling).
 
 ## Layout
 
@@ -14,8 +14,10 @@ debug tooling (M1.6 and M1.7) come next.
 | `sim/bus.py` | `Bus` and the `Device` base class for I/O devices 000–177 |
 | `sim/devices/` | Device models: `extmem.py` (D60–D63), `terminal.py` (D50/D51), `rtc.py` (D3), `muldiv.py` (D4567). Each file starts with its evidence. |
 | `sim/system.py` | `make_system()`: a CPU with all of the above attached |
+| `sim/boot.py` | High-level boot: `MONITOR` staged in external memory, started through the `.LD-6` loader's ECOPY entry (M1.6 step A); `python3 -m sim.boot IMAGE` |
+| `sim/trace.py` | `Debugger`: instruction history, device-access log, breakpoints, halt report, memory inspect (M1.7) |
 | `sim/asm.py` | Small assembler in NED syntax (`SRC TO DST`, `DATA`, `IM()`, `RE(label)`), for tests and experiments |
-| `tests/sim/` | `test_decode.py` (tables, assembler round trip over all 65,536 words), `test_cpu.py` (42 instruction-level tests) and `test_devices.py` (14 device tests, mostly small programs written like NED's loaders and runtime) |
+| `tests/sim/` | `test_decode.py` (tables, assembler round trip over all 65,536 words), `test_cpu.py` (42 instruction-level tests) `test_devices.py` (14 device tests, mostly small programs written like NED's loaders and runtime), `test_trace.py` (4) and `test_boot.py` (3; boots the real MONITOR when `SYNCLAVIER_RELEASE_L` names the image) |
 
 ## Use
 
@@ -61,6 +63,54 @@ cpu.terminal.feed("CATALOG\r") # host keyboard input
 ...
 print(cpu.terminal.text())     # everything the program printed
 ```
+
+### Booting Release L
+
+The image is not in the repository; download it yourself (see
+[`release-l-image.md`](release-l-image.md)) and keep it out of git
+(`*.simg` is ignored).
+
+```bash
+python3 -m sim.boot path/to/NED_Synclavier_Release_L_DD_Floppies.simg
+```
+
+```
+boot: MEM.SIZ=170000 LOC.LOAD=166000 config=000074 length=052512
+
+N.E.D. ABLE Series System Monitor - 1 December 1985
+
+============================================================
+stop: halted
+HALT: no SYN on read at 011571 (word 100100) device D100
+...
+```
+
+Terminal output is printed live. When the run stops, the halt report shows
+the registers, the last 32 instructions (disassembled), the last 16 device
+transfers and per-device transfer counts. Options: `--max N` (instruction
+budget), `--break OCT` (repeatable), `--input TEXT` (typed characters,
+`\r` for Return), `--floppy 02-BOOTF` (another boot disk).
+
+How the boot works and where it stops: [`boot-and-loaders.md`](boot-and-loaders.md) §4.
+
+### Debugger
+
+```python
+from sim.trace import Debugger
+
+dbg = Debugger(cpu)                 # history_len=64, io_len=64
+dbg.breakpoints.add(0o11571)
+stop = dbg.run(1_000_000)           # "breakpoint", "halted" or None (budget)
+print(dbg.report())                 # HOP-like view
+print(dbg.memory(0o11556, 12, disasm=True))
+dbg.detach()                        # restore full speed
+```
+
+Breakpoints are checked before the instruction is fetched; `run()` steps
+over a breakpoint at the starting PC so it can resume. Each device transfer
+is logged with the PC of the instruction that made it; a failed transfer is
+logged as `NO SYN`. A Debugger costs about 15% of the speed (1.45 vs 1.25
+million instructions per second booting MONITOR).
 
 ## Devices (M1.3–1.5)
 

@@ -78,7 +78,18 @@ so the **Model C (FPSM + FPRM) is expected to run this Model B code
 unchanged.** A future simulator can use these binaries as Model B and
 backward-compatibility test programs.
 
-### 3.3 Still not found
+### 3.3 MONITOR
+
+* Banner: `N.E.D. ABLE Series System Monitor - 1 December 1985`.
+* Configured for 60K words of memory (configuration table at 74, entry 16
+  = 360 sectors), D4567 present.
+* The three boot/system disks' `MONITOR` files differ only in word 115
+  (configuration entry 17, the options word): each disk carries its own
+  configuration.
+* Boots in the simulator up to its first floppy access; see
+  [`boot-and-loaders.md`](boot-and-loaders.md) §4.
+
+### 3.4 Still not found
 * The **MFC/D40Q boot ROM** image. It is not in this disk set.
 * A **CPU diagnostic**. None in Release L's diagnostics disk.
 * Model C-compiled binaries. A later release, if one turns up, would supply

@@ -127,7 +127,53 @@ The SCSILOAD source shows the register protocol:
 consecutive words, so it auto-increments. The Model C interrupt routine saves and restores D60/D61 when
 swapping code is present (compiler, `l_in2`/`l_in3`).
 
-## 4. What this means for the CPU cards
+## 4. Booting Release L in the simulator (M1.6 step A)
+
+`sim/boot.py` boots Release L `MONITOR` without the boot ROM:
+
+1. `MEM.SIZ` comes from MONITOR's own configuration table. Word 0 of every
+   XPL program is `PCI TO LOA0` and word 1 points to the table; entry 16
+   (`C#MEMSIZ`) is the size in sectors. Release L `01-BOOTD/MONITOR`: table
+   at 74, size 360 sectors = **60K words, `MEM.SIZ` = 170000**. **[OBS]**
+2. The floppy slot of `.LD-6` (first 512 words) goes to
+   `LOC.LOAD = MEM.SIZ − 1024` = 166000. **[HYP, supported]**: see the
+   layout check below.
+3. MONITOR is copied into external memory, and the CPU enters the loader's
+   entry 4 (ECOPY: R0 = sector, R1 = 0, R2 = length). The real loader code
+   then copies MONITOR to 0, validates the XPL configuration pointer, skips
+   the high-core configuration copy (no magic number: cold boot) and jumps
+   to 0.
+
+MONITOR's start-up code (Release L, words 54–73) zeroes its variable area
+using the configuration table's `C#VSTART`/`C#VLNGTH`, stores R4 (swap file
+address) if `C#SWPRAM` is set, and jumps to `C#OBJLOC`. It does no memory
+sizing, so no memory-size words need to be planted. **[OBS]**
+
+**Result:** MONITOR prints `N.E.D. ABLE Series System Monitor - 1 December
+1985` and starts its cold boot (NED `MONCAT:MON`, `COLD.BOOT`). After about
+216,000 instructions it reads **D100 at 011571** in its own code: the
+floppy head restore for F0 (`FIND_DEVICE(2)` → `RESTORE.HEAD`). The cold
+boot then reads the system catalog and reloads `.LD-x` through MONITOR's
+own disk driver, not the loader's. **So trapping the loader's entry points
+cannot get past this point: `CATALOG` and `Ready >` need D100 emulation
+(step B) or a trap of MONITOR's disk driver.**
+
+**Release L high-core layout** (written by MONITOR's cold boot; offsets
+from `MEM.SIZ`) **[OBS]**, against the `-7` SYSLITS values:
+
+| Item | Release L (`-6`) | SYSLITS (`-7`) |
+|---|---:|---:|
+| Synclavier RTP name (`.SRTP-6`) | −249 | −250 |
+| High-core configuration copy (`LOC.CTAB`) | −189 | −239 |
+| Command prompt (`Ready > `, length word first) | −136 | −146 |
+
+The `.LD-6` floppy loader addresses the head positions at loader + 1477 and
+the magic number at loader + 1566. With the loader at `MEM.SIZ − 1024`
+these are −193 (four words directly below `LOC.CTAB`, as `LOC.HEADPOS` is
+in `-7`) and −138 (two below the prompt, as `LOC.MAGIC` is in `-7`). That
+consistency is the evidence for step 2.
+
+## 5. What this means for the CPU cards
 
 * The **FPSM INITROM** only has to bring the processor to the documented
   reset state (PC = R17, interrupts off). Loading software is done by the

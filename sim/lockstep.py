@@ -199,6 +199,7 @@ def build(force=False):
     if not force and os.path.exists(exe) and \
             os.path.getmtime(exe) > max(os.path.getmtime(s) for s in srcs):
         return exe
+    os.makedirs(BUILD_DIR, exist_ok=True)     # older Verilator does not create parents
     subprocess.run(["verilator", "--cc", "--exe", "--build", "-O3", "-Wall", "-Wno-fatal",
                     "--top-module", "able_sim_top", "-Mdir", BUILD_DIR,
                     "-o", "Vable_sim_top", "-CFLAGS", "-O2"] + srcs,

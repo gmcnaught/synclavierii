@@ -226,9 +226,12 @@ recalled from `06-TIMBD` plays, and every FM write of a note is logged
 (`--fm-log`). **M2's acceptance test passes** (main loop runs, every device
 it touches is documented). Next: **M3.1**, the FM voice spec from the card
 analysis and patents, decoding the logged `ONU`/`NNU`/`INC`, `TIM`,
-envelope and `VOL` writes. **Pitch is decoded and verified**
+envelope and `VOL` writes. **M3.1a is done:** pitch is decoded and verified
 ([`fm-voice.md`](fm-voice.md): f = 162.764 Hz × 2^ONU × increment /
-divisor; A3 = 440.00 Hz); envelope, index, volume and wave memory are next.
+divisor; A3 = 440.00 Hz); envelope/index interpolators, D160 limit status,
+shift/pan, wave memory and volume are decoded from NED source, and the
+interpolator is modelled (ORK-LM now ends notes as on hardware). Next:
+M3.2, the bit-accurate voice model and audio.
 Groundwork: [`timbre-libraries.md`](timbre-libraries.md)
 (Release L bank layout; later NED banks load partly in Release L; FM-only
 entries with parameters in physical units for calibration once the timbre

@@ -10,7 +10,7 @@ Model: `sim/devices/synth.py` `FMInterface`. Tests: `tests/sim/test_synth.py`.
 
 | Device | Write | Read |
 |---|---|---|
-| D160 | channel number (`CHA`) | bit 0: the selected channel exists; bit 1: external clock input; bits 2–7: six switches (`SW`, "switch register - old panel") |
+| D160 | channel number (`CHA`) | bit 0: the selected channel exists, or, with function 12 selected, 0 = its interpolator has reached the limit (see below); bit 1: external clock input; bits 2–7: six switches (`SW`, "switch register - old panel") |
 | D161 | function code (`FUN`) | — |
 | D162 | 8-bit data (`DAT`) for (channel, function) | — |
 | D163 | `2 + 4·ch`: select A/D channel; `3`: start the next conversion; `1`: toggle the external clock output ("15 ms pulse") | A/D result (`AD`, "AD converter - old panel") |
@@ -70,6 +70,15 @@ splicing][8 bits channel 0–255]`. Free channels are stored as
 takes the low 8 bits as the channel and logs the whole word; whether the
 hardware uses bits 8–11 is open.
 
+## Limit status (bit 0 with function 12)
+
+NED (`144-TIM3`, `352-SPLC`) and Release L ORK-LM (PC 076606–076614)
+select a channel, write function 12 (`ELIM`/`ILIM`), write the limit
+twice and read D160: "GET 0 IF LIMIT REACHED". The model returns 0 when
+function 12 is selected and the channel's interpolator equals the limit,
+otherwise the channel-present bit. **[INFERRED]**; details and the
+interpolator in [`../fm-voice.md`](../fm-voice.md#interpolators-envelope-and-index).
+
 ## A note (Release L ORK-LM, timbre 0 of bank 0, key C4)
 
 Timbre 0 has one partial, so C4 uses one voice (modulator channel word
@@ -104,9 +113,6 @@ tables. `sim.rtp` now runs `SET RTP` + `PLAY` first.
 
 ## Open
 
-* What each function does to the sound (increment/note/octave → frequency,
-  the index and envelope interpolators, timbre bits) is milestone M3, from
-  the SS1–SS7 card analysis.
 * D160 write `4001`; switch assignments of the six switch bits.
-* `ONU`/`NNU`/`INC` are decoded ([`../fm-voice.md`](../fm-voice.md));
-  the envelope, index, volume and `TIM` registers are next (M3).
+* All registers are decoded in [`../fm-voice.md`](../fm-voice.md) (M3.1a);
+  open hardware details are listed there.

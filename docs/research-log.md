@@ -371,6 +371,24 @@ Details in [`timbre-libraries.md`](timbre-libraries.md).
 * f = 162.764 Hz × 2^ONU × (INC + 1) / (256 − NNU + INC >> 3); key 45 =
   440.00 Hz, middle C (36) = 261.64 Hz. Details in [`fm-voice.md`](fm-voice.md).
 
+## 22. Envelope, index, pan and wave memory registers (M3.1a)
+
+* NED `302-SUB2`/`138-PRE1`: interpolator divisor = 256 − DIV, adder =
+  ADD + 1; `COMPUTE.INTERP.NUMBERS` turns a time into (DIV, ADD) assuming
+  a clock of about 192 kHz. `382-EXP`: exponential decays are software,
+  `EADD` × (1 − 12.5/T) every 10 ms.
+* D160 bit 0 doubles as "limit reached" when function 12 is selected
+  (`144-TIM3`). Release L polls it the same way (076614). Modelled in
+  `FMInterface`; ORK-LM now detects the end of a final decay and clears
+  the voice. The `ELIM` = 0 rewrites (345 a second) and the `EADD`
+  exponential seen in earlier captures came from the old model never
+  reporting the limit.
+* `ISHC` = pan (bits 7–2) + index shift (1–0); `TIM` = 32 + wave memory;
+  `ZMA`/`MEM` load 256 bytes with an auto-incrementing address.
+* Observation: in `06-TIMBD`, bank 0 timbres 0–7 and timbre 0 of banks
+  1–7 all load the same wave memory and the same envelope (attack 0,
+  sustain = peak, no index envelope). Not investigated yet.
+
 ## Searched without useful results
 
 * archive.org full-text and metadata search for "synclavier", "new england

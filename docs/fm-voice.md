@@ -3,8 +3,9 @@
 What each register of the original Synclavier II FM synthesizer does, and
 how a voice turns them into sound. Registers and channels:
 [`devices/d160-fm-interface.md`](devices/d160-fm-interface.md). Code:
-`sim/fm.py`. Status: **pitch decoded and verified (M3.1a)**; envelope,
-index, volume and wave memory still to do.
+`sim/fm.py`. Status (M3.1a): **pitch decoded and verified**; envelope,
+index, shift/pan, volume and wave memory **decoded from NED source**, with
+the release path checked against Release L. Open items at the end.
 
 ## Structure (hardware)
 
@@ -63,13 +64,110 @@ Check against Release L ORK-LM's writes (timbre 0 of `06-TIMBD` bank 0):
 
 Errors are the table quantization the patent discusses (≤ 0.15 %).
 
-## Still to decode (M3.1a, next)
+## Interpolators: envelope and index
 
-| Registers | Source to read | Hardware |
-|---|---|---|
-| `EDIV`, `EADD`, `ELIM` (odd), `VOL` | NED envelope routines (`11-TIMB:137-COMP` "envelope information", `10-INT`); ORK-LM's ~345 `VOL` writes per second | SS3: prescaler, rate generator, up/down counter; SS5/7 envelope and volume DACs |
-| `IDIV`, `IADD`, `ILIM`, `ISHC` (even) | same, index envelope | SS4 index interpolator; SS1 multiplier + shifter |
-| `TIM`, `ZMA`, `MEM` | wave memory loading (1,032 writes per recall: 4 × 256 + 8) | SS1/SS4 wave memory, 32 × 256 points |
+Each channel has one interpolator: the **volume envelope** on the odd
+(carrier) channel (`EDIV`, `EADD`, `ELIM`), the **index envelope** on the
+even (modulator) channel (`IDIV`, `IADD`, `ILIM`). Card analysis (SS3):
+"an 8 bit prescaler (divide by n counter) followed by an 8 bit rate
+generator (phase accumulator) and 8 bit up/down counter". Encodings from
+NED `302-SUB2` (`NEW.SCALE.DIV/ADD`) and `138-PRE1`
+(`COMPUTE.INTERP.NUMBERS`):
 
-Absolute calibration of sound (levels, envelope curves) needs recordings
-of real hardware (risk R1).
+```
+divisor = 256 − DIV   (1–256)     adder = ADD + 1   (1–256)
+each clock: prescaler counts; every `divisor` clocks the 8-bit accumulator
+adds `adder`; each carry moves the counter one step toward LIM; it stops there.
+
+steps/s = F × (ADD + 1) / (256 × (256 − DIV)),   F ≈ 192 kHz [INFERRED]
+```
+
+* The counter output is the 8-bit envelope (to the envelope MDAC) or
+  index (to the SS1 multiplier). The limit is a target, up or down: NED
+  starts an attack by writing the peak as the limit, a decay by writing the
+  sustain level or 0. A new limit is followed at the old rate until the
+  rate is rewritten (NED comment in `144-TIM3`).
+* **Limit reached → D160 bit 0.** With function 12 selected, NED and
+  Release L write the limit (twice, "for hardware accuracy") and read D160:
+  bit 0 = 0 when the counter equals the limit. That is how software ends an
+  attack (`EPKQ`/`IPKQ` queues) and frees a voice after its final decay.
+  With another function selected, bit 0 is the channel-present bit of the
+  voice probe. **[INFERRED]** from the software; this is the only reading
+  consistent with both uses, because MONITOR writes `ILIM` = 0 to every
+  channel before ORK-LM's probe.
+* `F`: NED converts a time T (ms) for a full-scale change into adder 256,
+  divisor 0.75 T, scaled down by halving both until the divisor fits. Full
+  scale is 256 steps for the index (limit = 2 × peak, peak < 128 after the
+  shift count is chosen) and 250 for the volume (limit = level / 4, level
+  0–1000), giving F = 192 or 187.5 kHz. The model uses 192 kHz; only a
+  hardware measurement can settle it.
+* Envelope shapes are linear in hardware. NED makes exponential decays in
+  software: every 10 ms `EADD` (or `IADD`) = `EDAT` >> 8 with
+  `EDAT` ← `EDAT` × TMC / 65536, TMC = 65536 − 819200 / T (T ≥ 150 ms).
+  `382-EXP`.
+
+Release L check (`06-TIMBD` bank 0 timbre 0, C4, held 1 s): note-on writes
+`EDIV` 377, `EADD` 377, `ELIM` 372 (= 250: peak 1000, attack 0, i.e. one
+step per clock, 1.3 ms to the peak). Key-up writes `ELIM` 0 at full rate,
+then polls bit 0; 5.6 ms later it reads "reached" and clears the voice
+(`IDIV`/`IADD` 377, `ILIM` 0, `ONU` 0, `NNU`/`INC` 377, `VOL` 0), the
+clean-up NED `144-TIM3` does "to reduce feed-through". Before the
+interpolator was modelled, bit 0 never cleared and ORK-LM instead ran
+NED's exponential decay: `EADD` 255, 233, 214, 196, … every 10 ms, which
+is exactly TMC for T = 150 ms (`tests/sim/test_fm.py`). So Release L uses
+the same scheme as NED.
+
+## Modulation: index, shift count, pan
+
+* The modulator reads the **sine ROM** (SS2, two 74387 PROMs, unsigned
+  8-bit). `TIM` is only ever written to odd channels, so the wave memories
+  are carrier-only.
+* SS1 multiplies the modulator sample by the index counter (8 × 8 bits,
+  unsigned) and a shifter picks 8 bits: bits 15–8 for shift 0, down to
+  12–5 for shift 3 (×1, ×2, ×4, ×8). The result is added to the carrier's
+  8-bit phase (waveform point). At shift 0 the largest offset is
+  255 × 255 / 256 = 254 points, just under one carrier period.
+* `ISHC` (even, function 13) packs two fields: **bits 7–2 = pan**, bits
+  1–0 = shift count (NED: `J = (STEREO & 374) + ISHC`). Pan 0 = all left
+  (`600-INIT`); NED's centre is 128. Release L's note-on writes 203 octal
+  = centre, shift 3.
+* NED chooses the shift count once per partial so the index peak fits in
+  7 bits (`COMPUTE.FM.ENV`: halve the peak until < 128, counting the
+  halvings); the index limit is then 2 × the scaled peak. The shift count
+  is fixed for the note, so large indices have a coarser index envelope
+  (as the card analysis noted).
+
+## Wave memory and timbre bits
+
+* 32 memories × 256 points × 8 bits, shared by all voices of a card set
+  (SS1: 16 × 1024×4 RAM).
+* Load: select a channel, `ZMA` = 0 (zero its memory address register),
+  `TIM` = 32 + n (memory n), then `MEM` repeatedly; each write stores a
+  byte and increments the address. NED writes each 16-bit table word low
+  byte first (`303-SUB3`). Release L loads its memories through channel 15
+  (`TIM` 044–047 = memories 4–7, 256 `MEM` writes each).
+* Play: `TIM` on the carrier channel selects its memory. NED uses 32 + 0–15
+  for timbres and 48 + 8–15 (= memories 24–31) for splicing. Bits 4–0 are
+  the memory number; software always sets bit 5 and its function is not
+  known.
+
+## Output level
+
+Per carrier: wave sample (waveform MDAC) × envelope counter (envelope MDAC)
+× `VOL` (volume DAC, odd function 13) × pan (SS7 pan DAC + a 256 × 8 PROM
+pan law, two cards in tandem for left/right). NED `COMPUTE.VOLUME.LEVELS`
+maps partial volume 0–1000 to 0–255 for `VOL`. Release L rewrites `VOL`
+(here 375 octal = 253) about 345 times a second while a note is held.
+
+## Open
+
+| Item | Needed |
+|---|---|
+| Interpolator clock F (≈ 192 kHz) | hardware measurement or schematics |
+| D160 bit 0 behaviour at power-on and its exact gating | schematics |
+| Pan-law PROM contents; whether the envelope MDAC is linear | schematics/ROM dump or recordings |
+| `TIM` bit 5; the "INC write also sets ONU = 0, NNU = 255" note in NED `144-TIM3` | schematics or hardware |
+| Sine ROM contents (phase offset, 256 × 8 unsigned assumed) | ROM dump |
+| Absolute levels and envelope curves | recordings of real hardware (risk R1) |
+
+The bit-accurate voice model and audio rendering are M3.2/M3.3.

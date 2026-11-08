@@ -48,6 +48,7 @@ D130 (DREG) / D131 (CREG), original keyboard and button panel:
 Key number = 12 * octave + bit + 12 (12..72, C1..C6), as SCAN.ORK.FOR.NOTES.
 """
 from ..bus import NO_SYN, Device
+from ..fm import WAVE_MEMORIES, Interpolator, wave_memory_number
 
 READ_BIT = 0o100
 PANEL_BIT = 0o10
@@ -193,11 +194,32 @@ class FMInterface(Device):
         self.ext_clock_out = False      # toggled by WRITE(D163) = 1
         self.adc = [0] * 8              # values returned by D163 per channel
         self.adc_select = 0
+        # M3.1a: one interpolator per channel (index on even, envelope on
+        # odd), the 32 shared wave memories and a memory address register
+        # per channel (sim/fm.py, docs/fm-voice.md)
+        self.interp = {}
+        self.wave = [bytearray(256) for _ in range(WAVE_MEMORIES)]
+        self.mar = {}
+
+    def interpolator(self, ch):
+        it = self.interp.get(ch)
+        if it is None:
+            it = self.interp[ch] = Interpolator()
+        it.advance_to(self.time_ns)
+        return it
 
     def read(self, dev):
         if dev == 0o160:
-            exists = 1 if self.channel < 2 * self.voices else 0
-            return (self.switches & 0o374) | (2 if self.ext_clock_in else 0) | exists
+            # bit 0: 0 if the channel is absent, or if function 12 (limit)
+            # is selected and the channel's interpolator has reached it
+            # (NED 144-TIM3: "GET 0 IF LIMIT REACHED"; 600-INIT, read with
+            # another function selected: "CHANNEL EXISTS"). [INFERRED]
+            bit0 = 0
+            if self.channel < 2 * self.voices:
+                bit0 = 1
+                if self.function == 0o12 and self.interpolator(self.channel).at_limit():
+                    bit0 = 0
+            return (self.switches & 0o374) | (2 if self.ext_clock_in else 0) | bit0
         if dev == 0o163:
             return self.adc[self.adc_select]
         if self.strict:
@@ -217,7 +239,18 @@ class FMInterface(Device):
         elif dev == 0o162:
             if len(self.log) < self.log_len:
                 self.log.append((self.time_ns, self.channel_word, self.function, value))
-            self.channels[(self.channel, self.function)] = value
+            ch, fn = self.channel, self.function
+            self.channels[(ch, fn)] = value
+            if ch < 2 * self.voices:
+                if fn in (0o10, 0o11, 0o12):
+                    self.interpolator(ch).write(fn, value, self.time_ns)
+                elif fn == 0o6:
+                    self.mar[ch] = 0
+                elif fn == 0o7:
+                    a = self.mar.get(ch, 0)
+                    mem = wave_memory_number(self.channels.get((ch, 0o4), 0))
+                    self.wave[mem][a] = value & 0o377
+                    self.mar[ch] = (a + 1) & 0o377
         elif value == 1:
             self.ext_clock_out = not self.ext_clock_out
         elif value & 3 == 2:

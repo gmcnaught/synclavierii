@@ -123,6 +123,15 @@ def test_release_l_ork_lm_plays_a_note():
     assert all(v < 256 for v in regs.values())     # 8-bit data
     hz = frequency(regs[2], regs[1], regs[0])
     assert abs(hz / 523.25 - 1) < 0.002, hz        # key 48 = C4 (NED middle C = C3 = 36)
+    # release: ELIM = 0, then ORK-LM polls D160 bit 0 (limit reached) and
+    # cleans the voice up (INC = 255, VOL = 0) once the envelope is at 0
+    assert cpu.fm.interpolator(ch).value == 250          # attack limit reached
+    cpu.keyboard.press_key(48, False)
+    n1 = len(cpu.fm.log)
+    assert run_seconds(cpu, dbg, 0.1) is None
+    after = [(w & 0o377, fn, v) for t, w, fn, v in cpu.fm.log[n1:]]
+    assert (ch, 0o12, 0) in after and (ch, 0, 0o377) in after and (ch, 0o13, 0) in after, after
+    assert cpu.fm.interpolator(ch).value == 0
 
 
 if __name__ == "__main__":

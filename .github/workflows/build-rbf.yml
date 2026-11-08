@@ -1,8 +1,9 @@
 name: Build RBF
 
 # Compiles the MiSTer core (mister/Synclavier.qpf) with Quartus Lite 17.0 in
-# the raetro/quartus:17.0 Docker image on ubuntu-latest; no self-hosted
-# runner. Runs on pull requests and pushes to main that touch the HDL or
+# the raetro/quartus:17.0 Docker image: on the self-hosted TrueNAS runner
+# (label `quartus`, mister/ci/truenas-runner.yaml) when the repository
+# variable QUARTUS_RUNNER is `truenas`, otherwise on ubuntu-latest. Runs on pull requests and pushes to main that touch the HDL or
 # the MiSTer project, and on demand. The RBF and the Quartus reports are
 # uploaded as artifacts; mister/build.sh fails the job on a failed compile
 # or negative slack (after the reports are saved).
@@ -37,12 +38,13 @@ concurrency:
 jobs:
   rbf:
     name: RBF (Quartus Lite 17.0)
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.QUARTUS_RUNNER == 'truenas' && fromJSON('["self-hosted", "quartus"]') || 'ubuntu-latest' }}
     timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
 
       - name: Free disk space (Quartus needs ~24 GB)
+        if: ${{ vars.QUARTUS_RUNNER != 'truenas' }}
         uses: jlumbroso/free-disk-space@main
         with:
           tool-cache: true

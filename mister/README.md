@@ -19,7 +19,11 @@ Quartus project for the Synclavier II core on MiSTer (DE10-Nano), built on
 CI builds it on every pull request that touches `hdl/` or `mister/`
 (`.github/workflows/build-rbf.yml`, Quartus 17.0 in the
 `raetro/quartus:17.0` Docker image); the RBF and reports are artifacts.
-Locally:
+A self-hosted runner on the TrueNAS host can take these builds instead
+(native x86, image cached): install `mister/ci/truenas-runner.yaml` as a
+TrueNAS Custom App (instructions in the file), then set the repository
+variable `QUARTUS_RUNNER` to `truenas`; unset it to go back to
+`ubuntu-latest`. Locally:
 
 ```bash
 mister/build.sh                     # quartus_sh on PATH

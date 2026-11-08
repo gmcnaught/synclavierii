@@ -1,0 +1,38 @@
+# GitHub Actions self-hosted runner for the Quartus build, as a TrueNAS
+# SCALE Custom App (Apps -> Discover Apps -> Custom App -> Install via YAML).
+#
+# It registers to gmcnaught/synclavierii with the label `quartus`; the
+# Build RBF workflow uses it when the repository variable QUARTUS_RUNNER is
+# `truenas` (Settings -> Secrets and variables -> Actions -> Variables),
+# otherwise ubuntu-latest. Jobs run Quartus in raetro/quartus:17.0 through
+# the host's Docker, natively on x86 (the image is pulled once and kept).
+#
+# Before installing, replace:
+#   ACCESS_TOKEN  a fine-grained personal access token for this repository
+#                 only, with "Administration: Read and write" (the runner
+#                 uses it to register and to re-register after restarts)
+#   /mnt/POOL/github-runner   a dataset path on the NAS (both places: the
+#                 job's working directory must have the same path inside the
+#                 runner and on the host, because the job's `docker run -v
+#                 "$PWD:/build"` is resolved by the host's Docker)
+#
+# Security: the runner has the host's Docker socket, i.e. root on the NAS,
+# and runs any workflow job of this repository. Keep the repository
+# private and do not add other people's workflows to it.
+services:
+  runner:
+    image: myoung34/github-runner:ubuntu-noble
+    restart: unless-stopped
+    environment:
+      REPO_URL: https://github.com/gmcnaught/synclavierii
+      RUNNER_SCOPE: repo
+      ACCESS_TOKEN: "github_pat_REPLACE_ME"
+      RUNNER_NAME: truenas-quartus
+      LABELS: quartus,x64
+      RUNNER_WORKDIR: /mnt/POOL/github-runner/work
+      CONFIGURED_ACTIONS_RUNNER_FILES_DIR: /mnt/POOL/github-runner/state
+      DISABLE_AUTOMATIC_DEREGISTRATION: "true"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /mnt/POOL/github-runner/work:/mnt/POOL/github-runner/work
+      - /mnt/POOL/github-runner/state:/mnt/POOL/github-runner/state

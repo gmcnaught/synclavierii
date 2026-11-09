@@ -83,6 +83,8 @@ jobs:
             mister/output_files/*.rpt
             mister/output_files/*.summary
             mister/output_files/worst_paths*.txt
+            mister/output_files/core_*.txt
+            mister/output_files/sta_paths.log
             mister/build.log
           if-no-files-found: warn
 

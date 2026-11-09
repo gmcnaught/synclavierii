@@ -196,31 +196,38 @@ module dev_fm #(
     // B: RAM outputs for the voice issued last clock
     logic          vb_ok, vc_ok, vd_ok, ve_ok, vf_ok, vg_ok, vh_ok;
     logic [VB-1:0] vb_a, vc_a, vd_a;
-    // interpolators: the clocks they have not had yet, per bank, from B
-    // (none: unchanged, as advance_to returns early)
+    // interpolators: the clocks they have not had yet, per bank. Stage B
+    // divides (prescaler pulses), stage C multiplies and clamps; none due:
+    // unchanged, as advance_to returns early.
+    logic [8:0] b_pulses [2], b_pre [2];
+    always_comb
+        for (int b = 0; b < 2; b++) begin
+            logic [8:0] dd, total;
+            dd    = 9'd256 - {1'b0, p_q[b][5]};
+            total = {1'b0, s_q[b][1][7:0]} + 9'(2'(ibase - s_q[b][7][1:0]));
+            b_pulses[b] = total / dd;
+            b_pre[b]    = 9'(total % dd);
+        end
+    logic       ci_none [2];                     // no clock due: keep the state
+    logic [8:0] ci_pulses [2], ci_pre [2], ci_acc [2], ci_val [2], ci_opre [2];
+    logic [7:0] ci_add [2], ci_lim [2];
     logic [8:0] i_val [2], i_pre [2], i_acc [2];
     always_comb
         for (int b = 0; b < 2; b++) begin
-            logic [8:0]  dd, total, pulses;
             logic [16:0] sum;
             logic [9:0]  steps;
             logic [7:0]  val, lim;
-            logic [1:0]  n;
-            n      = 2'(ibase - s_q[b][7][1:0]);
-            dd     = 9'd256 - {1'b0, p_q[b][5]};
-            total  = {1'b0, s_q[b][1][7:0]} + 9'(n);
-            pulses = total / dd;
-            sum    = {9'd0, s_q[b][2][7:0]} + 17'(pulses) * (17'(p_q[b][6]) + 17'd1);
-            steps  = {1'b0, sum[16:8]};
-            val = s_q[b][0][7:0];
-            lim = p_q[b][7];
-            if (n == 2'd0) begin
-                i_pre[b] = s_q[b][1];
-                i_acc[b] = s_q[b][2];
-                i_val[b] = s_q[b][0];
+            sum   = {9'd0, ci_acc[b][7:0]} + 17'(ci_pulses[b]) * (17'(ci_add[b]) + 17'd1);
+            steps = {1'b0, sum[16:8]};
+            val   = ci_val[b][7:0];
+            lim   = ci_lim[b];
+            if (ci_none[b]) begin
+                i_pre[b] = ci_opre[b];
+                i_acc[b] = ci_acc[b];
+                i_val[b] = ci_val[b];
             end else begin
-                i_pre[b] = 9'(total % dd);
-                i_acc[b] = pulses == 9'd0 ? s_q[b][2] : {1'b0, sum[7:0]};
+                i_pre[b] = ci_pre[b];
+                i_acc[b] = ci_pulses[b] == 9'd0 ? ci_acc[b] : {1'b0, sum[7:0]};
                 if (val < lim)
                     i_val[b] = 10'(val) + steps >= 10'(lim) ? 9'(lim) : 9'(val + steps[7:0]);
                 else if (val > lim)
@@ -230,16 +237,47 @@ module dev_fm #(
             end
         end
 
-    // oscillator advance, stage B -> C -> D
-    logic [8:0]  c_a [2], c_dv [2];
-    logic [14:0] c_m [2];
-    logic [2:0]  c_sh [2], d_sh [2];
-    logic [7:0]  c_opre [2], c_opt [2], d_opre [2], d_opt [2];
+    // oscillator advance: B operands, C acc mod divisor, X and Y the two
+    // halves of (acc + n x increment) / divisor (restoring division, one
+    // clock each, for a 50 MHz clock), D the new prescale and point
+    logic [8:0]  c_acc [2], c_dv [2], xs_a [2], x_dv [2], y_dv [2];
+    logic [14:0] c_m [2], x_m [2];
+    logic [2:0]  c_sh [2], x_sh [2], y_sh [2], d_sh [2];
+    logic [7:0]  c_opre [2], c_opt [2], x_opre [2], x_opt [2], y_opre [2], y_opt [2], d_opre [2], d_opt [2];
+    logic [6:0]  y_qh [2];
+    logic [8:0]  y_r [2];
+    logic [7:0]  y_lo [2];
     logic [14:0] d_pulses [2];
     logic [8:0]  d_acc [2];
-    logic [8:0]  c_keep [2][3], d_keep [2][3];  // value, interp prescale, interp acc
-    logic [7:0]  c_vm, c_vk, c_f13m, c_f13k, c_timk;
+    logic [8:0]  x_keep [2][3], y_keep [2][3], d_keep [2][3];   // value, interp prescale, interp acc
+    logic [7:0]  c_f13m, c_f13k, c_timk, x_f13m, x_f13k, x_timk, y_f13m, y_f13k, y_timk;
+    logic [7:0]  x_vm, x_vk, y_vm, y_vk;
     logic [7:0]  d_vm, d_vk, d_f13m, d_f13k, d_timk;
+    logic [VB-1:0] vx_a, vy_a;
+    logic        vx_ok, vy_ok;
+
+    // restoring division of {hi bits, lo bits} by d: the quotient bits of
+    // `bits` dividend bits, starting from remainder r (< d)
+    function automatic logic [15:0] div_hi(input logic [14:0] sum, input logic [8:0] dvs);
+        logic [9:0] r;
+        logic [6:0] q;
+        r = '0; q = '0;
+        for (int i = 14; i >= 8; i--) begin
+            r = {r[8:0], sum[i]};
+            if (r >= {1'b0, dvs}) begin r = r - {1'b0, dvs}; q[i - 8] = 1'b1; end
+        end
+        div_hi = {q, r[8:0]};
+    endfunction
+    function automatic logic [16:0] div_lo(input logic [8:0] r0, input logic [7:0] lo, input logic [8:0] dvs);
+        logic [9:0] r;
+        logic [7:0] q;
+        r = {1'b0, r0}; q = '0;
+        for (int i = 7; i >= 0; i--) begin
+            r = {r[8:0], lo[i]};
+            if (r >= {1'b0, dvs}) begin r = r - {1'b0, dvs}; q[i] = 1'b1; end
+        end
+        div_lo = {q, r[8:0]};
+    endfunction
     // mix, stages E-H
     logic [7:0]  e_pm, e_pk, e_vm, e_vk, e_f13m, e_f13k, e_timk;
     logic [7:0]  f_sine, f_pk, f_vm, f_vk, f_f13m, f_f13k, f_timk;
@@ -371,7 +409,7 @@ module dev_fm #(
             end
             running <= 1'b0; pend_s <= 1'b0; finish <= 1'b0; icount <= '0;
             settle <= '0; caught <= 1'b0; g <= '0;
-            vb_ok <= 1'b0; vc_ok <= 1'b0; vd_ok <= 1'b0; ve_ok <= 1'b0;
+            vb_ok <= 1'b0; vc_ok <= 1'b0; vx_ok <= 1'b0; vy_ok <= 1'b0; vd_ok <= 1'b0; ve_ok <= 1'b0;
             vf_ok <= 1'b0; vg_ok <= 1'b0; vh_ok <= 1'b0;
             if (ld_we && ld_wave) wave[ld_addr] <= ld_data[7:0];
             else if (ld_we && ld_addr < 13'd32) case (ld_addr[4:0])
@@ -418,7 +456,7 @@ module dev_fm #(
                     issue_v <= issue_v + 1'b1;
                     vb_ok <= 1'b1;
                     vb_a <= issue_v[VB-1:0];
-                end else if (!vb_ok && !vc_ok && !vd_ok && !ve_ok && !vf_ok && !vg_ok && !vh_ok) begin
+                end else if (!vb_ok && !vc_ok && !vx_ok && !vy_ok && !vd_ok && !ve_ok && !vf_ok && !vg_ok && !vh_ok) begin
                     running <= 1'b0;
                     settle <= 2'd2;
                     if (mode == M_CATCH) caught <= 1'b1;
@@ -461,26 +499,50 @@ module dev_fm #(
                 automatic logic [8:0] dv = 9'd256 - 9'(p_q[b][1]) + 9'(p_q[b][0][7:3]);
                 automatic logic [5:0] n = base - s_q[b][6][5:0];
                 c_dv[b] <= dv;
-                c_a[b]  <= s_q[b][5] % dv;
+                c_acc[b] <= s_q[b][5];
                 c_m[b]  <= 15'(n) * (15'(p_q[b][0]) + 15'd1);
                 c_sh[b] <= 3'd7 - p_q[b][2][2:0];
                 c_opre[b] <= s_q[b][4][7:0];
                 c_opt[b]  <= s_q[b][3][7:0];
-                c_keep[b][0] <= i_val[b]; c_keep[b][1] <= i_pre[b]; c_keep[b][2] <= i_acc[b];
+                ci_none[b] <= 2'(ibase - s_q[b][7][1:0]) == 2'd0;
+                ci_pulses[b] <= b_pulses[b]; ci_pre[b] <= b_pre[b]; ci_opre[b] <= s_q[b][1];
+                ci_acc[b] <= s_q[b][2]; ci_val[b] <= s_q[b][0];
+                ci_add[b] <= p_q[b][6]; ci_lim[b] <= p_q[b][7];
             end
-            c_vm <= i_val[0][7:0]; c_vk <= i_val[1][7:0];
+
             c_f13m <= p_q[0][4]; c_f13k <= p_q[1][4]; c_timk <= p_q[1][3];
 
-            // ---- C -> D: divide
-            vd_ok <= vc_ok; vd_a <= vc_a;
+            // ---- C -> X: accumulator mod divisor; interpolators (stage C)
+            vx_ok <= vc_ok; vx_a <= vc_a;
             for (int b = 0; b < 2; b++) begin
-                automatic logic [14:0] sum = 15'(c_a[b]) + c_m[b];
-                d_pulses[b] <= sum / 15'(c_dv[b]);
-                d_acc[b]    <= 9'(sum % 15'(c_dv[b]));
-                d_sh[b] <= c_sh[b]; d_opre[b] <= c_opre[b]; d_opt[b] <= c_opt[b];
-                for (int f = 0; f < 3; f++) d_keep[b][f] <= c_keep[b][f];
+                xs_a[b] <= c_acc[b] % c_dv[b];
+                x_m[b] <= c_m[b]; x_dv[b] <= c_dv[b];
+                x_sh[b] <= c_sh[b]; x_opre[b] <= c_opre[b]; x_opt[b] <= c_opt[b];
+                x_keep[b][0] <= i_val[b]; x_keep[b][1] <= i_pre[b]; x_keep[b][2] <= i_acc[b];
             end
-            d_vm <= c_vm; d_vk <= c_vk; d_f13m <= c_f13m; d_f13k <= c_f13k; d_timk <= c_timk;
+            x_vm <= i_val[0][7:0]; x_vk <= i_val[1][7:0]; x_f13m <= c_f13m; x_f13k <= c_f13k; x_timk <= c_timk;
+
+            // ---- X -> Y: quotient bits 14-8
+            vy_ok <= vx_ok; vy_a <= vx_a;
+            for (int b = 0; b < 2; b++) begin
+                automatic logic [14:0] sum = 15'(xs_a[b]) + x_m[b];
+                {y_qh[b], y_r[b]} <= div_hi(sum, x_dv[b]);
+                y_lo[b] <= sum[7:0]; y_dv[b] <= x_dv[b];
+                y_sh[b] <= x_sh[b]; y_opre[b] <= x_opre[b]; y_opt[b] <= x_opt[b];
+                for (int f = 0; f < 3; f++) y_keep[b][f] <= x_keep[b][f];
+            end
+            y_vm <= x_vm; y_vk <= x_vk; y_f13m <= x_f13m; y_f13k <= x_f13k; y_timk <= x_timk;
+
+            // ---- Y -> D: quotient bits 7-0 and the remainder
+            vd_ok <= vy_ok; vd_a <= vy_a;
+            for (int b = 0; b < 2; b++) begin
+                automatic logic [16:0] lo = div_lo(y_r[b], y_lo[b], y_dv[b]);
+                d_pulses[b] <= {y_qh[b], lo[16:9]};
+                d_acc[b]    <= lo[8:0];
+                d_sh[b] <= y_sh[b]; d_opre[b] <= y_opre[b]; d_opt[b] <= y_opt[b];
+                for (int f = 0; f < 3; f++) d_keep[b][f] <= y_keep[b][f];
+            end
+            d_vm <= y_vm; d_vk <= y_vk; d_f13m <= y_f13m; d_f13k <= y_f13k; d_timk <= y_timk;
 
             // ---- D -> E: new points (S written at D, above)
             ve_ok <= vd_ok && mix;

@@ -72,7 +72,7 @@ def boot(cpu, program, loader, staging_sector=0):
         raise ValueError("boot needs external memory (D60-D63)")
     msiz = mem_size(program)
     loc_load = msiz - 1024
-    slot = loader[:LOADER_SLOT_WORDS]
+    slot = loader[:LOADER_SLOT_WORDS] if len(loader) > 768 else loader
     cpu.load(slot, loc_load)
     cpu.extmem.load(staging_sector, program)
     cpu.reset()
@@ -126,6 +126,57 @@ def boot_from_image(image, floppy="03-SYSTD", f1=None, processor="B", **system_k
     if f1:
         cpu.floppy.insert(1, floppy_media(W, f1))
     return cpu, boot(cpu, program, loader)
+
+
+C_STRDEV = 0o30             # configuration table: storage device table (4-word entries)
+C_STREND = 0o100            # ... up to here; an entry of 177777 ends it
+
+
+def keep_devices(program, n):
+    """Copy of an XPL program whose configured storage device table keeps
+    only its first n entries (as CONFIGUR would remove drives). Synclavier3's
+    W0 MONITOR lists W0 (SCSI target 5), F0, a second SCSI disk (target 4)
+    and an optical drive (target 1)."""
+    program = list(program)
+    c = config_pointer(program)
+    for i in range(C_STRDEV + 4 * n, C_STREND):
+        program[c + i] = 0o177777
+    return program
+
+
+LD7_SLOT_WORDS = 768        # .LD-7: three 768-word loaders (LOADER:MRGLOAD)
+LD7_SCSI_SLOT = 2           # FLPLOAD., WINLOAD., SCSILOA. in that order
+
+
+def boot_from_w0(image, ext_sectors=8192, target=5, devices=2, disk_mb=None, **system_kw):
+    """Return (cpu, layout) ready to boot MONITOR from a Release 5.3-style W0:
+    image (a hard-disk .simg, e.g. Synclavier3's "W0 Disk Image.simg").
+
+    A Model D system with the D24 SCSI host and the image as a SCSI disk
+    (target `target`); the SCSI loader slot of .SYSTEM/.LD-7 at LOC.LOAD,
+    MONITOR copied in through the loader's ECOPY entry as for floppies.
+    devices: storage device table entries to keep (keep_devices).
+    disk_mb: pad the disk to this size (free space after the image's files;
+    READ CAPACITY reports it). Writes
+    go to the in-memory copy of the image (cpu.w0), never the file.
+    """
+    from tools.ned_disk import load, read_file
+    from .devices.scsi import ScsiDisk
+    W = load(image)
+    program = keep_devices(read_file(W, "MONITOR"), devices)
+    ld7 = read_file(W, ".SYSTEM/.LD-7")
+    slot = ld7[LD7_SCSI_SLOT * LD7_SLOT_WORDS:(LD7_SCSI_SLOT + 1) * LD7_SLOT_WORDS]
+    disk = ScsiDisk.from_file(image)
+    if disk_mb:
+        disk.data.extend(bytes(max(0, disk_mb * 1024 * 1024 - len(disk.data))))
+    cpu = make_system(ext_sectors=ext_sectors, scsi={target: disk}, model="D",
+                      synth=True, floppy=True, **system_kw)
+    # D57: Model D, D40Q, M64K (MONITOR CHECK.MEM.SIZ needs both boards for 63K)
+    cpu.d57 = 0o7
+    from .devices.stubs import PolyNoVoices
+    cpu.poly = cpu.bus.attach(PolyNoVoices())
+    cpu.w0 = disk
+    return cpu, boot(cpu, program, slot)
 
 
 def main(argv=None):

@@ -143,12 +143,20 @@ and lists the catalog.
 **Done when:** the real-time program plays FM timbres from a MIDI keyboard
 on MiSTer.
 
-### M6. Model C extensions (optional)
+### M6. Model C extensions (now part of M7)
 * Add D10 (`rpc` repeat counter, `ppc` link), R12 stack (`MR12D`) and
   ADC/SBB behind the model switch, using
   [`model-c-runtime-analysis.md`](model-c-runtime-analysis.md).
 * Validate by running the MIT `*RTC-7` runtime code paths, and later Model
   C software if images turn up.
+
+### M7. Release 5.3 (Model D, SCSI W0, velocity keyboard, poly)
+Target the last release, whose binaries ship with Synclavier³ and whose
+source is the MIT tree: requirements, evidence and steps in
+[`release-5.3.md`](release-5.3.md).
+
+**Done when:** the core boots Release 5.3 from a W0 image on the SD card,
+runs SYN-5.3 and plays FM timbres from the later timbre banks via MIDI.
 
 ## 5. Verification strategy
 

@@ -46,6 +46,7 @@ localparam CONF_STR = {
 	"S0,IMG,Floppy F0;",
 	"S1,IMG,Floppy F1;",
 	"S2,SST,State image;",
+	"S3,IMG,SCSI disk W0;",
 	"-;",
 	"O[2:1],Text color,Green,Amber,White;",
 	"O[122:121],Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
@@ -62,16 +63,16 @@ wire [127:0] status;
 wire  [10:0] ps2_key;
 wire  [24:0] ps2_mouse;
 
-wire  [2:0] img_mounted;
+wire  [3:0] img_mounted;
 wire        img_readonly;
 wire [63:0] img_size;
-wire [31:0] sd_lba0, sd_lba1, sd_lba2;
-wire  [2:0] sd_rd, sd_wr, sd_ack;
+wire [31:0] sd_lba0, sd_lba1, sd_lba2, sd_lba3;
+wire  [3:0] sd_rd, sd_wr, sd_ack;
 wire  [8:0] sd_buff_addr;
 wire  [7:0] sd_buff_dout, sd_buff_din;
 wire        sd_buff_wr;
 
-hps_io #(.CONF_STR(CONF_STR), .VDNUM(3)) hps_io
+hps_io #(.CONF_STR(CONF_STR), .VDNUM(4)) hps_io
 (
 	.clk_sys(clk_sys),
 	.HPS_BUS(HPS_BUS),
@@ -88,14 +89,14 @@ hps_io #(.CONF_STR(CONF_STR), .VDNUM(3)) hps_io
 	.img_mounted(img_mounted),
 	.img_readonly(img_readonly),
 	.img_size(img_size),
-	.sd_lba('{sd_lba0, sd_lba1, sd_lba2}),
-	.sd_blk_cnt('{6'd0, 6'd0, 6'd0}),
+	.sd_lba('{sd_lba0, sd_lba1, sd_lba2, sd_lba3}),
+	.sd_blk_cnt('{6'd0, 6'd0, 6'd0, 6'd0}),
 	.sd_rd(sd_rd),
 	.sd_wr(sd_wr),
 	.sd_ack(sd_ack),
 	.sd_buff_addr(sd_buff_addr),
 	.sd_buff_dout(sd_buff_dout),
-	.sd_buff_din('{sd_buff_din, sd_buff_din, sd_buff_din}),
+	.sd_buff_din('{sd_buff_din, sd_buff_din, sd_buff_din, sd_buff_din}),
 	.sd_buff_wr(sd_buff_wr)
 );
 
@@ -146,6 +147,7 @@ synclavier_core #(.CLK_HZ(16_000_000), .VID_CE_DIV(1)) core
 	.sd_lba0(sd_lba0),
 	.sd_lba1(sd_lba1),
 	.sd_lba2(sd_lba2),
+	.sd_lba3(sd_lba3),
 	.sd_rd(sd_rd),
 	.sd_wr(sd_wr),
 	.sd_ack(sd_ack),

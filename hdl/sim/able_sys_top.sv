@@ -1,11 +1,15 @@
 // Simulation top for system lockstep (M4.4-M4.6): able_system plus RAM
-// models for external memory (1M words) and the two floppies (512K words),
+// models for external memory (2M words: 8192 sectors, Release 5.3) and the
+// two floppies (512K words),
 // each answering the clock after a request, with load ports. Devices not yet in HDL are answered by the C++ bench
 // (hdl/sim/lockstep.cpp) from the recorded trace.
 module able_sys_top (
     input  logic        clk,
     input  logic        rst,
     input  logic        rt_enable,
+    input  logic [1:0]  cpu_model,
+    input  logic [15:0] cpu_d57,
+    input  logic [15:0] term_bits,
     output logic        dev_rd,
     output logic        dev_wr,
     output logic [6:0]  dev_num,
@@ -17,7 +21,7 @@ module able_sys_top (
     input  logic [15:4] dev_irq,
     input  logic [16:0] ext_sectors,
     input  logic        ld_xm_we,
-    input  logic [19:0] ld_xm_addr,
+    input  logic [20:0] ld_xm_addr,
     input  logic [15:0] ld_xm_data,
     input  logic [1:0]  fd_present,
     input  logic [1:0]  fd_protect,
@@ -79,7 +83,7 @@ module able_sys_top (
     logic [23:0] xm_addr;
     logic        xm_rd, xm_wr, xm_ack;
     logic [15:0] xm_wdata, xm_rdata;
-    logic [15:0] xram [1 << 20];
+    logic [15:0] xram [1 << 21];
 
     always_ff @(posedge clk) begin
         if (rst) begin
@@ -87,8 +91,8 @@ module able_sys_top (
             if (ld_xm_we) xram[ld_xm_addr] <= ld_xm_data;
         end else begin
             xm_ack <= (xm_rd || xm_wr) && !xm_ack;
-            if (xm_wr && !xm_ack) xram[xm_addr[19:0]] <= xm_wdata;
-            xm_rdata <= xram[xm_addr[19:0]];
+            if (xm_wr && !xm_ack) xram[xm_addr[20:0]] <= xm_wdata;
+            xm_rdata <= xram[xm_addr[20:0]];
         end
     end
 

@@ -74,6 +74,8 @@ def assemble(text, base=0):
                 sc = SRC_CODES[s]
             else:
                 raise AsmError("unknown source %r" % s)
+            if d == "MR12D":                 # Model C alias of MR12I (pre-decrement)
+                d = "MR12I"
             if d not in DST_CODES:
                 raise AsmError("unknown destination %r" % d)
             words.append((DST_CODES[d] << 8) | sc)

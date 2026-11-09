@@ -92,10 +92,17 @@ NED software.
 
 ### 3.2 R12 is a hardware stack pointer; only R12 decrements (high confidence)
 
-* Push = destination **372** (`MR12D`): pre-decrement R12, then store.
-* Pop = source 372 (`MR12I`): load, then post-increment.
-* Return = `R12I TO ATNV` (an increment using the "transfer never" trick)
-  plus `MR12 TO ATRA`.
+* Push = destination **372** (`MR12D`): store at R12, **then decrement**
+  R12 (post-decrement: R12 points at the next free word).
+* Pop = `R12I TO ATNV` (an increment using the "transfer never" trick),
+  then source 372 (`MR12I`: load, then post-increment) for each further
+  word, and `MR12` for the last one.
+* Return = `R12I TO ATNV` plus `MR12 TO ATRA`.
+* **Correction (2026-11-08):** this said "pre-decrement, then store". The
+  pop sequences above, NED's SREG/LREG and every compiled epilogue in
+  Release 5.3 MONITOR (`R12I TO ATNV; MR12 TO R12`, reading back the
+  frame pointer pushed last) only work with store-then-decrement; MONITOR
+  5.3 crashes in the simulator with pre-decrement.
 * **Other memory destinations with I = 1 still post-increment on Model C.**
   For example, the runtime builds a jump trampoline in RAM with
   `R0 TO MR1I`, `PCI TO MR1I` + `DATA 150303` (`R3 TO ATRA`), and it clears
@@ -166,7 +173,8 @@ keeps the PSW/PCW mechanism; D10 adds the return address.
     microcode copies the current PC into the link register
   * the IR/PC path must support re-executing one instruction n times
 * **FPRM:**
-  * code 372 as a **destination** pre-decrements R12, and only R12, so its
+  * code 372 as a **destination** post-decrements R12 (store, then R12 − 1),
+    and only R12, so its
     IAB decode (U18/U28) must single out that code
   * ADC/SBB route the **C flag into the '181 carry-in**
 

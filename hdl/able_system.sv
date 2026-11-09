@@ -13,11 +13,13 @@
 // able_cpu.sv), so device behaviour matches sim/devices/ exactly. On the
 // board a throttle will hold the CPU to that time (risk R3).
 module able_system #(
-    parameter logic [15:0] TERMINAL_BITS = 16'o001000,
     parameter longint CLK_HZ = 50_000_000
 ) (
     input  logic        clk,
     input  logic        rst,
+    input  logic [1:0]  cpu_model,         // 1 B, 2 C, 3 D (able_cpu.sv)
+    input  logic [15:0] cpu_d57,           // Model D: D57 options
+    input  logic [15:0] term_bits,         // D51 device-present bits (15-8)
     input  logic        rt_enable,         // 1: hold the CPU to real time (throttle.sv)
     output logic [31:0] lag_us,            // real time given up by the throttle
 
@@ -132,8 +134,27 @@ module able_system #(
 
     throttle #(.CLK_HZ(CLK_HZ)) pace (.clk, .rst, .enable(rt_enable), .tick, .tick_ns, .stall, .lag_us);
 
-    able_cpu cpu (
+    // Model D code fetches go through a cache (code_cache.sv) whose misses
+    // share the external memory port with D60-D63 (the CPU does one or the
+    // other at a time); D60-D63 writes also update the cache
+    logic [23:0] cm_addr, cc_addr, x_addr;
+    logic        cm_rd, cm_ack, cc_rd, x_rd, x_wr, x_ack;
+    logic [15:0] cm_rdata, x_wdata;
+    code_cache cache (
         .clk, .rst,
+        .cm_addr, .cm_rd, .cm_rdata, .cm_ack,
+        .wr_addr(x_addr), .wr_en(x_wr && x_ack), .wr_data(x_wdata),
+        .m_addr(cc_addr), .m_rd(cc_rd), .m_rdata(xm_rdata), .m_ack(cc_rd && xm_ack)
+    );
+    assign xm_addr  = cc_rd ? cc_addr : x_addr;
+    assign xm_rd    = cc_rd || x_rd;
+    assign xm_wr    = !cc_rd && x_wr;
+    assign xm_wdata = x_wdata;
+    assign x_ack    = !cc_rd && xm_ack;
+
+    able_cpu cpu (
+        .clk, .rst, .model(cpu_model), .d57(cpu_d57),
+        .cm_addr, .cm_rd, .cm_rdata, .cm_ack,
         .mem_addr, .mem_we, .mem_wdata, .mem_rdata,
         .io_rd, .io_wr, .io_dev, .io_wdata, .io_rdata, .io_ack, .io_nosyn, .io_hold,
         .io_held, .tick, .tick_ns,
@@ -206,11 +227,11 @@ module able_system #(
     dev_extmem extmem (
         .clk, .rst, .sel(sel_xm), .rd(io_rd), .wr(io_wr), .reg_sel(io_dev[1:0]),
         .wdata(io_wdata), .rdata(xm_rdata_cpu), .ack(xm_cpu_ack), .sectors(ext_sectors),
-        .xm_addr, .xm_rd, .xm_wr, .xm_wdata, .xm_rdata, .xm_ack,
+        .xm_addr(x_addr), .xm_rd(x_rd), .xm_wr(x_wr), .xm_wdata(x_wdata), .xm_rdata, .xm_ack(x_ack),
         .ld_we(ld_dev_we && ld_dev_sel == 3'd2), .ld_addr(ld_dev_addr[3:0]), .ld_data(ld_dev_data)
     );
-    dev_terminal #(.DEVICE_BITS(TERMINAL_BITS)) terminal (
-        .clk, .rst, .sel(sel_term), .rd(io_rd), .wr(io_wr), .reg_sel(io_dev[0]),
+    dev_terminal terminal (
+        .clk, .rst, .device_bits(term_bits), .sel(sel_term), .rd(io_rd), .wr(io_wr), .reg_sel(io_dev[0]),
         .wdata(io_wdata), .rdata(term_rdata), .ack(term_ack), .hold(term_hold),
         .tick, .tick_ns, .irq(term_irq),
         .host_rx_valid(term_rx_valid), .host_rx_data(term_rx_data),

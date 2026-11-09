@@ -114,7 +114,7 @@ followed and checked. Newest information wins where entries disagree.
   * Model C's **`RPT` = writing I/O device 010 (D10)**, an 8-bit repeat
     count
   * reading D10 returns the interrupt return address on Model C
-  * R12 as a hardware stack pointer (`MR12D` pre-decrement alias)
+  * R12 as a hardware stack pointer (`MR12D` decrementing alias; store then decrement, corrected in release-5.3.md)
   * the processor-type codes A=0 … D=3
 * **New board hypothesis:** FPSM U32/U33 ('ALS161 ×2, 8 bits) are the
   repeat counter.
@@ -128,7 +128,7 @@ followed and checked. Newest information wins where entries disagree.
   * **D10 is a link register.** A taken absolute jump, even with an
     immediate address, leaves the return address there; procedures push it
     with `D10 TO MR12D`.
-  * **Only R12 pre-decrements.**
+  * **Only R12 decrements** (store, then decrement: corrected 2026-11-08).
   * `RPT` (writing D10) is confirmed in a buffer-clear loop.
   * **ADC = acc + src + C**, confirmed by a 32-bit shift.
 * Loaders:

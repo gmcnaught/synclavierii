@@ -38,6 +38,16 @@ def test_random_programs():
         assert _check(random_cpu(1000 + seed), 3000) == 3000   # Model B: ADC/SBB are no-ops
 
 
+def test_random_programs_model_c():
+    """Model C extensions (D10 repeat/link, D2, R12 stack, ADC/SBB and the
+    interrupt delays after PCW writes and jumps) on random programs."""
+    if not HAVE_VERILATOR:
+        print("  skip test_random_programs_model_c (verilator not found)")
+        return
+    for seed in range(40):
+        assert _check(random_cpu(2000 + seed, "C"), 3000) == 3000
+
+
 DEVICE_PROGRAM = """
         PCI TO R16
         DATA ENTRY

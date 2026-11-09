@@ -209,6 +209,129 @@ def test_adc_sbb_32_bit_arithmetic_on_model_c():
     assert cpu.r[0] == 6 and not cpu.z
 
 
+def test_model_c_repeat_runs_next_instruction_n_plus_1_times():
+    # runtime A.STA: "R1 to D10; im(0) to MR2I" clears (R1 mod 256) + 1 words
+    dev = FakeDevice([0o120])
+    cpu = make("""
+        R1 TO D10
+        IM(0) TO MR2I
+        IM(7) TO R3
+    """, regs={1: 3, 2: 0o3000}, devices=[dev])
+    cpu.model = "C"
+    for a in range(0o3000, 0o3006):
+        cpu.mem[a] = 0o55
+    cpu.ion = True
+    dev.irq = 1 << 10                     # pending, but not taken inside the repeat
+    assert cpu.step()                     # R1 TO D10
+    assert cpu.pcs                        # (taken here would mean before the repeat)
+    cpu.ion, dev.irq = True, 0
+    for _ in range(4):
+        cpu.step()
+    assert cpu.mem[0o3000:0o3004] == [0] * 4 and cpu.mem[0o3004] == 0o55
+    assert cpu.r[2] == 0o3004 and cpu.pc == 2 and cpu.r[3] == 0
+    cpu.step()
+    assert cpu.r[3] == 7
+
+
+def test_model_c_repeat_holds_interrupts():
+    dev = FakeDevice([0o120])
+    cpu = make("""
+        IM(2) TO D10
+        IM(1) TO ADD0
+        IM(0) TO R3
+    """, devices=[dev])
+    cpu.model = "C"
+    cpu.ion = True
+    cpu.step()
+    dev.irq = 1 << 10
+    for _ in range(2):
+        cpu.step()
+        assert cpu.pcs                    # no interrupt during the repeats
+    cpu.step()                            # third execution: the repeat ends
+    assert cpu.r[0] == 3 and not cpu.pcs  # interrupt taken right after it
+
+
+def test_model_c_link_register_and_r12_stack():
+    # procedure call as the Model C compiler emits it: PCI TO ATRA + address;
+    # prologue D10 TO MR12D (store, then decrement R12); return
+    # R12I TO ATNV (back up) and MR12 TO ATRA
+    cpu = make("""
+        PCI TO ATRA
+        DATA PROC
+        IM(5) TO R1
+        HALT: RE(HALT) TO RTRA
+        PROC: D10 TO MR12D
+        IM(7) TO R0
+        R12I TO ATNV
+        MR12 TO ATRA
+    """, regs={0o12: 0o4000})
+    cpu.model = "C"
+    cpu.step()
+    assert cpu.ppc == 2 and cpu.pc == cpu.labels["PROC"]
+    cpu.step()
+    assert cpu.r[0o12] == 0o3777 and cpu.mem[0o4000] == 2      # store, then decrement
+    cpu.run(3)
+    assert cpu.r[0o12] == 0o4000 and cpu.pc == 2 and cpu.r[0] == 7
+    cpu.step()
+    assert cpu.r[1] == 5
+
+
+def test_model_d_paging_fetches_code_and_literals_from_the_page():
+    from sim.devices.extmem import ExternalMemory
+    # after a D11 write the very next fetch comes from the new page (NED
+    # RTP/INTRO PGSW: "IM(0) to D11 (EXT)" then "R15 to ATRA (INT)"), so the
+    # code continues at the same address on the other page
+    cpu = make("""
+        PCI TO D11
+        DATA 400
+    """)
+    ext = ExternalMemory(sectors=512)
+    page1, _ = assemble("""
+        PCI TO R0
+        DATA 1234
+        MR4 TO R1
+        D57 TO R2
+        IM(0) TO D11
+    """, 2)
+    for i, w in enumerate(page1):
+        ext.data[65536 + 2 + i] = w
+    internal, _ = assemble("IM(1) TO R5", 7)
+    cpu.mem[2:7] = [0o77] * 5             # different code at 2-6 in internal memory
+    cpu.mem[7] = internal[0]
+    cpu.mem[0o2000] = 0o4321
+    cpu.model, cpu.extmem = "D", ext
+    cpu.r[4] = 0o2000
+    cpu.step()
+    assert cpu.page == 0o400 and cpu.pc == 2
+    cpu.run(3)
+    assert cpu.r[0] == 0o1234 and cpu.r[1] == 0o4321 and cpu.r[2] == 1
+    cpu.step()                             # IM(0) TO D11
+    assert cpu.page == 0 and cpu.pc == 7
+    cpu.step()
+    assert cpu.r[5] == 1
+
+
+def test_model_d_interrupt_level_fetches_from_internal_memory():
+    from sim.devices.extmem import ExternalMemory
+    dev = FakeDevice([0o120])
+    cpu = make("ENTRY: IM(3) TO R6", base=0o200)
+    ext = ExternalMemory(sectors=512)
+    page1, _ = assemble("LOOP: IM(1) TO ADD0\nRE(LOOP) TO RTRA", 0o10)
+    for i, w in enumerate(page1):
+        ext.data[65536 + 0o10 + i] = w
+    cpu.model, cpu.extmem, cpu.page = "D", ext, 0o400
+    cpu.bus.attach(dev)
+    cpu.r[0o17], cpu.r[0o16] = 0o10, 0o200
+    cpu.ion = True
+    cpu.run(3)
+    assert cpu.r[0] == 2
+    dev.irq = 1 << 10
+    cpu.step()
+    assert not cpu.pcs and cpu.ppc == cpu.r[0o17]
+    cpu.step()                             # R16 = 200: internal memory, page unchanged
+    assert cpu.r[6] == 3 and cpu.page == 0o400
+
+
 # --------------------------------------------------- arithmetic and logic
 
 

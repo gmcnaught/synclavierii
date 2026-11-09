@@ -63,7 +63,47 @@ lockstep check against the simulator, as for Release L.
    MiSTer hardware test.
 7. **M7.7 Poly sampling** (D154–D157 + sample memory in DDR3), after M7.6.
 
-## 4. Open questions [UNK]
+## 4. Progress
+
+* **M7.1/M7.2 (simulator, done):** `sim/cpu.py` Models C and D: D10
+  repeat and link, R12 stack, D11 paging, D57. **Correction:** `MR12D`
+  stores and *then* decrements R12 (R12 points at the next free word;
+  pops are `R12I TO ATNV` then `MR12I`/`MR12`). The earlier
+  "pre-decrement" in `instruction-set.md` and `model-c-runtime-analysis.md`
+  was wrong; MONITOR 5.3's epilogues crash with it. Docs corrected.
+* **M7.3 (simulator, done):** `sim/devices/scsi.py`, D24-D27 and a disk
+  target; `tests/sim/test_scsi.py`. MONITOR 5.3 also hand-shakes the last
+  byte of each sector itself (D24 peek, ACK on D25).
+* **M7.4 (simulator, done):** `sim.boot.boot_from_w0`: the SCSI slot of
+  `.SYSTEM/.LD-7` at LOC.LOAD (63K memory: MEM.SIZ 176000), MONITOR via
+  ECOPY. D57 = 7 (Model D, D40Q, M64K: MONITOR's `CHECK.MEM.SIZ` wants
+  both boards for 63K). The W0 MONITOR's device table also lists a second
+  SCSI disk (target 4) and an optical drive (target 1); the boot keeps W0
+  and F0 only. Result: "Synclavier System Monitor - 2021/03/09", PROFILE
+  runs ("Starting the Synclavier (r)", "Subcatalog USER is not on disk"),
+  `Ready >`. SCSI commands used: INQUIRY, TEST UNIT READY, READ
+  CAPACITY, READ(10).
+
+## 5. NED/Able era check
+
+Release 5.3 must stay a program for NED's own hardware, not for the
+Synclavier³ Mac interpreter:
+* [OBS] It is Able machine code for the Model D processor (DSM + FPRM,
+  NED's 3200/6400/9600 card set, 1988); our CPU model runs it.
+* [OBS] Mac support is optional since Release O (WINSTALL history:
+  "5/16/88 beta Release O, Macintosh, mouse"); MONITOR tests
+  `TERMINAL.MODEL = T#MACINTOSH` and works on a plain terminal (above).
+* [OBS] Interpreter hooks are `IM(n) TO RTNV` "native routine" calls
+  (`LOADER:SCSILOAD`: "invoke native routine #26 - inform interpreter of
+  pending SCSI activity"): a relative transfer *never* — no effect on real
+  hardware. Guarded paths use `interp_is_running` (e.g. `10-INT:144-TIM2`:
+  "If interpreter is running, don't try to actually measure the D16"),
+  so the hardware path is kept.
+* [UNK] Whether SYN-5.3's screens and features need a Mac terminal
+  (Termulator), and which hardware path `interp_is_running` takes on our
+  core (it must read 0). Checked at M7.5.
+
+## 6. Open questions [UNK]
 
 * Model D details beyond `RTP/INTRO`: where `PCI` literals and data
   accesses go while executing from an external page (the interpreter keeps

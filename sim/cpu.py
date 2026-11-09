@@ -1,8 +1,25 @@
-"""ABLE Model B CPU (behavioural, instruction level).
+"""ABLE CPU, Models B, C and D (behavioural, instruction level).
 
 Follows docs/instruction-set.md. Section references below (§n) are to that
 document. Choices the manual leaves open are listed in docs/simulator.md
 ("Behaviour choices") and marked "CHOICE" here.
+
+Model C (instruction-set.md §9, model-c-runtime-analysis.md): ADC/SBB;
+device 010 (D10): a write sets the repeat count (the next instruction runs
+(n mod 256) + 1 times, uninterrupted, without new fetches), a read returns
+the link `ppc` (the PC after the last taken absolute transfer, or the
+interrupted PC); destination 372 (MR12D) stores at R12, then decrements
+R12 (pops are R12I TO ATNV then MR12I/MR12: NED SREG/LREG, MONITOR 5.3
+epilogues).
+
+Model D (docs/release-5.3.md; NED RTP/INTRO page switch code): device 011
+(D11) is the instruction page pointer, page = D11 bits 15-8. While R17 is
+the PC, instruction fetches and memory reads through R17 (PCI literals)
+come from that page: page 0 = internal memory, page n = external memory
+words n * 65536 ... (the 64K-word block of external sectors n*256 ...);
+everything else (data, and fetches while R16 is the PC, i.e. at interrupt
+level) uses internal memory. Device 057 (D57) reads the options bits
+(bit 0: Model D).
 """
 from collections import namedtuple
 
@@ -41,7 +58,12 @@ class CPU:
     """
 
     def __init__(self, bus=None, ns_per_transfer=333):
-        self.model = "B"  # "C" enables ADC/SBB; D10 and MR12D are M6
+        self.model = "B"  # "C": ADC/SBB, D10, MR12D; "D": also D11 paging, D57
+        #: Model D: external memory (sim.devices.extmem.ExternalMemory) that
+        #: pages 1.. map onto
+        self.extmem = None
+        #: Model D: D57 options word (bit 0 = Model D processor)
+        self.d57 = 0o1
         self.bus = bus if bus is not None else Bus()
         #: CHOICE: about 1 us per three-transfer instruction (plan §3, risk R3)
         self.ns_per_transfer = ns_per_transfer
@@ -68,6 +90,12 @@ class CPU:
         self.time_ns = 0
         self.wait_ns = 0     # time spent holding reads (BUS_WAIT)
         self.waiting = None  # device whose read is being held, if any
+        self.ppc = 0         # Model C link (D10 read)
+        self.rpt_next = 0    # Model C: repeats armed by a D10 write
+        self.rpt_left = 0    # repeats of the current instruction still to run
+        self.rpt_word = 0
+        self.rpt_pc = 0
+        self.page = 0        # Model D: D11
 
     @property
     def pc_reg(self):
@@ -166,6 +194,20 @@ class CPU:
             return not self.c
         return not self.m  # C_NM
 
+    def _paged(self, pcs):
+        """Model D: the external memory index base of the current
+        instruction page, or None for internal memory."""
+        if self.model != "D" or not pcs or (self.page >> 8) == 0:
+            return None
+        return (self.page >> 8) << 16
+
+    def _code_read(self, base, a):
+        ext = self.extmem
+        i = base + a
+        if ext is None or i >= len(ext.data):
+            return 0xFFFF   # CHOICE: as external memory beyond the installed size
+        return ext.data[i]
+
     def _stop(self, reason, pc, word, device=None):
         self.halted = Halt(reason, pc, word, device)
         return False
@@ -177,14 +219,25 @@ class CPU:
         r = self.r
         mem = self.mem
 
-        # 1. Fetch (§7): READ mem[PC], PC <- PC + 1
+        # 1. Fetch (§7): READ mem[PC], PC <- PC + 1 (Model C repeat: the
+        #    same instruction again, no fetch, PC unchanged)
         pcr = 0o17 if self.pcs else 0o16
-        pc = r[pcr]
-        w = mem[pc]
-        r[pcr] = (pc + 1) & M16
+        base = self._paged(self.pcs)
+        undo = (r[pcr], self.rpt_left, self.rpt_next)   # for a held read
+        if self.rpt_left:
+            self.rpt_left -= 1
+            pc, w = self.rpt_pc, self.rpt_word
+            transfers = 0
+        else:
+            pc = r[pcr]
+            w = mem[pc] if base is None else self._code_read(base, pc)
+            r[pcr] = (pc + 1) & M16
+            transfers = 1
+            if self.rpt_next:
+                self.rpt_left, self.rpt_next = self.rpt_next, 0
+                self.rpt_pc, self.rpt_word = pc, w
         if self.trace:
             self.trace(self, pc, w)
-        transfers = 1
 
         self.waiting = None
         # 2. Source READ (skipped for immediates)
@@ -199,20 +252,29 @@ class CPU:
                 val = r[sv]
                 r[sv] = (val + 1) & M16
             elif sk == S_MEM:
-                val = mem[r[sv]]
+                if base is not None and sv == pcr:
+                    val = self._code_read(base, r[sv])
+                else:
+                    val = mem[r[sv]]
             elif sk == S_MEMI:
                 a = r[sv]
-                val = mem[a]
+                val = mem[a] if base is None or sv != pcr else self._code_read(base, a)
                 r[sv] = (a + 1) & M16
             else:  # S_IO
                 if sv == PSW_DEVICE:
                     val = self.read_psw()
+                elif self.model != "B" and sv == 0o10:
+                    val = self.ppc
+                elif self.model == "D" and sv == 0o11:
+                    val = self.page
+                elif self.model == "D" and sv == 0o57:
+                    val = self.d57
                 else:
                     val = self.bus.read(sv)
                     if val is NO_SYN:
                         return self._stop(HALT_NO_SYN_READ, pc, w, sv)
                     if val is BUS_WAIT:
-                        return self._wait(pcr, pc, sv)
+                        return self._wait(pcr, undo, sv)
                     val &= M16
 
         # 3. Destination WRITE (skipped for a failed conditional transfer)
@@ -224,6 +286,7 @@ class CPU:
             r[db] = self._alu(da, r[db], val)
         elif dk == D_JABS:
             if self._cond(da):
+                self.ppc = self.pc   # Model C link: the return address
                 self.pc = val
             else:
                 write = False
@@ -235,9 +298,14 @@ class CPU:
         elif dk == D_MEM:
             mem[r[da]] = val
         elif dk == D_MEMI:
-            a = r[da]
-            mem[a] = val
-            r[da] = (a + 1) & M16
+            if da == 0o12 and self.model != "B":
+                a = r[da]                      # Model C: MR12D stores, then decrements
+                mem[a] = val
+                r[da] = (a - 1) & M16
+            else:
+                a = r[da]
+                mem[a] = val
+                r[da] = (a + 1) & M16
         elif dk == D_TEST:
             self._alu(da, r[db], val)  # flags only; acc unchanged (§4)
         elif dk == D_SHRA:
@@ -254,6 +322,12 @@ class CPU:
         elif dk == D_IO:
             if da == PSW_DEVICE:
                 self.write_pcw(val)
+            elif self.model != "B" and da == 0o10:
+                self.rpt_next = val & 0o377
+            elif self.model == "D" and da == 0o11:
+                self.page = val
+            elif self.model == "D" and da == 0o57:
+                pass
             elif not self.bus.write(da, val):
                 return self._stop(HALT_NO_SYN_WRITE, pc, w, da)
         elif self.model == "B":
@@ -288,16 +362,20 @@ class CPU:
         if self._halt_request:
             self._halt_request = False
             return self._stop(HALT_REQUEST, self.pc, mem[self.pc])
+        if self.rpt_left or self.rpt_next:
+            return True                       # no interrupt inside a repeat
         if self.ion and self.pcs and self.bus.irq_bits():
             # Interrupt entry (§8): disable interrupts, fetch from R16
             self.ion = False
             self.pcs = False
+            self.ppc = self.r[0o17]           # Model C link: the interrupted PC
         return True
 
-    def _wait(self, pcr, pc, dev):
-        """Hold a read the device has not answered yet: undo the fetch and
-        let one transfer time pass. No interrupt can be taken mid-transfer."""
-        self.r[pcr] = pc
+    def _wait(self, pcr, undo, dev):
+        """Hold a read the device has not answered yet: undo the fetch (and
+        any repeat bookkeeping) and let one transfer time pass. No interrupt
+        can be taken mid-transfer."""
+        self.r[pcr], self.rpt_left, self.rpt_next = undo
         self.waiting = dev
         self.wait_ns += self.ns_per_transfer
         self.time_ns += self.ns_per_transfer

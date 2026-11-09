@@ -220,7 +220,7 @@ The manual leaves these open. Each choice is marked `CHOICE` in the code.
 | When an ION enable takes effect | Immediately: IRQ is sampled at the end of the PCW-writing instruction | The manual describes no delay. |
 | `PCI` (377) at interrupt level | Reads through R17, not R16 | Codes name physical registers; nothing in the manual remaps them. |
 | ADC/SBB destinations (270–277) on Model B | No operation (accumulator and flags unchanged); ADC/SBB work when `cpu.model = "C"` | [HYP] ORK-LM's Model C test (`IM(5) TO ADC0` must leave R0 = 0 on a Model B); see [`instruction-set.md`](instruction-set.md) §9. |
-| `MR12I` destination (372) | Ordinary post-increment | The Model C pre-decrement (`MR12D`) is M6. |
+| `MR12I` destination (372) | Ordinary post-increment on Model B | Model C/D (`cpu.model`): `MR12D`, store then decrement R12. |
 | PSW read side effects (ACK̅) | None | The runtime acknowledges each device explicitly (D3 write, D50 read, D51 write), so no device needs ACK̅ so far. |
 | Terminal interrupt enable | Always enabled at the card; software masks with ION | NED code shows no enable bits. |
 | Reading D50 with no character waiting | The read is held (the CPU repeats the instruction, no interrupts) until a character arrives | [HYP] MONITOR's input routine reads D50 without testing CHAR_RDY. |

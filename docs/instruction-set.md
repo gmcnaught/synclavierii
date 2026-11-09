@@ -243,7 +243,7 @@ shr(options_word, 8) and 7`, where **0 = Model A, 1 = B, 2 = C, 3 = D**
 | **Subtract with borrow** | dest 274–277 (`SBB0–3`) | assembler; interpreter `b_sbb 0xBC`; **runtime 32-bit divide: `R5 TO SUB1` then `R4 TO SBB0`** | **High:** acc ← acc − src − (1 − C), with C = NOT borrow, the same convention as SUB |
 | **Repeat (`RPT`)** | **write I/O device 010 (`D10`)** with *n − 1*; the **next instruction executes *n* times** in microcode, uninterruptibly | compiler: `im(shift-1) to d10 - load repeat counter`, `r3 to d10 [repeat up ((R3 + 1) mod 256) times]`; *Synclavier Internals* `RPT` | High. Count is 8 bits (1–256 executions). |
 | **Link register (read D10)** | **read device 010** returns the **prior program counter** (`ppc` in NED's interpreter state): the return address of the last taken absolute transfer (or interrupt) | compiler (every call is `pci to atra` / `im(n) to atra`; prologue `d10 to mrSPd`); runtime: save-regs routine returns with `D10 TO ATRA`; interpreter struct fields `rpc` "repeat counter" and `ppc` "prior program counter" | **High** for absolute transfers. The compiler never uses a relative transfer for a call, so no NED code depends on D10 after a relative jump. |
-| **Hardware stack via R12** | memory destination **372 (`MR12D`) = pre-decrement R12**; memory source 372 = post-increment (pop) | assembler alias `MR12D`; compiler; runtime: 73 pushes; other `MRnI` destinations still count **up** (RAM trampoline `R0 TO MR1I`, `PCI TO MR1I`) | **High: R12 only** |
+| **Hardware stack via R12** | memory destination **372 (`MR12D`) = store, then decrement R12** (R12 points at the next free word); pop = `R12I TO ATNV`, then source 372 (post-increment) / `MR12` | assembler alias `MR12D`; compiler; runtime: 73 pushes; other `MRnI` destinations still count **up** (RAM trampoline `R0 TO MR1I`, `PCI TO MR1I`) | **High: R12 only** |
 | Register conventions | stack pointer **R12** on Model C and later (R15 on A/B); R13 free for the programmer; R0–R3 for in-line assembly | compiler; XPL manual | Software convention |
 | Flags after CALL | **Z/C/M are garbage after a procedure call on Model C** | compiler comment | High |
 | Model D: code in external memory | compiler option `-f`, "force all code to external memory (e.g. model d)"; runtime "switch to page 0" / "exchange pages" vectors | compiler | Model D only (DSM + FPRM) |
@@ -254,7 +254,7 @@ shr(options_word, 8) and 7`, where **0 = Model A, 1 = B, 2 = C, 3 = D**
   candidate for the **repeat counter** rather than the micro-PC. Re-executing
   the next instruction without a new fetch is microcode behaviour (SMR PROMs).
 * **FPRM:** ADC and SBB need the **C flag fed back into the '181 carry-in**.
-  The R12 pre-decrement needs a decrement path, either the ALU or the U18/U28
+  The R12 post-decrement needs a decrement path, either the ALU or the U18/U28
   decode treating code 372 specially as a destination.
 
 **On a Model B, destinations 270–277 do nothing [HYP].** Release L
@@ -300,7 +300,7 @@ and `RE(label)` a relative operand. In XPL the same thing is written
 | `IM(-3) TO RTRA` | `330 275` | PC += −3 (immediates are octal in NED syntax: `IM(-20)` = −16) |
 | `R5 TO D1` | `001 305` | write PCW from R5 |
 | `IM(7) TO D10` then `IM(0) TO SHRA1` | `010 207`, `265 200` | **Model C:** shift R1 right 8 times |
-| `R4 TO MR12D` | `372 304` | **Model C:** push R4 (pre-decrement R12) |
+| `R4 TO MR12D` | `372 304` | **Model C:** push R4 (store, then decrement R12) |
 
 *The words are written high byte (destination) first. The XPL manual's own
 example (`r0 = "300"`, `r1 = "301"`, `add0 = "210"`) and NED's assembler

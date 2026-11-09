@@ -47,7 +47,9 @@ Trace format v2 (little-endian):
     'A' i64 i64   audio sample (sim/voice.py FMSynth.sample_int: left, right)
                   at the next 192 kHz render instant (audio traces only)
     'K' u8 u8 u16 host key/button change before the next instruction: 0
-                  clavier octave or 1 panel, index, new word
+                  clavier octave or 1 panel, index, new word; 2-7 velocity
+                  keyboard host op (kind - 2, addr, data); 8 a byte into
+                  the MIDI card's input FIFO (index 0, byte; board top)
     'H' u8        halted: 1 no SYN on read, 2 no SYN on write, 3 HALT
     'E'           end of trace
 
@@ -175,6 +177,9 @@ def _device_header(cpu):
                 out += struct.pack("<cBHI", b"V", 7, idx, int(v) & 0xFFFFFFFF)
         out += struct.pack("<cBHI", b"V", 7, 31, bool(kb.strict and fm.strict))
         assert kb.strict == fm.strict
+    card = getattr(cpu, "midi", None)
+    if card is not None and (card.sel or card.mcha or card.fifo):
+        raise ValueError("MIDI card state is not the power-on state (dev_midi.sv has no load port)")
     for dev, idx, v in ((0, 0, rtc.elapsed), (0, 1, rtc.pending),
                         (1, 0, md.d4), (1, 1, md.d5),
                         (2, 0, xm.sector), (2, 1, xm.word),
@@ -310,6 +315,15 @@ def record(cpu, path, instructions, snapshot_every=256, max_steps=None, max_wait
             ev.extend(struct.pack("<cBBH", b"K", 1, pbn // 16, kb.buttons[pbn // 16]))
         kb.press_key, kb.press_button = recorded_key, recorded_button
 
+    card = getattr(cpu, "midi", None)
+    if card is not None:                                 # MIDI card input: 'K' kind 8
+        card_receive = card.receive
+
+        def recorded_receive(byte):
+            card_receive(byte)
+            ev.extend(struct.pack("<cBBH", b"K", 8, 0, byte & 0xFF))
+        card.receive = recorded_receive
+
     def snapshot(time_ns=None):
         t = cpu.time_ns if time_ns is None else time_ns
         return b"S" + struct.pack("<16HBQ", *cpu.r, _flags(cpu), t - t0)
@@ -382,6 +396,8 @@ def record(cpu, path, instructions, snapshot_every=256, max_steps=None, max_wait
         del cpu.read_psw
         if term is not None:
             del term.feed
+        if card is not None:
+            del card.receive
         if vpk_wrapped:
             for f in vpk_wrapped:
                 delattr(kb, f)
@@ -446,9 +462,10 @@ SYSTEM_RTL = ["hdl/able_cpu.sv", "hdl/code_cache.sv", "hdl/dev/dev_rtc.sv", "hdl
               "hdl/dev/dev_floppy.sv", "hdl/dev/dev_keyboard.sv", "hdl/dev/dev_vpk.sv",
               "hdl/dev/dev_fm.sv", "hdl/dev/fm_voices.sv",
               "hdl/dev/pcm_out.sv", "hdl/throttle.sv", "hdl/able_system.sv"]
-CORE_RTL = ["hdl/core/sd_floppy.sv", "hdl/dev/dev_scsi.sv", "hdl/dev/dev_poly.sv",
+CORE_RTL = ["hdl/core/sd_floppy.sv", "hdl/dev/dev_scsi.sv", "hdl/dev/dev_poly.sv", "hdl/dev/dev_midi.sv",
             "hdl/core/boot_loader.sv", "hdl/core/term_display.sv",
-            "hdl/core/ps2_ascii.sv", "hdl/core/midi_in.sv", "hdl/core/midi_vpk.sv", "hdl/core/panel_mouse.sv", "hdl/core/audio_fifo.sv",
+            "hdl/core/ps2_ascii.sv", "hdl/core/midi_in.sv", "hdl/core/midi_vpk.sv", "hdl/core/midi_card_feed.sv",
+            "hdl/core/panel_mouse.sv", "hdl/core/audio_fifo.sv",
             "hdl/core/synclavier_core.sv",
             "hdl/board/ddram_word.sv"]
 TOPS = {
@@ -616,6 +633,27 @@ def w0_vpk_actions(cpu):
     return acts
 
 
+def w0_midi_actions(cpu):
+    """MIDI card actions for a W0 boot with the velocity keyboard and the
+    MIDI card (cpu.midi): BANK 1, ENTRY 2 on the VPK panel (SIMPLE FM SINE),
+    then MIDI in through the card at 31250-baud byte spacing: note 60 on
+    (velocity 100), mod wheel, pitch bend, note off, and a clock; then STOP
+    twice, which sends All Notes Off (Bn 7B 00, n = 0-15) on each output."""
+    from .devices.synth import vpk_button_number as B
+    kb, card = cpu.keyboard, cpu.midi
+    ms, us = 1_000_000, 1_000
+    acts = []
+    for t, name in ((10_600, "bankb"), (10_900, "timb.0"), (12_500, "entryb"), (12_800, "timb.1"),
+                    (16_000, "stop"), (16_300, "stop")):
+        acts += [(t * ms, lambda c, n=name: kb.press_button(B(n))),
+                 ((t + 100) * ms, lambda c, n=name: kb.press_button(B(n), False))]
+    for t, msg in ((14_500, (0x90, 60, 100)), (14_700, (0xB0, 1, 90)), (14_800, (0xE0, 0, 100)),
+                   (15_200, (0x80, 60, 0)), (15_300, (0xF8,))):
+        for i, b in enumerate(msg):
+            acts.append((t * ms + 320 * us * i, lambda c, b=b: card.receive(b)))
+    return acts
+
+
 def syn53_cpu(image, skip=0):
     """Release 5.3 from a W0 image (sim.boot.boot_from_w0, 30 MB disk): boot
     to Ready, CREATE USER, SET RTP SYN-5.3, PLAY, then `skip` instructions."""
@@ -660,6 +698,9 @@ def main(argv=None):
     ap.add_argument("--poly", action="store_true",
                     help="w0boot: with poly voices (sim/devices/poly.py); at 10.6 s recall "
                          "bank 2 entry 1 (W0:CLARA3) and hold key 45 at 16 s")
+    ap.add_argument("--midi", action="store_true",
+                    help="w0boot: with the MIDI card (sim/devices/midi.py; with --poly --vpk: "
+                         "w0_midi_actions)")
     ap.add_argument("--vpk", action="store_true",
                     help="w0boot: the velocity keyboard instead of the ORK (with --poly: "
                          "w0_vpk_actions)")
@@ -681,7 +722,11 @@ def main(argv=None):
         if a.poly:
             from .devices.poly import PolySynth
             poly = PolySynth()
-        cpu, _ = boot_from_w0(a.args[0], poly=poly, keyboard="vpk" if a.vpk else "ork")
+        midi = None
+        if a.midi:
+            from .devices.midi import MidiSubsystem
+            midi = MidiSubsystem()
+        cpu, _ = boot_from_w0(a.args[0], poly=poly, keyboard="vpk" if a.vpk else "ork", midi=midi)
         path = a.args[1]
     elif a.mode == "monitor":
         from .boot import boot_from_image
@@ -702,7 +747,8 @@ def main(argv=None):
     if a.mode == "ork-lm-note":
         actions = ork_lm_note_actions(cpu, dbg, a.args[0])
     if a.mode == "w0boot" and a.poly:
-        actions = w0_vpk_actions(cpu) if a.vpk else w0_poly_actions(cpu)
+        actions = (w0_midi_actions(cpu) if a.midi and a.vpk else
+                   w0_vpk_actions(cpu) if a.vpk else w0_poly_actions(cpu))
     n = record(cpu, path, a.instructions, on_wait=on_wait if a.mode == "monitor" else None,
                actions=actions, audio=a.audio)
     if a.mode == "monitor":

@@ -129,6 +129,12 @@ nothing in the source suggests short-circuit, so D71 is read for select 17 as
 well. The model must answer D70/D71/D72 reads for *any* select value without
 halting.
 
+Observed in the simulator (SYN-5.3 with `sim/devices/midi.py`, 2026-11-09):
+accesses 1–21 exactly as above, and **no** access 22: after `R D70` for
+select 17 returns 0 the next access is `W D70 = 16` (the 1 ms scan). So
+the compiled `IF` does not read MSTA once the readback test fails (question
+4 below). [OBS]
+
 Results: `MIDI.THERE` bit 0 set; `MAX.MIDI.CHAN = 4` (4 outputs, numbered
 1–4 in the UI). Then the routine resets MIDI controller values
 (`MIDI.ANALOG.IN`: pedal 1 = `RTE.MAX` (225), pedal 2 = 0 unless
@@ -382,7 +388,8 @@ routing words and `MIDI.SYNC.OUT=0`]
 2. Output FIFO depth and behaviour when full (the code never checks).
 3. What the real card returns on D70/D71/D72 reads when the selected
    subsystem is absent (bus float vs 0).
-4. Whether XPL's `AND` short-circuits (decides access 22 in §2.2).
+4. ~~Whether XPL's `AND` short-circuits (decides access 22 in §2.2).~~
+   Observed: it does at this site; no D71 read for select 17.
 5. Whether the user's Synclavier³ `.SDEF-7` sets MIDI input channel / echo /
    active RTEs differently from the zero defaults.
 6. Out-of-range `DO CASE` for `FD`–`FF` in MIDI sync mode.
@@ -418,6 +425,14 @@ Goal: SYN-5.3 detects one MIDI subsystem, receives notes, and may send bytes.
   status, real-time and sysex itself). Optionally strip `FE` active sensing
   and `F8` clocks to save FIFO space; they are ignored in the default
   `EXT.CLOCK.MODE=0`.
+
+Implemented this way in `sim/devices/midi.py` (`MidiSubsystem`) and
+`hdl/dev/dev_midi.sv`; `hdl/core/midi_card_feed.sv` feeds the input FIFO
+from the MiSTer UART (messages re-sent with their status byte; F8/FA/FB/FC
+passed; FE, SysEx and system common dropped; panel-control messages kept
+back for the keyboard paths). Ports 0–3 share one 256-byte output FIFO
+and one UART output. State images with the card: `tools/w0_image.py
+--midi`. Lockstep trace event `K` kind 8 puts a byte in the input FIFO.
 
 Expected result with defaults (OMNI, mapped to keyboard, echo off): note
 on/off with velocity on any channel plays the keyboard timbre; CC1 → mod

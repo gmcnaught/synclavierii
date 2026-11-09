@@ -19,7 +19,8 @@ module emu
 assign ADC_BUS  = 'Z;
 assign USER_OUT = '1;
 assign {UART_RTS, UART_DTR} = 0;
-assign UART_TXD = 1;            // MIDI in only
+wire   midi_txd;
+assign UART_TXD = midi_txd;     // MIDI out: the MIDI subsystem card (D70), idle high otherwise
 assign {SD_SCK, SD_MOSI, SD_CS} = 'Z;
 assign {SDRAM_DQ, SDRAM_A, SDRAM_BA, SDRAM_CLK, SDRAM_CKE, SDRAM_DQML, SDRAM_DQMH, SDRAM_nWE, SDRAM_nCAS, SDRAM_nRAS, SDRAM_nCS} = 'Z;
 
@@ -177,6 +178,9 @@ synclavier_core #(.CLK_HZ(16_000_000), .VID_CE_DIV(1)) core
 	.audio_r(audio_r),
 
 	.midi_rxd(UART_RXD),
+	.midi_txd(midi_txd),
+	.midi_card_we(1'b0),
+	.midi_card_byte(8'd0),
 	.kb_host_we(1'b0),
 	.kb_host_panel(1'b0),
 	.kb_host_index(3'd0),

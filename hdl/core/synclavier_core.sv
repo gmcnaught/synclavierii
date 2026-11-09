@@ -10,6 +10,9 @@
 //   midi_in       MIDI (UART, MidiLink) to the original keyboard and panel;
 //   midi_vpk      the same MIDI to the velocity keyboard when the state image
 //                 selects it (SYN-5.3; able_system kb_vpk);
+//   dev_midi      D70-D73 MIDI subsystem card when the state image has D51
+//                 bit 8 (SYN-5.3): MIDI in through midi_card_feed (panel
+//                 controls stay with the keyboard paths), MIDI out on midi_txd;
 //   panel_mouse   the mouse: click the panel buttons shown on the screen.
 // External memory (D60-D63: EXT_SECTORS sectors for a floppy boot, a
 // state image's own size otherwise, at most 4096) is a word port (xr_*):
@@ -69,6 +72,9 @@ module synclavier_core #(
     output logic signed [15:0] audio_r,
 
     input  logic        midi_rxd,       // MIDI in, 31250 baud (idle high)
+    output logic        midi_txd,       // MIDI out (the card's), at the speed MIDI in runs at
+    input  logic        midi_card_we,   // a byte into the card's input FIFO (simulation; beats MIDI)
+    input  logic [7:0]  midi_card_byte,
     input  logic        kb_host_we,     // keyboard / panel words (simulation; beats MIDI)
     input  logic        kb_host_panel,
     input  logic [2:0]  kb_host_index,
@@ -229,13 +235,15 @@ module synclavier_core #(
     //     writes accepted, reads 0 ([HYP] SYN-5.3 writes D155 without checking D51's poly bit;
     //     sim/devices/stubs.py PolyNoVoices)
     // Any other device: no SYN (the CPU halts, as the real machine hangs).
-    logic [15:0] dev_rdata, scsi_rdata;
-    logic        dev_ack, dev_nosyn, scsi_ack;
+    logic [15:0] dev_rdata, scsi_rdata, midi_rdata;
+    logic        dev_ack, dev_nosyn, scsi_ack, midi_ack;
     logic [23:0] scsi_addr;
     logic        scsi_rd, scsi_wr;
     logic [15:0] scsi_wdata;
     wire  sel_scsi = (dev_rd || dev_wr) && dev_num[6:2] == 5'b00101;        // 024-027
     wire  sel_poly = (dev_rd || dev_wr) && dev_num[6:2] == 5'b11011;        // 154-157
+    wire  card     = term_bits[8];                                         // D51: D70 exists
+    wire  sel_midi = (dev_rd || dev_wr) && dev_num[6:2] == 5'b01110 && card; // 070-073
     dev_scsi #(.TARGET(4'd5)) scsi (
         .clk, .rst(cpu_rst), .sel(sel_scsi), .rd(dev_rd), .wr(dev_wr), .reg_sel(dev_num[1:0]),
         .wdata(dev_wdata), .rdata(scsi_rdata), .ack(scsi_ack),
@@ -265,6 +273,7 @@ module synclavier_core #(
         dev_rdata = 16'd0; dev_ack = 1'b0; dev_nosyn = 1'b0;
         if (sel_scsi)      begin dev_rdata = scsi_rdata; dev_ack = scsi_ack; end
         else if (sel_poly) begin dev_rdata = poly_rdata; dev_ack = poly_ack; end
+        else if (sel_midi) begin dev_rdata = midi_rdata; dev_ack = midi_ack; end
         else               dev_nosyn = dev_rd || dev_wr;
     end
 
@@ -321,8 +330,31 @@ module synclavier_core #(
     logic        mv_we;
     logic [2:0]  mv_op;
     logic [7:0]  mv_addr, mv_data;
+    // MIDI subsystem card (D51 bit 8): channel messages and real-time bytes
+    // go to the card, except panel controls (card_panel) and program change,
+    // which also take the keyboard paths
+    logic        card_panel, card_in_valid, card_tx_valid, card_tx_ready;
+    logic [7:0]  card_in_data, card_tx_data;
+    midi_card_feed to_card (
+        .clk, .rst, .vpk(kb_vpk),
+        .msg_valid(midi_msg && card), .msg_kind(midi_kind), .msg_chan(midi_chan),
+        .msg_m1(midi_m1), .msg_m2(midi_m2), .byte_valid(midi_byte && card), .byte_data(midi_data),
+        .panel(card_panel), .out_valid(card_in_valid), .out_data(card_in_data)
+    );
+    dev_midi midi_card (
+        .clk, .rst(cpu_rst), .sel(sel_midi), .rd(dev_rd), .wr(dev_wr), .reg_sel(dev_num[1:0]),
+        .wdata(dev_wdata), .rdata(midi_rdata), .ack(midi_ack),
+        .rx_valid(midi_card_we || card_in_valid), .rx_data(midi_card_we ? midi_card_byte : card_in_data),
+        .tx_valid(card_tx_valid), .tx_data(card_tx_data), .tx_ready(card_tx_ready)
+    );
+    midi_uart_tx #(.CLK_HZ(CLK_HZ)) midi_out (
+        .clk, .rst, .alt(midi_alt), .valid(card_tx_valid), .data(card_tx_data),
+        .ready(card_tx_ready), .txd(midi_txd)
+    );
+    wire midi_keys = !card || card_panel || midi_kind == 3'd2;   // message also for the keyboard
+
     midi_vpk #(.CLK_HZ(CLK_HZ)) midi_to_vpk (
-        .clk, .rst, .msg_valid(midi_msg && kb_vpk), .msg_kind(midi_kind), .msg_chan(midi_chan),
+        .clk, .rst, .msg_valid(midi_msg && kb_vpk && midi_keys), .msg_kind(midi_kind), .msg_chan(midi_chan),
         .msg_m1(midi_m1), .msg_m2(midi_m2),
         .host_we(mv_we), .host_op(mv_op), .host_addr(mv_addr), .host_data(mv_data)
     );
@@ -391,7 +423,7 @@ module synclavier_core #(
             for (int i = 0; i < 8; i++) begin midi_pw[i] <= '0; mouse_pw[i] <= '0; end
             pw_dirty <= '0;
         end else begin
-            if (midi_we && !midi_panel) begin                    // clavier
+            if (midi_we && !midi_panel && !card) begin           // clavier (not with the card)
                 h_we <= 1'b1; h_panel <= 1'b0; h_index <= midi_index; h_value <= midi_value;
             end else if (pw_dirty != '0) begin
                 h_we <= 1'b1; h_panel <= 1'b1; h_index <= pw_i;

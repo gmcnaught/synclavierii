@@ -138,3 +138,25 @@ defaults for a Novation Launchkey MK3):
 Velocity, pressure and the wheels act on a timbre once they are patched to
 it, as on the real instrument (hold a VK button such as VK VEL and press
 the destination, e.g. PARTIAL VOLUME).
+
+**Release 5.3 with the MIDI subsystem card.** `tools/w0_image.py --midi`
+writes `W0-53-MIDI.SST`: the same machine with a MIDI card on D70–D73
+(`docs/devices/d70-midi-subsystem.md`). SYN-5.3 then reads MIDI itself, as
+a 3200/6400/9600 with a MIDI card does: notes on any channel (OMNI, the
+default) play the keyboard timbre with SYN-5.3's own velocity map; CC 1 mod
+wheel, CC 64 sustain, pitch bend; MIDI routing, recording to tracks and the
+MIDI sync settings work as on the instrument. Panel controls stay as in the
+table above: channel 16 and 15 notes, the drum pads (channel 10 notes
+36–51), pots (CC 21–28) and program change (which also reaches SYN-5.3).
+MIDI out: SYN-5.3's four outputs of the card leave on the UART (MidiLink
+forwards them to USB MIDI), at the speed the input runs at; nothing is sent
+until a timbre or track is routed to MIDI out, except All Notes Off on
+every channel when STOP is pressed twice.
+
+```xml
+<mistergamedescription>
+    <rbf>_Computer/Synclavier</rbf>
+    <file delay="2" type="s" index="3" path="W0-53.IMG"/>
+    <file delay="1" type="s" index="2" path="W0-53-MIDI.SST"/>
+</mistergamedescription>
+```

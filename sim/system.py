@@ -4,11 +4,11 @@ from .cpu import CPU
 from .devices import (ControlVoltages, ExternalMemory, FloppyController, FMInterface,
                       MulDiv, OriginalKeyboard, RealTimeClock, Terminal, VelocityKeyboard)
 from .devices.scsi import ScsiHost
-from .devices.terminal import D24_EXISTS, D57_EXISTS, D60_EXISTS, POLY_EXISTS
+from .devices.terminal import D24_EXISTS, D57_EXISTS, D60_EXISTS, D70_EXISTS, POLY_EXISTS
 
 
 def make_system(ext_sectors=1024, baud=9600, rtc_hz=200, output=None, floppy=False,
-                synth=False, strict=True, scsi=None, model="B", poly=None, keyboard="ork"):
+                synth=False, strict=True, scsi=None, model="B", poly=None, keyboard="ork", midi=None):
     """Return a CPU with D3, D4567, D50/D51 and (if ext_sectors) D60-D63.
 
     The devices are reachable as cpu.rtc, cpu.muldiv, cpu.terminal and
@@ -23,6 +23,7 @@ def make_system(ext_sectors=1024, baud=9600, rtc_hz=200, output=None, floppy=Fal
     poly: a devices.poly.PolySynth for D154-D157 (cpu.poly; D51 poly bit set).
     keyboard: "ork" (original keyboard) or "vpk" (velocity/pressure keyboard,
     SYN-5.3 only) on D130/D131 with synth=True.
+    midi: a devices.midi.MidiSubsystem for D70-D73 (cpu.midi; D51 bit 8 set).
     """
     bus = Bus()
     cpu = CPU(bus)
@@ -32,7 +33,8 @@ def make_system(ext_sectors=1024, baud=9600, rtc_hz=200, output=None, floppy=Fal
     cpu.extmem = bus.attach(ExternalMemory(ext_sectors)) if ext_sectors else None
     cpu.scsi = bus.attach(ScsiHost(scsi)) if scsi is not None else None
     bits = ((D60_EXISTS if ext_sectors else 0) | (D24_EXISTS if scsi is not None else 0)
-            | (D57_EXISTS if model == "D" else 0) | (POLY_EXISTS if poly is not None else 0))
+            | (D57_EXISTS if model == "D" else 0) | (POLY_EXISTS if poly is not None else 0)
+            | (D70_EXISTS if midi is not None else 0))
     cpu.terminal = bus.attach(Terminal(baud, device_bits=bits, output=output))
     cpu.floppy = bus.attach(FloppyController()) if floppy else None
     cpu.fm = bus.attach(FMInterface(strict=strict)) if synth else None
@@ -40,4 +42,5 @@ def make_system(ext_sectors=1024, baud=9600, rtc_hz=200, output=None, floppy=Fal
     cpu.keyboard = bus.attach(kb(strict=strict)) if synth else None
     cpu.cv = bus.attach(ControlVoltages()) if synth else None
     cpu.poly = bus.attach(poly) if poly is not None else None
+    cpu.midi = bus.attach(midi) if midi is not None else None
     return cpu

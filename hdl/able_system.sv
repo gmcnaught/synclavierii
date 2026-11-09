@@ -134,20 +134,27 @@ module able_system #(
 
     throttle #(.CLK_HZ(CLK_HZ)) pace (.clk, .rst, .enable(rt_enable), .tick, .tick_ns, .stall, .lag_us);
 
-    // Model D code fetches share the external memory port with D60-D63 (the
-    // CPU does one or the other at a time)
-    logic [23:0] cm_addr, x_addr;
-    logic        cm_rd, x_rd, x_wr, x_ack;
-    logic [15:0] x_wdata;
-    assign xm_addr  = cm_rd ? cm_addr : x_addr;
-    assign xm_rd    = cm_rd || x_rd;
-    assign xm_wr    = !cm_rd && x_wr;
+    // Model D code fetches go through a cache (code_cache.sv) whose misses
+    // share the external memory port with D60-D63 (the CPU does one or the
+    // other at a time); D60-D63 writes also update the cache
+    logic [23:0] cm_addr, cc_addr, x_addr;
+    logic        cm_rd, cm_ack, cc_rd, x_rd, x_wr, x_ack;
+    logic [15:0] cm_rdata, x_wdata;
+    code_cache cache (
+        .clk, .rst,
+        .cm_addr, .cm_rd, .cm_rdata, .cm_ack,
+        .wr_addr(x_addr), .wr_en(x_wr && x_ack), .wr_data(x_wdata),
+        .m_addr(cc_addr), .m_rd(cc_rd), .m_rdata(xm_rdata), .m_ack(cc_rd && xm_ack)
+    );
+    assign xm_addr  = cc_rd ? cc_addr : x_addr;
+    assign xm_rd    = cc_rd || x_rd;
+    assign xm_wr    = !cc_rd && x_wr;
     assign xm_wdata = x_wdata;
-    assign x_ack    = !cm_rd && xm_ack;
+    assign x_ack    = !cc_rd && xm_ack;
 
     able_cpu cpu (
         .clk, .rst, .model(cpu_model), .d57(cpu_d57),
-        .cm_addr, .cm_rd, .cm_rdata(xm_rdata), .cm_ack(cm_rd && xm_ack),
+        .cm_addr, .cm_rd, .cm_rdata, .cm_ack,
         .mem_addr, .mem_we, .mem_wdata, .mem_rdata,
         .io_rd, .io_wr, .io_dev, .io_wdata, .io_rdata, .io_ack, .io_nosyn, .io_hold,
         .io_held, .tick, .tick_ns,

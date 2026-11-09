@@ -401,7 +401,7 @@ def random_cpu(seed, model="B"):
     return cpu
 
 
-SYSTEM_RTL = ["hdl/able_cpu.sv", "hdl/dev/dev_rtc.sv", "hdl/dev/dev_muldiv.sv",
+SYSTEM_RTL = ["hdl/able_cpu.sv", "hdl/code_cache.sv", "hdl/dev/dev_rtc.sv", "hdl/dev/dev_muldiv.sv",
               "hdl/dev/dev_extmem.sv", "hdl/dev/dev_terminal.sv",
               "hdl/dev/dev_floppy.sv", "hdl/dev/dev_keyboard.sv",
               "hdl/dev/dev_fm.sv", "hdl/dev/fm_voices.sv",

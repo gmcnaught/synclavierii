@@ -100,12 +100,13 @@ uint16_t reg(int i) { return (top->regs_flat[i / 2] >> ((i & 1) * 16)) & 0xFFFF;
 // ---------------------------------------------------------------- board
 // HPS side of hps_io's SD block interface: one 512-byte block per request.
 uint32_t lba_of(Top* top, int d) {
-    return d == 0 ? top->sd_lba0 : d == 1 ? top->sd_lba1 : d == 2 ? top->sd_lba2 : top->sd_lba3;
+    return d == 0 ? top->sd_lba0 : d == 1 ? top->sd_lba1 : d == 2 ? top->sd_lba2
+         : d == 3 ? top->sd_lba3 : top->sd_lba4;
 }
 
 struct SdModel {
-    std::vector<uint8_t> img[4];                 // F0, F1, state image, W0 (SCSI)
-    bool present[4] = {false, false, false, false}, prot[4] = {false, false, true, false};
+    std::vector<uint8_t> img[5];                 // F0, F1, state image, W0, W1 (SCSI)
+    bool present[5] = {false, false, false, false, false}, prot[5] = {false, false, true, false, false};
     int drive = -1, phase = 0, wait = 0, i = 0, nbytes = 512;
     bool writing = false;
     uint64_t reads = 0, writes = 0;
@@ -114,7 +115,7 @@ struct SdModel {
         if (wait > 0) { wait--; return; }
         switch (phase) {
         case 0:                                    // idle: pick a request
-            for (int d = 0; d < 4; d++)
+            for (int d = 0; d < 5; d++)
                 if ((top->sd_rd | top->sd_wr) >> d & 1) {
                     drive = d; writing = top->sd_wr >> d & 1;
                     phase = 1; wait = 40; return;
@@ -122,7 +123,7 @@ struct SdModel {
             return;
         case 1:
             top->sd_ack = 1 << drive; top->sd_buff_addr = 0; i = 0;
-            nbytes = 512 * (drive == 3 ? top->sd_blk_cnt3 + 1 : 1);   // hps_io sd_blk_cnt
+            nbytes = 512 * (drive == 3 ? top->sd_blk_cnt3 + 1 : drive == 4 ? top->sd_blk_cnt4 + 1 : 1);   // hps_io sd_blk_cnt
             phase = writing ? 3 : 2; wait = 4; return;
         case 2: {                                  // blocks -> FPGA
             uint32_t lba = lba_of(top, drive);
@@ -266,8 +267,16 @@ void board_start(Trace& t, bool& audio_trace) {
         std::fclose(f);
         sd.present[3] = true;
     }
+    // LOCKSTEP_W1=path: a second SCSI disk image (W1) in S4
+    if (const char* w1 = std::getenv("LOCKSTEP_W1")) {
+        FILE* f = std::fopen(w1, "rb");
+        if (!f) { std::perror(w1); std::exit(2); }
+        for (int ch; (ch = std::fgetc(f)) != EOF;) sd.img[4].push_back((uint8_t)ch);
+        std::fclose(f);
+        sd.present[4] = true;
+    }
     top->rst_hard = 0;
-    for (int d = 0; d < 4; d++) if (sd.present[d]) {    // the HPS mounts the images
+    for (int d = 0; d < 5; d++) if (sd.present[d]) {    // the HPS mounts the images
         top->img_mounted = 1 << d; top->img_size = sd.img[d].size(); top->img_readonly = sd.prot[d];
         board_tick();
         top->img_mounted = 0;

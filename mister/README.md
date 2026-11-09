@@ -145,6 +145,12 @@ steps of 32) N MB of poly memory (default 32, a 3200); the state image's
 name says which, e.g. `W0-53-FM32-P224.SST`. The poly memory is cleared
 after reset in DDR3 bursts (estimated 0.6 s for 224 MB; not yet measured).
 
+**A second SCSI disk (W1:).** `tools/w0_image.py --w1` keeps W1 (SCSI
+target 4) in MONITOR's device table (`W0-53-W1.SST`); mount the second
+disk image as S4 (`<file delay="2" type="s" index="4" path="W1.IMG"/>`
+in the MGL). A copy of a W0 image, or any NED SCSI disk image up to
+32 MB, works; `CATALOG W1:` lists it.
+
 **Release 5.3 with the MIDI subsystem card.** `tools/w0_image.py --midi`
 writes `W0-53-MIDI.SST`: the same machine with a MIDI card on D70–D73
 (`docs/devices/d70-midi-subsystem.md`). SYN-5.3 then reads MIDI itself, as

@@ -149,7 +149,7 @@ LD7_SCSI_SLOT = 2           # FLPLOAD., WINLOAD., SCSILOA. in that order
 
 
 def boot_from_w0(image, ext_sectors=8192, target=5, devices=2, disk_mb=None, poly=None,
-                 **system_kw):
+                 w1=None, **system_kw):
     """Return (cpu, layout) ready to boot MONITOR from a Release 5.3-style W0:
     image (a hard-disk .simg, e.g. Synclavier3's "W0 Disk Image.simg").
 
@@ -159,12 +159,16 @@ def boot_from_w0(image, ext_sectors=8192, target=5, devices=2, disk_mb=None, pol
     devices: storage device table entries to keep (keep_devices).
     disk_mb: pad the disk to this size (free space after the image's files;
     READ CAPACITY reports it). poly: a devices.poly.PolySynth (D51 poly bit
-    set); default the no-voices stub (stubs.PolyNoVoices). Writes
-    go to the in-memory copy of the image (cpu.w0), never the file.
+    set); default the no-voices stub (stubs.PolyNoVoices). w1: a second
+    disk image at SCSI target 4 (W1:; the device table then keeps 3 entries:
+    W0, F0, W1), as cpu.w1. Writes go to the in-memory copies of the
+    images (cpu.w0, cpu.w1), never the files.
     """
     from tools.ned_disk import load, read_file
     from .devices.scsi import ScsiDisk
     W = load(image)
+    if w1 is not None:
+        devices = max(devices, 3)
     program = keep_devices(read_file(W, "MONITOR"), devices)
     ld7 = read_file(W, ".SYSTEM/.LD-7")
     slot = ld7[LD7_SCSI_SLOT * LD7_SLOT_WORDS:(LD7_SCSI_SLOT + 1) * LD7_SLOT_WORDS]
@@ -182,6 +186,9 @@ def boot_from_w0(image, ext_sectors=8192, target=5, devices=2, disk_mb=None, pol
     # D57: Model D, D40Q, M64K (MONITOR CHECK.MEM.SIZ needs both boards for 63K)
     cpu.d57 = 0o7
     cpu.w0 = disk
+    cpu.w1 = None
+    if w1 is not None:
+        cpu.w1 = cpu.scsi.targets[4] = ScsiDisk.from_file(w1)
     return cpu, boot(cpu, program, slot)
 
 

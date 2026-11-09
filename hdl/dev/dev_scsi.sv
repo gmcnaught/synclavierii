@@ -16,11 +16,14 @@
 // REZERO, REQUEST SENSE, READ(6/10), WRITE(6/10), SEEK, INQUIRY, MODE
 // SELECT, RESERVE, RELEASE, MODE SENSE, START/STOP, PREVENT/ALLOW, READ
 // CAPACITY, VERIFY; others CHECK CONDITION, ILLEGAL REQUEST).
-// The disk is 512-byte blocks of 256 big-endian words behind a word port
-// (sd_floppy drive 3); a byte the CPU needs from it is fetched while the
+// Two disks: TARGET (W0, sd_floppy drive 3) and TARGET1 (W1, drive 4),
+// each answering selection only while its image is mounted; `d_unit` says
+// which one the word port is for. A disk is 512-byte blocks of 256
+// big-endian words behind the word port; a byte the CPU needs from it is fetched while the
 // access waits for its ack, which costs no simulated time.
 module dev_scsi #(
-    parameter logic [3:0] TARGET = 4'd5          // the disk's SCSI ID
+    parameter logic [3:0] TARGET = 4'd5,         // W0's SCSI ID
+    parameter logic [3:0] TARGET1 = 4'd4         // W1's
 ) (
     input  logic        clk,
     input  logic        rst,
@@ -35,6 +38,10 @@ module dev_scsi #(
     input  logic        present,
     input  logic        protect,
     input  logic [16:0] blocks,
+    input  logic        present1,     // W1
+    input  logic        protect1,
+    input  logic [16:0] blocks1,
+    output logic        d_unit,       // the selected disk: 0 W0, 1 W1
     output logic [23:0] d_addr,       // {block[15:0], word[7:0]}
     output logic        d_rd,
     output logic        d_wr,
@@ -56,6 +63,10 @@ module dev_scsi #(
                                        "MiSTer  ", "SYNCLAVIER W0   ", "1.0 "};
 
     logic [2:0]  phase, src, q;
+    logic        tsel;                // the selected target: 0 TARGET, 1 TARGET1
+    wire  [16:0] dblocks = tsel ? blocks1 : blocks;
+    wire         dprotect = tsel ? protect1 : protect;
+    assign d_unit = tsel;
     logic [15:0] select_bits;
     logic [7:0]  data_out;
     logic [8:0]  sig_out;
@@ -94,7 +105,7 @@ module dev_scsi #(
     wire [16:0] want_blk  = lba + {1'b0, want_word[23:8]};
 
     // the byte at pos of a generated reply
-    wire [31:0] last_blk = {15'd0, blocks} - 32'd1;
+    wire [31:0] last_blk = {15'd0, dblocks} - 32'd1;
     logic [7:0] gen;
     always_comb begin
         gen = 8'd0;
@@ -111,9 +122,9 @@ module dev_scsi #(
             G_MODE: case (pos[3:0])
                 4'd0:  gen = 8'd11;
                 4'd3:  gen = 8'd8;
-                4'd5:  gen = {7'd0, blocks[16]};
-                4'd6:  gen = blocks[15:8];
-                4'd7:  gen = blocks[7:0];
+                4'd5:  gen = {7'd0, dblocks[16]};
+                4'd6:  gen = dblocks[15:8];
+                4'd7:  gen = dblocks[7:0];
                 4'd10: gen = 8'h02;
                 default: gen = 8'd0;
             endcase
@@ -149,7 +160,7 @@ module dev_scsi #(
                                   : {11'd0, cdb[1][4:0], cdb[2], cdb[3]};
     wire [16:0] ex_n   = ex_op[5] ? {1'b0, cdb[7], cdb[8]}
                                   : (cdb[4] == 8'd0 ? 17'd256 : {9'd0, cdb[4]});
-    wire        ex_range = ex_lba + {15'd0, ex_n} > {15'd0, blocks};
+    wire        ex_range = ex_lba + {15'd0, ex_n} > {15'd0, dblocks};
     wire [24:0] ex_len4  = {17'd0, cdb[4]};
 
     wire start = sel && (rd || wr) && !ack && q == Q_IDLE;
@@ -167,7 +178,7 @@ module dev_scsi #(
             src <= G_DISK;
             select_bits <= '0; data_out <= '0; sig_out <= '0; acked <= 1'b0;
             cdb_n <= '0; status <= '0; sense_key <= '0; last_sense <= '0;
-            cw_ok <= 1'b0; len <= '0; pos <= '0; out_disk <= 1'b0;
+            cw_ok <= 1'b0; len <= '0; pos <= '0; out_disk <= 1'b0; tsel <= 1'b0;
         end else case (q)
         Q_IDLE: if (start) begin
             case (reg_sel)
@@ -189,9 +200,12 @@ module dev_scsi #(
                     phase <= P_FREE; cdb_n <= '0;
                     q <= Q_ACK;
                 end else if (phase == P_FREE) begin                   // selection
-                    if (present && wdata[5] && !wdata[1] && data_out[TARGET[2:0]]) begin
+                    if (wdata[5] && !wdata[1] && ((present && data_out[TARGET[2:0]]) ||
+                                                  (present1 && data_out[TARGET1[2:0]]))) begin
                         phase <= wdata[0] ? P_MSG_OUT : P_COMMAND;
                         cdb_n <= '0;
+                        tsel <= !(present && data_out[TARGET[2:0]]);
+                        cw_ok <= 1'b0;
                     end
                     q <= Q_ACK;
                 end else if (wdata[2] && !sig_out[2] && !acked) begin // ACK by hand
@@ -292,7 +306,7 @@ module dev_scsi #(
             8'h08, 8'h0A, 8'h28, 8'h2A: begin
                 if (ex_range) begin
                     status <= 8'h02; sense_key <= 8'h05;
-                end else if (ex_op[1] && protect) begin               // write, read only
+                end else if (ex_op[1] && dprotect) begin              // write, read only
                     status <= 8'h02; sense_key <= 8'h07;
                 end else if (ex_n != 17'd0) begin
                     lba <= ex_lba[16:0];

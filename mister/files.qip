@@ -17,8 +17,10 @@ set_global_assignment -name SYSTEMVERILOG_FILE ../hdl/core/sd_floppy.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../hdl/dev/dev_scsi.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../hdl/dev/dev_poly.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../hdl/dev/dev_midi.sv
+set_global_assignment -name SYSTEMVERILOG_FILE ../hdl/dev/dev_mouse.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../hdl/core/boot_loader.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../hdl/core/term_display.sv
+set_global_assignment -name SYSTEMVERILOG_FILE ../hdl/core/tek_plane.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../hdl/core/ps2_ascii.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../hdl/core/midi_in.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../hdl/core/midi_vpk.sv

@@ -151,6 +151,16 @@ disk image as S4 (`<file delay="2" type="s" index="4" path="W1.IMG"/>`
 in the MGL). A copy of a W0 image, or any NED SCSI disk image up to
 32 MB, works; `CATALOG W1:` lists it.
 
+**VT640 graphics terminal and mouse.** `tools/w0_image.py --vt640`
+configures SYN-5.3 for a VT640 (Tektronix 4010 graphics over the terminal)
+with a mouse on D44 (`W0-53-VT640.SST`; the Synclavier³ W0 is configured
+for a Macintosh, whose drawing commands the core skips). The terminal then
+fills the screen, 640 × 480, with SYN-5.3's graphics drawn on it: graphic
+timbre display (F), music notation (K), sound file editor, the screen
+manager's boxes. The MiSTer mouse is SYN-5.3's (it draws its own
+crosshair). OSD "VT640: panel strip" shows the panel and the status line
+over the bottom 96 lines. Not on a VT640: the Audio Event Editor.
+
 **Release 5.3 with the MIDI subsystem card.** `tools/w0_image.py --midi`
 writes `W0-53-MIDI.SST`: the same machine with a MIDI card on D70–D73
 (`docs/devices/d70-midi-subsystem.md`). SYN-5.3 then reads MIDI itself, as

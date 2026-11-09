@@ -30,6 +30,16 @@
 // CAN.
 // A cell is {reverse, character[6:0]}.
 //
+// VT640 mode (`vt640`, from the state image; docs/devices/vt640-graphics-
+// terminal.md): GS/FS and every byte while in a graphics mode go to the
+// graphics plane (tek_plane.sv); the terminal fills 640 x 480: text row r
+// on lines 20r-20r+19 (glyph doubled on lines 20r+2-20r+17), column c from
+// pixel 8 + ceil(7.5c), 8 pixels wide for even c, 7 for odd (font column 7
+// dropped); double-width columns 15 pixels; reverse inverts the cell's 20
+// lines; text OR graphics. No panel strip (with `panel_over`: the panel
+// over lines 384-479) and no core pointer outside it: SYN-5.3 draws its
+// own cursor. As tools/vt100.py Terminal(vt640=True).render().
+//
 // Video: 800 x 525 pixels per frame, one pixel per `ce` of vclk (on MiSTer
 // vclk = 25 MHz and CE_DIV = 1: 59.5 Hz). Sync pulses are active high
 // (MiSTer convention). The writer runs on clk; the text RAM is written on
@@ -59,6 +69,8 @@ module term_display #(
     input  logic        vpk,            // show the VPK panel (else the ORK's)
     input  logic [1:0]  vpk_lights [160], // by light address (clk domain, read as they are)
     input  logic [7:0]  vpk_chars [32],   // display: 0-15 upper line, 16-31 lower
+    input  logic        vt640,          // VT640 graphics terminal (a state image's choice)
+    input  logic        panel_over,     // VT640: show the panel strip over lines 384-479
 
     output logic        ce_pix,
     output logic [7:0]  r,
@@ -158,6 +170,12 @@ module term_display #(
         wstate <= W_ERASE;
     endtask
 
+    // VT640 graphics plane
+    logic        tek_ready, tek_active;
+    logic [14:0] g_vaddr;
+    logic [15:0] g_vq;
+    wire to_tek = vt640 && (tek_active || c == 8'h1c || c == 8'h1d) && (ps == S_NORM || ps == S_TEK);
+
     always_ff @(posedge clk) begin
         w_we <= 1'b0;
         if (rst) begin
@@ -186,7 +204,9 @@ module term_display #(
                 end else er_col <= er_col + 7'd1;
             end
 
-            default: if (f_any) begin                               // W_IDLE: next byte
+            default: if (f_any && to_tek) begin                     // W_IDLE: graphics byte
+                if (tek_ready) f_head <= f_head + 6'd1;
+            end else if (f_any) begin                               // W_IDLE: next byte
                 f_head <= f_head + 6'd1;
                 case (ps)
                 S_TEK: if (c == 8'h18) ps <= S_NORM;
@@ -329,14 +349,31 @@ module term_display #(
     always_ff @(posedge vclk) div <= div == DW'(CE_DIV - 1) ? '0 : div + 1'b1;
     wire ce = CE_DIV == 1 || div == '0;
 
+    // the graphics plane (its writer side is fed by the writer above)
+    tek_plane tek (
+        .clk, .rst, .in_valid(f_any && to_tek && wstate == W_IDLE), .in_data(c),
+        .ready(tek_ready), .active(tek_active),
+        .vclk, .v_ce(ce), .v_addr(g_vaddr), .v_q(g_vq)
+    );
+
     logic [9:0] h, v;
     logic [5:0] frame;
+    logic [4:0] trow, vln;               // VT640: text row and line in it (20 lines a row)
+    logic [6:0] vtc;                     // VT640: text column at pixel h, and pixel in it
+    logic [2:0] vto;
     always_ff @(posedge vclk) if (ce) begin
         if (h == 10'd799) begin
             h <= '0;
-            if (v == 10'd524) begin v <= '0; frame <= frame + 6'd1; end
-            else v <= v + 10'd1;
+            if (v == 10'd524) begin v <= '0; frame <= frame + 6'd1; trow <= '0; vln <= '0; end
+            else begin
+                v <= v + 10'd1;
+                if (vln == 5'd19) begin vln <= '0; trow <= trow + 5'd1; end
+                else vln <= vln + 5'd1;
+            end
         end else h <= h + 10'd1;
+        if (h == 10'd7) begin vtc <= '0; vto <= '0; end           // pixel 8 is column 0's first
+        else if (vto == (vtc[0] ? 3'd6 : 3'd7)) begin vtc <= vtc + 7'd1; vto <= '0; end
+        else vto <= vto + 3'd1;
     end
 
     // ------------------------------------------------- panel strip characters
@@ -462,21 +499,34 @@ module term_display #(
     // stage 0 (counters h, v): region and addresses; stage 1: the character
     // (text RAM or panel); stage 2: its glyph row; stage 3: the output.
     // Every stage advances on ce, so the alignment is the same for any CE_DIV.
-    wire        in_text  = v < 10'd384;
-    wire        in_panel = v >= 10'd384 && v < 10'd480;
-    wire [4:0]  lrow = v[8:4];
+    wire        p_over   = vt640 && panel_over && v >= 10'd384 && v < 10'd480;
+    wire        in_text  = vt640 ? v < 10'd480 && !p_over : v < 10'd384;
+    wire        in_panel = vt640 ? p_over : v >= 10'd384 && v < 10'd480;
+    wire [4:0]  lrow = vt640 ? trow : v[8:4];
     wire [4:0]  prow = phys(top, lrow);
     wire [1:0]  ra   = in_text ? rattr[prow] : 2'd0;     // this row's line attribute
-    wire [6:0]  tcol = ra != 2'd0 ? {1'b0, h[9:4]} : h[9:3];
+    wire [6:0]  tcol = vt640 ? (ra != 2'd0 ? {1'b0, vtc[6:1]} : vtc)
+                             : (ra != 2'd0 ? {1'b0, h[9:4]} : h[9:3]);
+    wire [4:0]  vg   = vln - 5'd2;                       // VT640: glyph line 0-15
     wire [2:0]  line = !in_text ? v[2:0] :
+                       vt640 ? (ra == 2'd1 ? {1'b0, vg[3:2]} : ra == 2'd2 ? {1'b1, vg[3:2]} : vg[3:1]) :
                        ra == 2'd1 ? {1'b0, v[3:2]} :     // double height: top half
                        ra == 2'd2 ? {1'b1, v[3:2]} :     // bottom half
                        v[3:1];
-    wire        cursor_here = in_text && lrow == row && tcol == col && v[3:1] == 3'd7 && frame[5];
+    // VT640 text: the glyph bit, and whether this pixel shows text at all
+    wire [3:0]  o2 = vtc[0] ? 4'd8 + 4'(vto) : 4'(vto);  // pixel in a double-width cell (15)
+    wire [2:0]  vbit = ra != 2'd0 ? 3'((7'(o2) * 7'd8) / 7'd15) : vto;
+    wire        vblank_ln = vln < 5'd2 || vln > 5'd17;
+    wire        vt_x = h >= 10'd8 && h < 10'd608;
+    wire        cursor_here = in_text && lrow == row && tcol == col && frame[5] &&
+                              (vt640 ? !vblank_ln && vg[3:1] == 3'd7 : v[3:1] == 3'd7);
+    assign g_vaddr = 15'(v) * 15'd40 + 15'(h[9:4]);
 
     logic [7:0] tq, pq, vl1, glyph;
     logic [2:0] line1;
     logic       text1, inv1, dp1, cur1, vis1, inv2, dp2, cur2, vis2, seg1, wide1, wide2, vsel1;
+    logic [2:0] vbit1, vbit2;
+    logic       vt1, vt2, vtx1, vtx2, vbl1, vbl2, gon1, gbit2;
     logic [6:0] segv1;
 
     // a 7-segment digit in an 8 x 8 cell (bit 0 = leftmost pixel): a on
@@ -506,6 +556,8 @@ module term_display #(
         segv1 <= seg_byte[6:0];
         cur1 <= cursor_here;
         vis1 <= (in_text || in_panel) && h < 10'd640;
+        vt1 <= vt640 && in_text; vtx1 <= vt_x; vbl1 <= vblank_ln; vbit1 <= vbit;
+        gon1 <= vt640 && !p_over && v < 10'd480 && h < 10'd640;
         line1 <= line;
         h1 <= h; v1 <= v;
         // stage 2
@@ -516,6 +568,8 @@ module term_display #(
         cur2 <= cur1;
         vis2 <= vis1;
         h2 <= h1; v2 <= v1;
+        vt2 <= vt1; vtx2 <= vtx1; vbl2 <= vbl1; vbit2 <= vbit1;
+        gbit2 <= gon1 && g_vq[h1[3:0]];
     end
     // simulation only (a second read port would keep the RAM out of M10K)
     // synthesis translate_off
@@ -534,9 +588,11 @@ module term_display #(
     wire [9:0] pdx = h2 - ptr_x;
     wire [9:0] pdy = v2 - {1'b0, ptr_y};
     wire [7:0] arow = arrow(pdy[2:0]);
-    wire       ptr_px = ptr_on && pdx < 10'd8 && pdy < 10'd8 && arow[pdx[2:0]];
+    wire       ptr_px = ptr_on && pdx < 10'd8 && pdy < 10'd8 && arow[pdx[2:0]] &&
+                        (!vt640 || (panel_over && v2 >= 10'd384));
 
-    wire on = vis2 && (glyph[wide2 ? h2[3:1] : h2[2:0]] ^ inv2 ^ cur2);
+    wire vt_on = vtx2 && ((glyph[vbit2] && !vbl2) ^ inv2 ^ cur2);
+    wire on = (vis2 && (vt2 ? vt_on : glyph[wide2 ? h2[3:1] : h2[2:0]] ^ inv2 ^ cur2)) || gbit2;
     always_ff @(posedge vclk) if (ce) begin
         hblank <= h2 >= 10'd640;
         vblank <= v2 >= 10'd480;

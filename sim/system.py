@@ -8,7 +8,7 @@ from .devices.terminal import D24_EXISTS, D57_EXISTS, D60_EXISTS, D70_EXISTS, PO
 
 
 def make_system(ext_sectors=1024, baud=9600, rtc_hz=200, output=None, floppy=False,
-                synth=False, strict=True, scsi=None, model="B", poly=None, keyboard="ork", midi=None, fm_voices=8):
+                synth=False, strict=True, scsi=None, model="B", poly=None, keyboard="ork", midi=None, fm_voices=8, mouse=None):
     """Return a CPU with D3, D4567, D50/D51 and (if ext_sectors) D60-D63.
 
     The devices are reachable as cpu.rtc, cpu.muldiv, cpu.terminal and
@@ -25,6 +25,7 @@ def make_system(ext_sectors=1024, baud=9600, rtc_hz=200, output=None, floppy=Fal
     SYN-5.3 only) on D130/D131 with synth=True.
     midi: a devices.midi.MidiSubsystem for D70-D73 (cpu.midi; D51 bit 8 set).
     fm_voices: FM voices installed (8 on a Synclavier II; up to 32 on a 9600).
+    mouse: a devices.mouse.Mouse on D44/D45/D54 (cpu.mouse).
     """
     bus = Bus()
     cpu = CPU(bus)
@@ -44,4 +45,5 @@ def make_system(ext_sectors=1024, baud=9600, rtc_hz=200, output=None, floppy=Fal
     cpu.cv = bus.attach(ControlVoltages()) if synth else None
     cpu.poly = bus.attach(poly) if poly is not None else None
     cpu.midi = bus.attach(midi) if midi is not None else None
+    cpu.mouse = bus.attach(mouse) if mouse is not None else None
     return cpu

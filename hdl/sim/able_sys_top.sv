@@ -124,6 +124,7 @@ module able_sys_top (
     logic [7:0]  vpk_chars [32];
     logic [7:0]  vpk_dp [4];
     logic [10:0] poly_units;           // poly memory size (not used here)
+    logic        term_vt640, term_mouse;
 
     able_system sys (.*);
 endmodule

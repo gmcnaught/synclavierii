@@ -35,6 +35,7 @@ module synclavier_core #(
     input  logic [10:0] ps2_key,
     input  logic [24:0] ps2_mouse,
     input  logic [1:0]  color,
+    input  logic        panel_over,      // VT640 terminal: panel strip over its last 96 lines
 
     input  logic [4:0]  img_mounted,
     input  logic        img_readonly,
@@ -76,6 +77,9 @@ module synclavier_core #(
 
     input  logic        midi_rxd,       // MIDI in, 31250 baud (idle high)
     output logic        midi_txd,       // MIDI out (the card's), at the speed MIDI in runs at
+    input  logic        mouse_host_we,  // a mouse packet (simulation; beats the PS/2 mouse)
+    input  logic [2:0]  mouse_host_buttons,
+    input  logic [15:0] mouse_host_dxy,  // {dX, dY}, 8-bit two's complement
     input  logic        midi_card_we,   // a byte into the card's input FIFO (simulation; beats MIDI)
     input  logic [7:0]  midi_card_byte,
     input  logic        kb_host_we,     // keyboard / panel words (simulation; beats MIDI)
@@ -203,13 +207,14 @@ module synclavier_core #(
     logic [7:0]  kb_rx_data;
     logic [31:0] lag_us;
     logic [10:0] poly_units;
+    logic        term_vt640, term_mouse;
 
     able_system #(.CLK_HZ(CLK_HZ)) sys (
         .clk, .rst(cpu_rst), .rt_enable, .lag_us,
-        .cpu_model, .cpu_d57, .term_bits, .poly_units,
+        .cpu_model, .cpu_d57, .term_bits, .poly_units, .term_vt640, .term_mouse,
         .dev_rd, .dev_wr, .dev_num, .dev_wdata,
         .dev_rdata, .dev_ack, .dev_nosyn, .dev_hold(1'b0),
-        .dev_irq(12'd0),
+        .dev_irq(12'(mouse_irq) << 6),                // PSW bit 10: D54 (mouse)
         .ext_sectors,
         .xm_addr(s_xm_addr), .xm_rd(s_xm_rd), .xm_wr(s_xm_wr), .xm_wdata(s_xm_wdata),
         .xm_rdata(xr_rdata), .xm_ack(s_xm_ack),
@@ -243,13 +248,40 @@ module synclavier_core #(
     //     writes accepted, reads 0 ([HYP] SYN-5.3 writes D155 without checking D51's poly bit;
     //     sim/devices/stubs.py PolyNoVoices)
     // Any other device: no SYN (the CPU halts, as the real machine hangs).
-    logic [15:0] dev_rdata, scsi_rdata, midi_rdata;
-    logic        dev_ack, dev_nosyn, scsi_ack, midi_ack;
+    logic [15:0] dev_rdata, scsi_rdata, midi_rdata, mouse_rdata;
+    logic        dev_ack, dev_nosyn, scsi_ack, midi_ack, mouse_ack, mouse_irq;
+    // D44/D45/D54 mouse (dev_mouse.sv) from the PS/2 mouse, when the state
+    // image has one (SYN-5.3 configured for it)
+    logic        ps_q, m_we;
+    logic signed [7:0] m_dx, m_dy;
+    logic [2:0]  m_btn;
+    wire  signed [8:0] ps_dx = {ps2_mouse[4], ps2_mouse[15:8]};
+    wire  signed [8:0] ps_dy = {ps2_mouse[5], ps2_mouse[23:16]};
+    always_ff @(posedge clk) begin
+        ps_q <= ps2_mouse[24];
+        m_we <= mouse_host_we || (ps2_mouse[24] != ps_q && !rst);
+        if (mouse_host_we) begin
+            m_btn <= mouse_host_buttons; m_dx <= mouse_host_dxy[15:8]; m_dy <= mouse_host_dxy[7:0];
+        end else begin
+            m_btn <= {ps2_mouse[0], ps2_mouse[2], ps2_mouse[1]};      // left, middle, right
+            m_dx <= ps_dx > 9'sd127 ? 8'sd127 : ps_dx < -9'sd127 ? -8'sd127 : 8'(ps_dx);
+            m_dy <= ps_dy > 9'sd127 ? 8'sd127 : ps_dy < -9'sd127 ? -8'sd127 : 8'(ps_dy);
+        end
+    end
+    dev_mouse mouse_port (
+        .clk, .rst(cpu_rst), .tick, .tick_ns,
+        .sel(sel_mouse), .rd(dev_rd), .wr(dev_wr),
+        .reg_sel(dev_num == 7'o044 ? 2'd0 : dev_num == 7'o045 ? 2'd1 : 2'd2),
+        .wdata(dev_wdata), .rdata(mouse_rdata), .ack(mouse_ack), .irq(mouse_irq),
+        .host_we(m_we && term_mouse), .host_dx(m_dx), .host_dy(m_dy), .host_buttons(m_btn)
+    );
     logic [23:0] scsi_addr;
     logic        scsi_rd, scsi_wr;
     logic [15:0] scsi_wdata;
     wire  sel_scsi = (dev_rd || dev_wr) && dev_num[6:2] == 5'b00101;        // 024-027
     wire  sel_poly = (dev_rd || dev_wr) && dev_num[6:2] == 5'b11011;        // 154-157
+    wire  sel_mouse = (dev_rd || dev_wr) && term_mouse &&
+                      (dev_num == 7'o044 || dev_num == 7'o045 || dev_num == 7'o054);
     wire  card     = term_bits[8];                                         // D51: D70 exists
     wire  sel_midi = (dev_rd || dev_wr) && dev_num[6:2] == 5'b01110 && card; // 070-073
     logic        scsi_unit;
@@ -285,6 +317,7 @@ module synclavier_core #(
         if (sel_scsi)      begin dev_rdata = scsi_rdata; dev_ack = scsi_ack; end
         else if (sel_poly) begin dev_rdata = poly_rdata; dev_ack = poly_ack; end
         else if (sel_midi) begin dev_rdata = midi_rdata; dev_ack = midi_ack; end
+        else if (sel_mouse) begin dev_rdata = mouse_rdata; dev_ack = mouse_ack; end
         else               dev_nosyn = dev_rd || dev_wr;
     end
 
@@ -461,7 +494,7 @@ module synclavier_core #(
         .in_valid(cpu_rst ? msg_valid : term_tx_valid),
         .in_data(cpu_rst ? msg_data : term_tx_data),
         .color, .lights(kb_lights), .display(kb_display),
-        .vpk(kb_vpk), .vpk_lights, .vpk_chars,
+        .vpk(kb_vpk), .vpk_lights, .vpk_chars, .vt640(term_vt640), .panel_over,
         .ptr_on, .ptr_x, .ptr_y, .lag_us, .underruns, .overruns,
         .midi_count, .midi_last, .midi_errs, .midi_alt,
         .ce_pix, .r(vga_r), .g(vga_g), .b(vga_b), .hs(vga_hs), .vs(vga_vs),

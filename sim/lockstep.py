@@ -21,7 +21,8 @@ Trace format v2 (little-endian):
           device 0 D3 (0 elapsed ns, 1 pending), 1 D4567 (0 D4, 1 D5),
           2 D60 (0 sector, 1 word), 3 D50 (0 baud index, 1 rx char,
           2 char_rdy, 3 rx_wait ns, 4 tx_busy ns, 5 xmit_irq; 8 poly
-          memory size in 128 KB units, to able_system), 4 D100
+          memory size in 128 KB units, to able_system; 9 VT640 graphics
+          terminal, to term_display; 10 D44/D45/D54 mouse), 4 D100
           (fields as hdl/dev/dev_floppy.sv's state load), 5 D160 (as
           dev_fm.sv; 16 FM voices present), 6 wave memory byte (index = memory x 256 + point),
           7 D130 (as dev_keyboard.sv; index 30 = velocity keyboard
@@ -51,7 +52,9 @@ Trace format v2 (little-endian):
     'K' u8 u8 u16 host key/button change before the next instruction: 0
                   clavier octave or 1 panel, index, new word; 2-7 velocity
                   keyboard host op (kind - 2, addr, data); 8 a byte into
-                  the MIDI card's input FIFO (index 0, byte; board top)
+                  the MIDI card's input FIFO (index 0, byte; board top); 9 a
+                  mouse packet (index buttons, word dX << 8 | dY, 8-bit
+                  two's complement; board top)
     'H' u8        halted: 1 no SYN on read, 2 no SYN on write, 3 HALT
     'E'           end of trace
 
@@ -184,6 +187,13 @@ def _device_header(cpu):
     if card is not None and (card.sel or card.mcha or card.fifo):
         raise ValueError("MIDI card state is not the power-on state (dev_midi.sv has no load port)")
     from .devices.poly import PolySynth
+    if getattr(term, "vt640", False):                       # VT640 graphics terminal
+        out += struct.pack("<cBHI", b"V", 3, 9, 1)
+    m = getattr(cpu, "mouse", None)
+    if m is not None:                                       # D44/D45/D54 mouse
+        if m.dx or m.dy or m.out or m.ready or m.enables or m.buttons:
+            raise ValueError("mouse state is not the power-on state (dev_mouse.sv has no load port)")
+        out += struct.pack("<cBHI", b"V", 3, 10, 1)
     if isinstance(getattr(cpu, "poly", None), PolySynth):   # poly memory size, 128 KB units
         out += struct.pack("<cBHI", b"V", 3, 8, cpu.poly.sectors // 256)
     for dev, idx, v in ((0, 0, rtc.elapsed), (0, 1, rtc.pending),
@@ -321,6 +331,16 @@ def record(cpu, path, instructions, snapshot_every=256, max_steps=None, max_wait
             ev.extend(struct.pack("<cBBH", b"K", 1, pbn // 16, kb.buttons[pbn // 16]))
         kb.press_key, kb.press_button = recorded_key, recorded_button
 
+    mouse = getattr(cpu, "mouse", None)
+    if mouse is not None:                                # mouse packet: 'K' kind 9
+        mouse_host = mouse.host
+
+        def recorded_host(dx, dy, buttons):
+            mouse_host(dx, dy, buttons)
+            ev.extend(struct.pack("<cBBH", b"K", 9, buttons & 7,
+                                  (max(-127, min(127, dx)) & 0xFF) << 8 | (max(-127, min(127, dy)) & 0xFF)))
+        mouse.host = recorded_host
+
     card = getattr(cpu, "midi", None)
     if card is not None:                                 # MIDI card input: 'K' kind 8
         card_receive = card.receive
@@ -404,6 +424,8 @@ def record(cpu, path, instructions, snapshot_every=256, max_steps=None, max_wait
             del term.feed
         if card is not None:
             del card.receive
+        if mouse is not None:
+            del mouse.host
         if vpk_wrapped:
             for f in vpk_wrapped:
                 delattr(kb, f)
@@ -468,8 +490,8 @@ SYSTEM_RTL = ["hdl/able_cpu.sv", "hdl/code_cache.sv", "hdl/dev/dev_rtc.sv", "hdl
               "hdl/dev/dev_floppy.sv", "hdl/dev/dev_keyboard.sv", "hdl/dev/dev_vpk.sv",
               "hdl/dev/dev_fm.sv",
               "hdl/dev/pcm_out.sv", "hdl/throttle.sv", "hdl/able_system.sv"]
-CORE_RTL = ["hdl/core/sd_floppy.sv", "hdl/dev/dev_scsi.sv", "hdl/dev/dev_poly.sv", "hdl/dev/dev_midi.sv",
-            "hdl/core/boot_loader.sv", "hdl/core/term_display.sv",
+CORE_RTL = ["hdl/core/sd_floppy.sv", "hdl/dev/dev_scsi.sv", "hdl/dev/dev_poly.sv", "hdl/dev/dev_midi.sv", "hdl/dev/dev_mouse.sv",
+            "hdl/core/boot_loader.sv", "hdl/core/term_display.sv", "hdl/core/tek_plane.sv",
             "hdl/core/ps2_ascii.sv", "hdl/core/midi_in.sv", "hdl/core/midi_vpk.sv", "hdl/core/midi_card_feed.sv",
             "hdl/core/panel_mouse.sv", "hdl/core/audio_fifo.sv",
             "hdl/core/synclavier_core.sv",
@@ -729,6 +751,12 @@ def main(argv=None):
                     help="w0boot: with the MIDI card (sim/devices/midi.py; with --poly --vpk: "
                          "w0_midi_actions)")
     ap.add_argument("--poly-mb", type=int, default=32, help="w0boot --poly: poly memory in MB")
+    ap.add_argument("--type", help="w0boot: terminal input typed at 11 s (e.g. F: SYN-5.3's "
+                                   "graphic timbre display)")
+    ap.add_argument("--vt640", action="store_true",
+                    help="w0boot: configure a VT640 graphics terminal (MONITOR word 18)")
+    ap.add_argument("--mouse", action="store_true",
+                    help="w0boot: a D44/D45/D54 mouse (sim/devices/mouse.py; MONITOR word 17)")
     ap.add_argument("--commands", help="w0boot: MONITOR commands typed at each wait for "
                                        "terminal input, separated by ';' (e.g. 'catalog w1:')")
     ap.add_argument("--fm-voices", type=int, default=8,
@@ -760,7 +788,8 @@ def main(argv=None):
             from .devices.midi import MidiSubsystem
             midi = MidiSubsystem()
         cpu, _ = boot_from_w0(a.args[0], poly=poly, keyboard="vpk" if a.vpk else "ork", midi=midi,
-                              fm_voices=a.fm_voices, w1=a.w1)
+                              fm_voices=a.fm_voices, w1=a.w1,
+                              terminal="vt640" if a.vt640 else None, mouse=a.mouse)
         path = a.args[1]
         if a.commands:
             lines = [c.strip() + "\r" for c in a.commands.split(";")]
@@ -792,6 +821,9 @@ def main(argv=None):
         actions = (w0_midi_actions(cpu) if a.midi and a.vpk else
                    w0_chord_actions(cpu) if a.vpk and a.fm_voices > 8 else
                    w0_vpk_actions(cpu) if a.vpk else w0_poly_actions(cpu))
+    if a.mode == "w0boot" and a.type:
+        text = a.type.encode("latin-1")
+        actions.append((11_000_000_000, lambda c: c.terminal.feed(text)))
     n = record(cpu, path, a.instructions,
                on_wait=on_wait if a.mode == "monitor" or (a.mode == "w0boot" and a.commands) else None,
                actions=actions, audio=a.audio)

@@ -15,7 +15,8 @@ ORK-LM's welcome menu uses: cursor addressing (ESC [ r ; c H), erase
               the reverse attribute. Pending wrap at column 80 as on a VT100.
   CR LF BS HT LF/VT/FF = line feed (scrolling at the bottom); BEL, SO, SI,
               CAN, SUB and other controls ignored.
-  GS          Tektronix graphics: everything up to CAN is skipped.
+  GS          Tektronix graphics: everything up to CAN is skipped (in
+              VT640 mode, Terminal(vt640=True), it is drawn: below).
   ESC [ ... final   CSI with up to 4 numeric parameters (and '?'):
               H f  cursor to (p1, p2), 1-based, default 1
               A B C D  cursor up/down/right/left by p1 (default 1)
@@ -40,6 +41,35 @@ columns 0-39 at 16 pixels (each pixel twice); double-height rows also
 stretch the top (rows 0-3) or bottom (rows 4-7) half of the glyph over the
 16 lines (each font row 4 times). Reverse cells are inverted. The cursor is
 not drawn (it blinks).
+
+VT640 mode (docs/devices/vt640-graphics-terminal.md; SYN-5.3 configured
+for a VT640): a 640 x 480 x 1 graphics plane, y up, drawn by a Tektronix
+4010 subset, ORed with the text plane on a 640 x 480 terminal area.
+  GS          vector mode; the next address moves, later ones draw lines
+  FS          point mode; each address plots a point
+  US          (in vector/point mode) alpha mode at the graphics position
+  CAN         back to text
+  addresses   HiY 040-077, LoY 0140-0177 (DEL too), HiX 040-077 after a
+              LoY, LoX 0100-0137 ends one; Tek (x, y) 0-1023 x 0-779 ->
+              VT640 pixel x = (x*640 + 512) >> 10, y = (min(y,779)*630 + 640) >> 10
+  ESC FF      clear the graphics plane, pen up (in any graphics mode)
+  ESC / n d   data level: 0 set, 1 clear, 2 complement (XOR)
+  ESC 0-3, ESC 8-;   character size: accepted, no effect [CHOICE: the VT640
+              is a Tek 4010-class terminal with one size; SYN-5.3's size-1
+              title at y = 470 only fits at size 0]
+  ESC ` a-e x line type (drawn solid); ESC | c c, ESC backslash c, ESC ! c...:
+              ignored; other ESC c: ignored
+  alpha       printable: an 8 x 14 cell whose lower-left corner is the
+              graphics position; the 8 x 8 glyph covers cell lines 1-12
+              from the top (each font row 1.5 times: row = (line-1)*2/3),
+              then x += 8; BS x -= 8, CR x = 0, LF y -= 14; data level
+              applies.
+Lines (Bresenham, both end points) and points use the data level; with
+XOR a shared end point of two vectors is flipped twice [CHOICE].
+Text plane in VT640 mode: row r on lines 20r-20r+19, glyph doubled on
+lines 20r+2-20r+17; column c from pixel 8 + ceil(7.5c), 8 pixels wide
+for even c and 7 for odd (font column 7 dropped); double-width columns 15
+pixels from 8 + 15c; reverse inverts all 20 lines of the cell.
 """
 import os
 import sys
@@ -51,8 +81,27 @@ ROWS, COLS = 24, 80
 NORMAL, DH_TOP, DH_BOTTOM, DW = 0, 1, 2, 3
 
 
+GW, GH = 640, 480
+
+
+def tek_to_pixel(xt, yt):
+    """Tek 4010 address -> VT640 pixel (the exact inverse of SYN-5.3's
+    x_tek = floor(x*1023/639), y_tek = floor(y*779/479))."""
+    return (xt * 640 + 512) >> 10, (min(yt, 779) * 630 + 640) >> 10
+
+
 class Terminal:
-    def __init__(self):
+    def __init__(self, vt640=False):
+        self.vt640 = vt640
+        self.g = bytearray(GW * GH)          # graphics plane, row 0 = top (y = 479)
+        self.gmode = None                    # None (text), "vector", "point", "alpha"
+        self.pen = False
+        self.gx = self.gy = 0
+        self.hiy = self.loy = self.hix = 0
+        self.after_loy = False
+        self.level = 0
+        self.size = 0
+        self.gesc = None                     # graphics ESC sub-state
         self.reset()
 
     def reset(self):
@@ -107,6 +156,10 @@ class Terminal:
             self.byte(b & 0x7F)
 
     def byte(self, c):
+        if self.vt640 and (self.gmode is not None or c in (0x1C, 0x1D)) \
+                and self.state in ("normal", "tek"):
+            self.tek(c)
+            return
         s = self.state
         if s == "tek":
             if c == 0x18:
@@ -228,6 +281,115 @@ class Terminal:
                     self.rev = True
 
     # -- output ----------------------------------------------------------------
+    # -- VT640 graphics ----------------------------------------------------------
+    def plot(self, x, y):
+        if 0 <= x < GW and 0 <= y < GH:
+            i = (GH - 1 - y) * GW + x
+            self.g[i] = 1 if self.level == 0 else 0 if self.level == 1 else self.g[i] ^ 1
+
+    def line(self, x0, y0, x1, y1):
+        dx, dy = abs(x1 - x0), -abs(y1 - y0)
+        sx, sy = (1 if x0 < x1 else -1), (1 if y0 < y1 else -1)
+        err = dx + dy
+        while True:
+            self.plot(x0, y0)
+            if x0 == x1 and y0 == y1:
+                return
+            e2 = 2 * err
+            if e2 >= dy:
+                err += dy
+                x0 += sx
+            if e2 <= dx:
+                err += dx
+                y0 += sy
+
+    def glyph(self, ch):
+        from tools.gen_font import glyphs
+        if not hasattr(self, "_font"):
+            self._font = glyphs()
+        k = self.size + 1
+        for line in range(14 * k):
+            ln = line // k                     # cell line 0-13, from the top
+            if not 1 <= ln <= 12:
+                continue
+            row = (ln - 1) * 2 // 3
+            bits = self._font[ch][row]
+            for col in range(8 * k):
+                if bits >> (col // k) & 1:
+                    self.plot(self.gx + col, self.gy + 14 * k - 1 - line)
+
+    def tek(self, c):
+        if self.gesc is not None:                  # ESC sequences in graphics
+            g = self.gesc
+            if g == "esc":
+                if c == 0x0C:
+                    self.g[:] = bytes(GW * GH)
+                    self.pen = False
+                    self.gesc = None
+                elif c == ord("/"):
+                    self.gesc, self.num = "slash", 0
+                elif c == ord("|"):
+                    self.gesc = 2                  # two bytes to skip
+                elif c == ord("\\"):
+                    self.gesc = 1
+                else:
+                    self.gesc = None
+            elif g == "slash":
+                if ord("0") <= c <= ord("9"):
+                    self.num = min(9, self.num * 10 + c - ord("0"))
+                elif c == ord("d"):
+                    self.level = self.num if self.num <= 2 else 0
+                    self.gesc = None
+                elif c == ord(";"):
+                    self.num = 0
+                else:
+                    self.gesc = None               # e.g. /1;1a: line type, ignored
+            else:
+                self.gesc = None if g == 1 else g - 1
+            return
+        if c == 0x1D:                              # GS
+            self.gmode, self.pen, self.after_loy = "vector", False, False
+        elif c == 0x1C:                            # FS
+            self.gmode, self.after_loy = "point", False
+        elif c == 0x18:                            # CAN
+            self.gmode = None
+            self.state = "normal"
+        elif c == 0x1B:
+            self.gesc = "esc"
+        elif c == 0x1F:                            # US
+            if self.gmode in ("vector", "point"):
+                self.gmode = "alpha"
+        elif self.gmode == "alpha":
+            k = self.size + 1
+            if 0x20 <= c <= 0x7E:
+                self.glyph(c)
+                self.gx += 8 * k
+            elif c == 0x08:
+                self.gx -= 8 * k
+            elif c == 0x0D:
+                self.gx = 0
+            elif c == 0x0A:
+                self.gy -= 14 * k
+        elif c >= 0x20:                            # an address byte
+            if 0x60 <= c:                          # LoY (DEL included)
+                self.loy, self.after_loy = c & 31, True
+            elif 0x20 <= c < 0x40:                 # HiY, or HiX right after a LoY
+                if self.after_loy:
+                    self.hix = c & 31
+                else:
+                    self.hiy = c & 31
+                self.after_loy = False
+            else:                                  # LoX: the address is complete
+                x, y = tek_to_pixel(self.hix << 5 | (c & 31), self.hiy << 5 | self.loy)
+                self.after_loy = False
+                if self.gmode == "vector":
+                    if self.pen:
+                        self.line(self.gx, self.gy, x, y)
+                    self.pen = True
+                else:
+                    self.plot(x, y)
+                self.gx, self.gy = x, y
+
     def text(self):
         """The screen as 24 lines (line-drawing glyphs as their ASCII codes)."""
         out = []
@@ -237,7 +399,10 @@ class Terminal:
         return out
 
     def render(self):
-        """The terminal area as term_display draws it: 640 x 384 bytes, 0 or 1."""
+        """The terminal area as term_display draws it: 640 x 384 bytes, 0 or 1
+        (VT640 mode: 640 x 480, text OR graphics)."""
+        if self.vt640:
+            return self.render640()
         from tools.gen_font import glyphs
         font = glyphs()
         px = bytearray(640 * 384)
@@ -259,6 +424,37 @@ class Terminal:
                     ch, rev = self.cells[r][c]
                     on = (font[ch & 0x7F][gl] >> bit) & 1
                     px[base + x] = on ^ rev
+        return bytes(px)
+
+
+    def render640(self):
+        from tools.gen_font import glyphs
+        font = glyphs()
+        px = bytearray(self.g)
+        for r in range(ROWS):
+            a = self.attr[r]
+            for line in range(20):
+                ln = line - 2
+                if a == DH_TOP:
+                    gl = ln >> 2 if 0 <= ln < 16 else None
+                elif a == DH_BOTTOM:
+                    gl = 4 + (ln >> 2) if 0 <= ln < 16 else None
+                else:
+                    gl = ln >> 1 if 0 <= ln < 16 else None
+                base = (20 * r + line) * GW
+                for x in range(8, 608):
+                    o = x - 8
+                    if a == NORMAL:
+                        c = o * 2 // 15
+                        bit = o - ((15 * c + 1) >> 1)
+                    else:
+                        c = o // 15
+                        bit = (o - 15 * c) * 8 // 15
+                        if c >= COLS // 2:
+                            continue
+                    ch, rev = self.cells[r][c]
+                    on = 0 if gl is None or bit > 7 else (font[ch & 0x7F][gl] >> bit) & 1
+                    px[base + x] |= on ^ rev
         return bytes(px)
 
 

@@ -21,15 +21,27 @@ FPRM/FPSM boards is not required.
 | MIDI card | D70–D73 MIDI subsystem card: SYN-5.3 reads MIDI itself (routing, recording, sync) and sends MIDI out on the UART (state image `W0-53-MIDI.SST`) | [`devices/d70-midi-subsystem.md`](devices/d70-midi-subsystem.md) |
 | Terminal | VT100 subset on the video output, PS/2 keyboard, PF keys | `hdl/core/term_display.sv` |
 
-## What's next
+## Done in HDL, waiting for a hardware test
 
-| # | Item | Value |
+Each verified in the simulator and by board lockstep (the whole core
+against the Python model); PRs #35-#40, stacked.
+
+| # | Item | State image option (`tools/w0_image.py`) |
 |---|---|---|
-| M9 | **32 FM voices** (9600): voice state in block RAM, one voice per clock | full 9600 FM polyphony |
-| M10 | **Poly memory up to ~224 MB** (of the core's 256 MB DDR3 window) | larger sample libraries |
-| M11 | **SCSI load timing**: SD reads take simulated time | no audio stall while sound files load |
-| M12 | **Second SCSI disk** (target 4) | more storage |
-| M13 | **Graphics terminal + mouse** (VT640, D44/D45) | notation and timbre display screens |
+| M8b | MIDI subsystem card (D70-D73): SYN-5.3's own MIDI in, MIDI out | `--midi` |
+| M9 | Up to 32 FM voices (9600), serial voice engine | `--fm-voices 32` |
+| M10 | Poly memory up to 224 MB | `--poly-mb 224` |
+| M11 | SCSI disk read 32 blocks per SD request (sound files load without audio gaps) | (always) |
+| M12 | Second SCSI disk, W1: | `--w1` (OSD S4) |
+| M13 | VT640 graphics terminal and D44 mouse | `--vt640` |
+
+## Next
+
+| Item | Needs |
+|---|---|
+| Hardware tests of the above on a MiSTer | the MiSTer on the network |
+| Launchkey pad and pot numbers (M8a) | a MIDI capture from the user's Launchkey |
+| FM and poly sound against a real instrument (M3.3) | recordings |
 
 Possible but low value on MiSTer: SMPTE, multichannel outputs, guitar
 interface, printer port.

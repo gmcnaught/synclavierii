@@ -206,6 +206,16 @@ Everything follows [`instruction-set.md`](instruction-set.md). In short:
   so about 1 µs for a three-transfer instruction). Immediate sources skip
   the read; failed conditional transfers skip the write. Devices are ticked
   with the elapsed time after each instruction.
+* **Held reads (`BUS_WAIT`)** model the bus's asynchronous handshake. NED's
+  EZBUSS documentation (read operation): the address is valid at least
+  50 ns before RD; the device gates its data onto BDB0-15 when it is able
+  to, waits at least 150 ns, then signals SYN and holds data and SYN until
+  RD goes false. So a device may hold a read as long as it needs (the D50
+  terminal for a character, the D24 SCSI host for a byte the disk has not
+  delivered, `sim/devices/scsi.py` disk time), and 333 ns per transfer
+  is consistent with the minimum. The model counts a held read in 333 ns
+  steps (the real bus waits continuously); interrupts are taken only
+  between instructions in both.
 * **Speed:** about 1.6 million instructions per second on a current PC, so
   roughly real time for the original machine (risk R4).
 

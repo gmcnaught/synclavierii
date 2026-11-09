@@ -2,7 +2,8 @@
 
 Specification and evidence: docs/poly-synth.md (section numbers below).
 One bin (bin 0) with `voices` voices and `sectors` sectors of 16-bit poly
-memory; bins 1-3 are absent (their channel numbers do not read back).
+memory (default 32 voices and 65536 sectors = 32 MB, one 32 MB page: a
+3200; a 6400 / 9600 has 2 / 3 such bins [INF]); bins 1-3 are absent (their channel numbers do not read back).
 
   D155 PSC  write: channel (low 8 bits latched: bin 7-6, channel 5-0).
             read: the latched channel when it is in bin 0, else 0; bit 8
@@ -130,7 +131,7 @@ class PolySynth(Device):
 
     numbers = (0o154, 0o155, 0o156, 0o157)
 
-    def __init__(self, voices=32, sectors=16384, sample_rate=None):
+    def __init__(self, voices=32, sectors=65536, sample_rate=None):
         if not 4 <= voices <= 32 or voices % 4:
             raise ValueError("voices: 4..32 in steps of 4")
         if sectors % 256:

@@ -13,8 +13,8 @@ module dev_poly_tb;
     logic [1:0]  reg_sel = 0;
     logic [15:0] wdata = 0, rdata;
     logic        ack;
-    logic [21:0] m_addr;
-    logic        m_rd, m_wr, m_ack = 0;
+    logic [23:0] m_addr;
+    logic        m_rd, m_wr, m_wide, m_ack = 0;
     logic [15:0] m_wdata, m_rdata = 0;
     logic        mix_in_valid = 0, mix_out_valid;
     logic signed [15:0] mix_out_l, mix_out_r;
@@ -23,22 +23,23 @@ module dev_poly_tb;
     dev_poly dut (
         .clk, .rst, .enable(1'b1), .tick, .tick_ns,
         .sel, .rd, .wr, .reg_sel, .wdata, .rdata, .ack,
-        .m_addr, .m_rd, .m_wr, .m_wdata, .m_rdata, .m_ack,
+        .m_addr, .m_rd, .m_wr, .m_wide, .m_wdata, .m_rdata, .m_ack,
         .mix_in_valid, .mix_in_l(16'sd0), .mix_in_r(16'sd0),
         .mix_out_valid, .mix_out_l, .mix_out_r
     );
 
     always #5 clk = !clk;
 
-    logic [15:0] mem [1 << 22];
-    initial for (int i = 0; i < (1 << 22); i++) mem[i] = 16'd0;
+    logic [15:0] mem [1 << 24];
+    initial for (int i = 0; i < (1 << 24); i++) mem[i] = 16'h5A5A;   // the clear must zero it
     int dly = 0;
     always @(posedge clk) begin
         m_ack <= 1'b0;
         if ((m_rd || m_wr) && !m_ack) begin
             if (dly == 3) begin
                 dly <= 0;
-                if (m_wr) mem[m_addr] <= m_wdata;
+                if (m_wr && m_wide) for (int j = 0; j < 4; j++) mem[{m_addr[23:2], 2'(j)}] <= m_wdata;
+                else if (m_wr) mem[m_addr] <= m_wdata;
                 m_rdata <= mem[m_addr];
                 m_ack <= 1'b1;
             end else dly <= dly + 1;

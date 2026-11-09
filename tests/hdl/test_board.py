@@ -200,7 +200,8 @@ def poly_stimulus(path, seed=1, ops=6000):
     import random
     from sim.devices.poly import PolySynth
     rng = random.Random(seed)
-    p = PolySynth(32, 16384)
+    p = PolySynth()
+    end = p.sectors * 256
     out = []
 
     def t(ns):
@@ -249,11 +250,11 @@ def poly_stimulus(path, seed=1, ops=6000):
     fc(0, 20, *two(995))
     for _ in range(12):
         rd(3)
-    fc(0, 16, *two((1 << 22) - 2), 1, 2, 3)         # crosses the end
-    fc(0, 20, *two((1 << 22) - 2))
+    fc(0, 16, *two(end - 2), 1, 2, 3)               # crosses the end
+    fc(0, 20, *two(end - 2))
     for _ in range(3):
         rd(3)
-    fc(0, 20, *two(1 << 24))                        # page 1: no memory
+    fc(0, 20, *two(1 << 25))                        # page 2: no memory
     rd(3)
     t(1000)
     for n in range(ops):

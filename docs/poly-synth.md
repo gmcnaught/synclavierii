@@ -580,7 +580,7 @@ Each is a [CHOICE] until hardware evidence turns up.
 
 | Question | Model |
 |---|---|
-| Configuration | one bin, 32 voices (PSNUMV 0x38), 16384 sectors (4M words, 8 MB) |
+| Configuration | a 3200: one bin, 32 voices (PSNUMV 0x38), 65536 sectors (16M words, 32 MB = one 32 MB page). The 3200 / 6400 / 9600 had 32 / 64 / 96 MB base poly RAM (operator); SYN-5.3 is one program for all three ("Combine 3200, 6400 and 9600 RTP's", `somelits:6`); 6400 / 9600 = 2 / 3 bins [INF] |
 | FC after 10, 59, other unlisted FCs; reads | no change; reads never advance FC |
 | PSRON (FC 11), PSON read (FC 10) | the selected voice's on/loop bits |
 | Ghost channels (≥ voice count) | writes dropped, reads 0; D155 still echoes channels 0–63 |
@@ -589,5 +589,6 @@ Each is a [CHOICE] until hardware evidence turns up.
 | PSON | bit 0 rising: `pos = 0`, `acc = 0` |
 | Envelope / volume clocks | step every 40 000 ns only while EVAL ≠ ELIM or a volume ≠ its destination; settled counters (ECNT, EACU) hold |
 | Stereo slave | odd voice of an FC-59 master: plays `mem[master base + master pos + 1]`, does not step itself |
+| Voice cards | stereo (panning): SYN-5.3's options word (`core(core(1) + 17)`) has no `o#pvoice` (`"200"`, "set … if mono/3200 poly voices are installed", `-XPL/SYSLITS:55,67`), so it pans with independent R/L volumes; with mono cards it pans hard right (no left DAC, `195-PLAY:174-178`). Operator: the 6400 was the 3200 with panning |
 | Output | per voice `mem[base + pos]` (0 when off) × EVAL × volume >> 24 per side, summed, added to the FM output (48 kHz instants), clipped to 16 bits |
-| Poly memory at power-on | zero; the HDL writes all 4M words to 0 after reset (SYN-5.3 reads the bin header, the size probe's saved words and sectors 22–25 before writing them) |
+| Poly memory at power-on | zero; the HDL writes it all to 0 after reset, 64 bits per write (SYN-5.3 reads the bin header, the size probe's saved words and sectors 22–25 before writing them) |

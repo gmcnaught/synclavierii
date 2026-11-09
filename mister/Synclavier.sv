@@ -121,8 +121,8 @@ end
 
 ///////////////////////   CORE   /////////////////////////////////
 
-wire [23:0] xr_addr;
-wire        xr_rd, xr_wr, xr_ack;
+wire [25:0] xr_addr;
+wire        xr_rd, xr_wr, xr_wide, xr_ack;
 wire [15:0] xr_wdata, xr_rdata;
 wire        ce_pix, hs, vs, hblank, vblank;
 wire  [7:0] r, g, b;
@@ -159,6 +159,7 @@ synclavier_core #(.CLK_HZ(16_000_000), .VID_CE_DIV(1)) core
 	.xr_addr(xr_addr),
 	.xr_rd(xr_rd),
 	.xr_wr(xr_wr),
+	.xr_wide(xr_wide),
 	.xr_wdata(xr_wdata),
 	.xr_rdata(xr_rdata),
 	.xr_ack(xr_ack),
@@ -223,6 +224,7 @@ ddram_word ext_memory
 	.addr(xr_addr),
 	.rd(xr_rd),
 	.wr(xr_wr),
+	.wide(xr_wide),
 	.wdata(xr_wdata),
 	.rdata(xr_rdata),
 	.ack(xr_ack),

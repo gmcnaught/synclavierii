@@ -96,8 +96,8 @@ module board_top (
     output logic [15:0] mon_data,
     output logic [1:0]  halt_reason
 );
-    logic [23:0] xr_addr;
-    logic        xr_rd, xr_wr, xr_ack;
+    logic [25:0] xr_addr;
+    logic        xr_rd, xr_wr, xr_wide, xr_ack;
     logic [15:0] xr_wdata, xr_rdata;
 
     assign dev_rd = 1'b0;
@@ -110,7 +110,7 @@ module board_top (
         .clk, .rst_hard, .rst, .rt_enable, .clk_vid(clk), .ps2_key, .ps2_mouse, .color(2'd0),
         .img_mounted, .img_readonly, .img_size, .sd_lba0, .sd_lba1, .sd_lba2, .sd_lba3, .sd_rd, .sd_wr, .sd_ack,
         .sd_buff_addr, .sd_buff_dout, .sd_buff_din, .sd_buff_wr,
-        .xr_addr, .xr_rd, .xr_wr, .xr_wdata, .xr_rdata, .xr_ack,
+        .xr_addr, .xr_rd, .xr_wr, .xr_wide, .xr_wdata, .xr_rdata, .xr_ack,
         .ce_pix, .vga_r, .vga_g, .vga_b, .vga_hs, .vga_vs, .vga_hblank, .vga_vblank,
         .audio_l(), .audio_r(),
         .midi_rxd(1'b1), .kb_host_we, .kb_host_panel, .kb_host_index, .kb_host_value,
@@ -125,7 +125,7 @@ module board_top (
 
     ddram_word ext_memory (
         .clk, .rst(rst_hard),
-        .addr(xr_addr), .rd(xr_rd), .wr(xr_wr), .wdata(xr_wdata), .rdata(xr_rdata), .ack(xr_ack),
+        .addr(xr_addr), .rd(xr_rd), .wr(xr_wr), .wide(xr_wide), .wdata(xr_wdata), .rdata(xr_rdata), .ack(xr_ack),
         .DDRAM_BUSY, .DDRAM_BURSTCNT, .DDRAM_ADDR, .DDRAM_DOUT, .DDRAM_DOUT_READY, .DDRAM_RD,
         .DDRAM_DIN, .DDRAM_BE, .DDRAM_WE
     );

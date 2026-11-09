@@ -22,7 +22,8 @@ Trace format v2 (little-endian):
           2 D60 (0 sector, 1 word), 3 D50 (0 baud index, 1 rx char,
           2 char_rdy, 3 rx_wait ns, 4 tx_busy ns, 5 xmit_irq; 8 poly
           memory size in 128 KB units, to able_system; 9 VT640 graphics
-          terminal, to term_display; 10 D44/D45/D54 mouse), 4 D100
+          terminal, to term_display; 10 D44/D45/D54 mouse; 11 SCSI
+          disk time, ns per block), 4 D100
           (fields as hdl/dev/dev_floppy.sv's state load), 5 D160 (as
           dev_fm.sv; 16 FM voices present), 6 wave memory byte (index = memory x 256 + point),
           7 D130 (as dev_keyboard.sv; index 30 = velocity keyboard
@@ -189,6 +190,11 @@ def _device_header(cpu):
     from .devices.poly import PolySynth
     if getattr(term, "vt640", False):                       # VT640 graphics terminal
         out += struct.pack("<cBHI", b"V", 3, 9, 1)
+    sc = getattr(cpu, "scsi", None)
+    if sc is not None and sc.block_ns:                      # SCSI disk time per block
+        if sc.timed or sc.phase != 0:
+            raise ValueError("SCSI host mid-command (dev_scsi.sv has no load port)")
+        out += struct.pack("<cBHI", b"V", 3, 11, sc.block_ns)
     m = getattr(cpu, "mouse", None)
     if m is not None:                                       # D44/D45/D54 mouse
         if m.dx or m.dy or m.out or m.ready or m.enables or m.buttons:
@@ -755,6 +761,8 @@ def main(argv=None):
                                    "graphic timbre display)")
     ap.add_argument("--vt640", action="store_true",
                     help="w0boot: configure a VT640 graphics terminal (MONITOR word 18)")
+    ap.add_argument("--disk-us", type=int, default=0,
+                    help="w0boot: SCSI disk time, microseconds per block read (0: instant)")
     ap.add_argument("--mouse", action="store_true",
                     help="w0boot: a D44/D45/D54 mouse (sim/devices/mouse.py; MONITOR word 17)")
     ap.add_argument("--commands", help="w0boot: MONITOR commands typed at each wait for "
@@ -789,7 +797,8 @@ def main(argv=None):
             midi = MidiSubsystem()
         cpu, _ = boot_from_w0(a.args[0], poly=poly, keyboard="vpk" if a.vpk else "ork", midi=midi,
                               fm_voices=a.fm_voices, w1=a.w1,
-                              terminal="vt640" if a.vt640 else None, mouse=a.mouse)
+                              terminal="vt640" if a.vt640 else None, mouse=a.mouse,
+                              scsi_block_ns=a.disk_us * 1000)
         path = a.args[1]
         if a.commands:
             lines = [c.strip() + "\r" for c in a.commands.split(";")]

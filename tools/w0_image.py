@@ -3,6 +3,7 @@
 image (Synclavier3's "W0 Disk Image.simg", not redistributable):
 
     w0_image.py W0IMAGE OUTDIR [--mb 30] [--newdata FILE] [--midi] [--fm-voices N] [--poly-mb N] [--w1] [--vt640]
+                [--disk-us N]
 
   OUTDIR/W0-53.IMG   the W0 disk padded to --mb megabytes, with a USER
                      subcatalog made by MONITOR's own CREATE USER (MONITOR
@@ -32,6 +33,10 @@ image (Synclavier3's "W0 Disk Image.simg", not redistributable):
   --w1               a second SCSI disk, W1: (target 4, mounted as S4): the
                      device table keeps W0, F0 and W1; the name gets -W1.
                      MONITOR then expects a disk in S4.
+  --disk-us N        SCSI disk time, microseconds per block read (default 500,
+                     about 1 MB/s like a disk of the time; 0: instant). Reads
+                     take simulated time, so the machine keeps running (and
+                     playing) while a sound file loads, as on the instrument.
   --vt640            SYN-5.3 configured for a VT640 graphics terminal and a
                      D44 mouse (MONITOR configuration words 18 = 021400 and
                      17 | 0100; Synclavier3's W0 says Macintosh): the core
@@ -89,6 +94,7 @@ def main(argv=None):
     ap.add_argument("--poly-mb", type=int, default=32, choices=range(32, 225, 32),
                     metavar="{32,64,...,224}", help="poly memory in MB")
     ap.add_argument("--w1", action="store_true", help="W1: at SCSI target 4 (S4)")
+    ap.add_argument("--disk-us", type=int, default=500, help="SCSI disk time per block (us)")
     ap.add_argument("--vt640", action="store_true", help="VT640 graphics terminal")
     ap.add_argument("--ork", action="store_true",
                     help="state image with the original keyboard instead of the velocity keyboard")
@@ -115,7 +121,8 @@ def main(argv=None):
         midi = MidiSubsystem()
     cpu, _ = boot_from_w0(w0, poly=poly, keyboard="ork" if a.ork else "vpk", midi=midi,
                           fm_voices=a.fm_voices, devices=3 if a.w1 else 2,
-                          terminal="vt640" if a.vt640 else None, mouse=a.vt640)
+                          terminal="vt640" if a.vt640 else None, mouse=a.vt640,
+                          scsi_block_ns=a.disk_us * 1000)
     name = ("W0-53" + ("-MIDI" if a.midi else "") + ("-FM%d" % a.fm_voices if a.fm_voices != 8 else "")
             + ("-P%d" % a.poly_mb if a.poly_mb != 32 else "") + ("-W1" if a.w1 else "") + ("-VT640" if a.vt640 else ""))
     sst = os.path.join(a.outdir, name + ".SST")

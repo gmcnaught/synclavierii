@@ -208,12 +208,14 @@ module synclavier_core #(
     logic [31:0] lag_us;
     logic [10:0] poly_units;
     logic        term_vt640, term_mouse;
+    logic [19:0] scsi_block_ns;
+    logic        scsi_hold;
 
     able_system #(.CLK_HZ(CLK_HZ)) sys (
         .clk, .rst(cpu_rst), .rt_enable, .lag_us,
-        .cpu_model, .cpu_d57, .term_bits, .poly_units, .term_vt640, .term_mouse,
+        .cpu_model, .cpu_d57, .term_bits, .poly_units, .term_vt640, .term_mouse, .scsi_block_ns,
         .dev_rd, .dev_wr, .dev_num, .dev_wdata,
-        .dev_rdata, .dev_ack, .dev_nosyn, .dev_hold(1'b0),
+        .dev_rdata, .dev_ack, .dev_nosyn, .dev_hold(scsi_hold),           // SCSI disk time
         .dev_irq(12'(mouse_irq) << 6),                // PSW bit 10: D54 (mouse)
         .ext_sectors,
         .xm_addr(s_xm_addr), .xm_rd(s_xm_rd), .xm_wr(s_xm_wr), .xm_wdata(s_xm_wdata),
@@ -286,7 +288,8 @@ module synclavier_core #(
     wire  sel_midi = (dev_rd || dev_wr) && dev_num[6:2] == 5'b01110 && card; // 070-073
     logic        scsi_unit;
     dev_scsi #(.TARGET(4'd5), .TARGET1(4'd4)) scsi (
-        .clk, .rst(cpu_rst), .sel(sel_scsi), .rd(dev_rd), .wr(dev_wr), .reg_sel(dev_num[1:0]),
+        .clk, .rst(cpu_rst), .tick, .tick_ns, .block_ns(scsi_block_ns), .hold(scsi_hold),
+        .sel(sel_scsi), .rd(dev_rd), .wr(dev_wr), .reg_sel(dev_num[1:0]),
         .wdata(dev_wdata), .rdata(scsi_rdata), .ack(scsi_ack),
         .present(sd_present[3]), .protect(w0_protect), .blocks(w0_blocks),
         .present1(sd_present[4]), .protect1(w1_protect), .blocks1(w1_blocks), .d_unit(scsi_unit),

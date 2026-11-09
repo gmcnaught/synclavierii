@@ -8,7 +8,8 @@ from .devices.terminal import D24_EXISTS, D57_EXISTS, D60_EXISTS, D70_EXISTS, PO
 
 
 def make_system(ext_sectors=1024, baud=9600, rtc_hz=200, output=None, floppy=False,
-                synth=False, strict=True, scsi=None, model="B", poly=None, keyboard="ork", midi=None, fm_voices=8, mouse=None):
+                synth=False, strict=True, scsi=None, model="B", poly=None, keyboard="ork", midi=None, fm_voices=8, mouse=None,
+                scsi_block_ns=0):
     """Return a CPU with D3, D4567, D50/D51 and (if ext_sectors) D60-D63.
 
     The devices are reachable as cpu.rtc, cpu.muldiv, cpu.terminal and
@@ -26,6 +27,7 @@ def make_system(ext_sectors=1024, baud=9600, rtc_hz=200, output=None, floppy=Fal
     midi: a devices.midi.MidiSubsystem for D70-D73 (cpu.midi; D51 bit 8 set).
     fm_voices: FM voices installed (8 on a Synclavier II; up to 32 on a 9600).
     mouse: a devices.mouse.Mouse on D44/D45/D54 (cpu.mouse).
+    scsi_block_ns: SCSI disk time, simulated ns per block read (0: instant).
     """
     bus = Bus()
     cpu = CPU(bus)
@@ -33,7 +35,7 @@ def make_system(ext_sectors=1024, baud=9600, rtc_hz=200, output=None, floppy=Fal
     cpu.rtc = bus.attach(RealTimeClock(rtc_hz))
     cpu.muldiv = bus.attach(MulDiv())
     cpu.extmem = bus.attach(ExternalMemory(ext_sectors)) if ext_sectors else None
-    cpu.scsi = bus.attach(ScsiHost(scsi)) if scsi is not None else None
+    cpu.scsi = bus.attach(ScsiHost(scsi, block_ns=scsi_block_ns)) if scsi is not None else None
     bits = ((D60_EXISTS if ext_sectors else 0) | (D24_EXISTS if scsi is not None else 0)
             | (D57_EXISTS if model == "D" else 0) | (POLY_EXISTS if poly is not None else 0)
             | (D70_EXISTS if midi is not None else 0))

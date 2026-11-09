@@ -1,267 +1,152 @@
-# Project plan: an FPGA Synclavier II
+# Project plan: an FPGA Synclavier
 
 This is the working plan. [`roadmap.md`](roadmap.md) is the one-page
-summary. The research behind it is in the other documents under `docs/`.
+summary. The research behind it is in the other documents under `docs/`;
+the history of how each milestone was reached is in
+[`research-log.md`](research-log.md) and the per-target progress notes
+([`release-5.3.md`](release-5.3.md) §4, [`hdl.md`](hdl.md)).
 
 ---
 
 ## 1. Goal and scope
 
-**Goal:** a behavioural re-implementation of a **Synclavier II**, first as a
-software simulator and then as an FPGA core (target: MiSTer), that runs
-original NED software and sounds like the original FM voices.
+**Goal:** a behavioural re-implementation of the New England Digital
+Synclavier, first as a software simulator (`sim/`) and then as a MiSTer
+FPGA core (`hdl/`, `mister/`), that runs original NED software and sounds
+like the original voices.
 
-**In scope (first target system):**
+The core has two targets, chosen at build/boot time:
 
-| Area | Target |
-|---|---|
-| CPU | ABLE **Model B** instruction set (what Release L is compiled for). The Model C extensions come later (milestone 6). |
-| Software | **Release L** (June 1986, original keyboard), supplied by the user as a `.simg` |
-| Memory | 64K-word internal memory; external memory D60–D63 |
-| Devices | PSW/PCW (D1), real-time clock (D3), scientific timer (D16), D4567 multiply/divide, terminal (D50/D51), floppy (D100–D104), FM interface (D160) and voices, original keyboard / button panel |
-| I/O on the core | VT100-style terminal, SD-card disk images, MIDI/USB keyboard input, stereo audio |
+| Target | CPU | Software | Storage | Voices |
+|---|---|---|---|---|
+| **Synclavier II, Release L** (1986) | ABLE Model B | `ORK-LM` (user-supplied `.simg`, no licence) | floppies F0/F1 + state image | 8 FM |
+| **3200/6400/9600, Release 5.3.0** (2021/03/09) | ABLE Model D (Model C instructions + D11 paging) | `SYN-5.3` from Synclavier³'s W0 image (user-supplied); source is NED's MIT tree | SCSI W0 on the SD card + state image | 8 FM, 32 poly sampling (stereo/panning), 32 MB poly memory |
 
-**Out of scope for now:** poly sampling (PSMT and later), Direct-to-Disk,
-Model D (DSM + paging), SMPTE/MIDI subsystems, the Velocity Keyboard, and
-gate-level reproduction of the FPRM/FPSM boards.
+Release L runs on the original keyboard (ORK) model, Release 5.3 on the
+velocity/pressure keyboard (VPK) model; both are driven from MIDI. A VT100
+terminal is on the video output.
+
+**In scope next** (section 4, M8–M12): the MIDI subsystem card, 32 FM
+voices, larger poly memory, SCSI load timing, a second SCSI disk, the
+graphics terminal and mouse.
+
+**Out of scope:**
+* **Direct-to-Disk:** driven through the D115 RS422 board to a separate
+  68K machine whose firmware is not available.
+* **Sample-to-memory (STM) recording:** needs an audio input the standard
+  MiSTer does not have.
+* **Mono sampling (D66/D67):** SYN-5.3 is compiled without it (`inc.mono = 0`).
+* **Macintosh protocol / terminal:** the core stays on NED/Able-era
+  hardware ([`release-5.3.md`](release-5.3.md) §5).
+* Gate-level reproduction of the FPRM/FPSM boards.
 
 ## 2. Principles
 
-1. **Behavioural, not gate-level.** The CPU only has to match the
-   instruction set and roughly match the timing. The microcode PROMs and
-   board schematics are references, not prerequisites.
+1. **Behavioural, not gate-level.** The CPU matches the instruction set and
+   roughly matches the timing. Microcode PROMs and schematics are
+   references, not prerequisites.
 2. **NED's own code is the reference.** Every behaviour is checked against
-   NED documentation, NED source (MIT) or NED binaries. Each claim records
-   where it came from (see [`sources.md`](sources.md)).
-3. **Software simulator first.** The FPGA design is checked against
-   instruction traces from the simulator.
-4. **Don't ship unlicensed binaries.** Release L has no licence, so users
-   supply their own disk images. NED's MIT-licensed material may be
-   included, with its notice.
-5. **Write down every finding.** New facts go into the relevant `docs/`
-   file and the research log.
+   NED documentation, NED source (MIT) or NED binaries, tagged [OBS] /
+   [INF] / [UNK], with its source (see [`sources.md`](sources.md)).
+3. **Simulator first, then HDL in lockstep.** Each device is modelled in
+   Python, then in HDL, and the HDL is checked against the Python model
+   instruction by instruction (`sim/lockstep.py`, `hdl/sim/`).
+4. **Don't ship unlicensed binaries.** Users supply Release L and
+   Synclavier³ images; only MIT material is in the repository.
+5. **Write down every finding** in the relevant `docs/` file.
 
-## 3. System architecture (simulator and core share it)
+## 3. System architecture
 
 ```
-        ┌──────────────────────────────────────────────────────────────┐
-        │                        ABLE CPU (Model B)                     │
-        │  R0–R17, PC=R17/R16, flags Z C M, PSW/PCW, IRQ/HALT handling  │
-        │  micro-cycle: fetch → source READ → destination WRITE         │
-        └───────────────┬──────────────────────────────────────────────┘
-                        │ bus transaction: (IAB code, RD/WR, data) → SYN
-        ┌───────────────┴──────────────────────────────────────────────┐
-        │                  Bus / device dispatcher                     │
-        │  codes 300–377 → register/memory unit (internal)              │
-        │  codes 000–177 → device table; no device = halt (no SYN)      │
-        └──┬──────────┬──────────┬───────────┬───────────┬─────────────┘
-           │          │          │           │           │
-      64K memory   D1 PSW/PCW   D3/D16     D50/D51     D100 floppy   D160 FM ─► voices ─► audio
-      D60–63 ext   D4567 mul/div timers    terminal    (or HLE)      keyboard/panel (ORK)
+   ABLE CPU (Model B / C / D, runtime switch)  ── code_cache (Model D pages)
+        │ bus transaction (device code, RD/WR, data); no device = halt
+   Device dispatcher
+        ├─ 64K internal memory; D60–D63 external memory (DDR3)
+        ├─ D1 PSW/PCW, D2, D3 clock, D4567 mul/div, D10/D11 (Model C/D), D57 options
+        ├─ D50/D51 terminal ── term_display (VT100 subset) + PS/2 keyboard
+        ├─ D100–D104 floppy (SD F0/F1)      D24–D27 SCSI host + W0 disk (SD S3)
+        ├─ D130/D131 ORK keyboard + panel ◄─ midi_in (UART/MidiLink), panel mouse
+        ├─ D160–D165 FM interface ─► fm_voices (8) ─┐
+        └─ D154–D157 poly ─► dev_poly (32) + poly memory (DDR3) ─┴─► audio (48 kHz)
 ```
 
-* **CPU:** follows [`instruction-set.md`](instruction-set.md) exactly. Model
-  C additions sit behind a model switch.
-* **Device interface:** `read(dev) -> (value | NO_SYN)`, `write(dev, value)
-  -> (ok | NO_SYN)`, and `tick(cycles)` for timers. An interrupt request
-  sets a PSW bit (bit 4–15 assignments as documented). NO_SYN halts the CPU
-  and reports the device number, as the real machine did.
-* **Timing model:** each instruction costs fetch plus source plus
-  destination transfers. Start at about 1 µs per instruction, with
-  per-device delays where known; tune later (risk R3).
+The throttle keeps simulated time in step with real time; the status line
+shows lag, audio underruns and MIDI activity. Details: [`hdl.md`](hdl.md),
+[`simulator.md`](simulator.md).
 
 ## 4. Milestones
 
-Each milestone has tasks, deliverables and **acceptance criteria**.
+### Done
 
-### M0. Housekeeping (small)
-* Pick the project licence (MIT-compatible).
-* Add `.gitignore` and CI that runs `tests/` (GitHub Actions, Python only).
-* Agree branch/PR workflow and coding conventions.
+| # | Milestone | Acceptance | Where |
+|---|---|---|---|
+| M0 | Housekeeping: MIT licence, CI, branch/PR workflow | CI on every push | `LICENSE`, `CONTRIBUTING.md`, `.github/workflows/` |
+| M1 | Simulator boots Release L `MONITOR` to `Ready >`; `CATALOG` | passes | `sim/`, [`simulator.md`](simulator.md) |
+| M2 | Release L real-time program runs; register maps of every device it touches | passes | [`realtime-program.md`](realtime-program.md), [`devices/`](devices/) |
+| M3 | FM voice model; pitch verified (A3 = 440.00 Hz); WAV rendering | done except tuning against recordings (M3.3) | [`fm-voice.md`](fm-voice.md), `sim/voice.py` |
+| M4 | FPGA core: CPU, memory, terminal, SD floppies; boots Release L to `Ready >` on a MiSTer | passes on hardware (PR #21) | [`hdl.md`](hdl.md), `mister/` |
+| M5 | FPGA FM voices, MIDI → keyboard and panel, audio, panel display and mouse; ORK-LM plays on MiSTer | passes on hardware (PR #20–#28) | `hdl/dev/fm_voices.sv`, `hdl/core/midi_in.sv` |
+| M6 | Model C extensions (D10, R12 stack, ADC/SBB) | merged into M7.1 | [`model-c-runtime-analysis.md`](model-c-runtime-analysis.md) |
+| M7 | Release 5.3: Model D, SCSI W0 boot, SYN-5.3 Main Menu, timbre banks, FM notes from MIDI; poly sampling (M7.7) | passes on hardware (.204, PR #30–#33) | [`release-5.3.md`](release-5.3.md), [`poly-synth.md`](poly-synth.md) |
 
-**Done when:** CI runs the disassembler tests on every push.
+### Next
 
-### M1. Software simulator boots Release L to `Ready >`
+Each step: Python model, HDL, lockstep/board test, hardware test on the
+MiSTer.
 
-| # | Task | Reference |
-|---|---|---|
-| 1.1 | **Done** (`sim/cpu.py`, `docs/simulator.md`). CPU core: decode via the shared tables in `tools/able_disasm.py`; implement all Model B sources and destinations, flags, conditional/relative transfers, PCI literals, post-increment | `instruction-set.md` §2–7 |
-| 1.2 | **Done.** PSW/PCW (D1), interrupt entry (R16 as PC, ION/ICS/PCS), INIT state | `instruction-set.md` §8 |
-| 1.3 | **Done** (`sim/devices/`). Memory 64K words; external memory D60 (sector), D61 (word), D63 (data, auto-increment) | `boot-and-loaders.md` §3 |
-| 1.4 | **Done** (`sim/devices/`; console bridge in `python3 -m sim.boot`). Terminal D50 (data) and D51 (status), bridged to the host console; TTI/TTO interrupts | XPL manual §IX; loaders |
-| 1.5 | **Done** (`sim/devices/`). D3 real-time clock (200 Hz interrupt) and D4567 multiply/divide (documented protocol) | `boot-and-loaders.md` §3 |
-| 1.6 | **Done.** Step A (`sim/boot.py`): `MONITOR` staged in external memory and started through the real `.LD-6` ECOPY entry. Step B (`sim/devices/floppy.py`): D100–D104 floppy controller on the `.simg` floppies; also D62, D3 reads, a held D50 read, and M1 stubs for D160–D162 and D130/D131 | `boot-and-loaders.md` §4, `release-l-image.md` |
-| 1.7 | **Done** (`sim/trace.py`, `python3 -m sim.boot`): instruction history (disassembled), breakpoints, device-access log and counts, stop on input wait, HOP-like halt report, memory inspect, interactive/scripted console | — |
-| 1.8 | **Started** (`tests/sim/`: 42 CPU, 17 device, 7 floppy, 5 trace and 3 boot tests). CPU unit tests: one per source/destination class, flag edge cases (SUB/SBB borrow, rotates, shifts), relative targets | `data/able-opcodes.csv` |
+| # | Milestone | What it takes | Done when |
+|---|---|---|---|
+| **M8a** | **Velocity/pressure keyboard** (VPK, D130/D131) for Release 5.3 | Spec [`devices/d130-velocity-keyboard.md`](devices/d130-velocity-keyboard.md); `VelocityKeyboard` in `sim/`; `dev_vpk.sv`; `midi_vpk.sv` maps MIDI (Launchkey keys, pads, pots, wheels) to it; on-screen VPK panel | SYN-5.3 detects the VPK; keys play with velocity; pads and pots change settings; board lockstep and MiSTer test |
+| M8b | **MIDI subsystem card** (D70–D72, subsystem select 16–23) | Register spec ([`devices/d70-midi-subsystem.md`](devices/d70-midi-subsystem.md)); card model; `dev_midi.sv` on the MiSTer UART; MIDI out | SYN-5.3 detects the card; MIDI in/out through SYN-5.3's own MIDI routing |
+| M9 | **32 FM voices** (9600) | `fm_voices.sv` keeps every channel in registers and advances all in parallel; 32 voices need voice state in block RAM, one voice per clock (the last fit used 62 % of ALMs, 50 % of RAM blocks) | SYN-5.3 counts 32 FM voices; audio matches `sim/voice.py` |
+| M10 | **Poly memory above 32 MB** | OSD size choice; `xr_addr` 26 → 27 bits for more than 96 MB. Core DDR3 window `0x30000000`–`0x3FFFFFFF` (256 MB) → poly at most ~224 MB; check SYN-5.3's size probe with sizes that are not a power of two | SYN-5.3 reports the chosen size; a sound file loads above 32 MB |
+| M11 | **SCSI load timing** | SD reads currently cost no simulated time, so audio stalls while sound files load | no underruns while CLARA3 loads |
+| M12 | **Second SCSI disk** (target 4, listed by MONITOR 5.3) | second target in `dev_scsi`, second SD image | `CATALOG W1:` |
+| M13 | **Graphics terminal + mouse** (VT640 graphics, D44/D45 mouse port) | bitmap plane in `term_display`; mouse protocol | music notation and timbre display screens draw |
 
-**Deliverables:** `sim/` package, `tests/sim/`, user doc `docs/simulator.md`.
-**Done when:**
-* Release L `MONITOR` starts from a user-supplied `.simg`, prints the
-  `Ready >` prompt, and a `CATALOG` command lists the disk.
-* The CPU unit tests pass.
-
-### M2. Run the real-time program; recover the device register maps
-| # | Task |
-|---|---|
-| 2.1 | **Done** (`sim/rtp.py`, [`realtime-program.md`](realtime-program.md)). Load and run `ORK-LM`/`ORK-LFM` (multi-disk executable) under the simulator, with devices stubbed to log every access |
-| 2.2 | **Done for the devices Release L touches:** D130/D131, D160–D163, D164/D165 (`sim/devices/synth.py`). Release L ORK-LM does not use the D16 timer. Reconstruct register maps for **D160 (FM interface)**, the **original keyboard / button panel** and the **D16 timer** from the logs, disassembly of the Release L binaries, and NED's MIT XPL source (later releases; check for differences) |
-| 2.3 | **Done:** [`devices/`](devices/) (keyboard, FM interface, control voltages). Write `docs/devices/<device>.md` for each device: addresses, bit fields, sequences, evidence |
-| 2.4 | **Done:** keyboard, panel, button map (`ORK_BUTTONS`); a recalled timbre plays FM notes from the simulated keyboard. Minimal behavioural models of the keyboard and panel so the program reaches its main loop |
-
-**Done when:** the real-time program runs its main loop without halting, and
-every device it touches has a documented register map.
-
-### M3. FM voice model (software)
-| # | Task |
-|---|---|
-| 3.1 | Turn the SS1–SS7 card analysis (*Synclavier FM.docx*) and NED patents US 4,279,185 and 4,345,500 into a voice spec, `docs/fm-voice.md`: phase accumulator, 256-point waveforms ×32, multiplier and shifter, envelope generator (prescaler + rate + up/down counter), 8-bit MDAC chain, pan law |
-| 3.2 | **Done** (`sim/voice.py`). Bit-accurate software model, driven by the D160 writes captured in M2 |
-| 3.3 | **Rendering done** (`sim.rtp --wav`). Render audio from the simulator. Compare against reference recordings (risk R1), tuning the clock, envelope rates and modulation-index scaling: **waits for recordings**; secondary references (Synclavier³ Virtual, Arturia Synclavier V) and a capture plan in [`tuning-references.md`](tuning-references.md) |
-
-**Done when:** known Release L timbres render recognisably. Comparison with
-real-hardware recordings is the final acceptance step, once recordings exist.
-
-### M4. FPGA core: CPU + memory + terminal + disk
-| # | Task |
-|---|---|
-| 4.1 | **Done:** Template_MiSTer (D4). Core in `hdl/core/`, MiSTer project in `mister/`; Quartus Lite 17.0 builds in CI ([`hdl.md`](hdl.md#mister-core-hdlcore-hdlboard-mister)) |
-| 4.2 | **Done** (`hdl/able_cpu.sv`, [`hdl.md`](hdl.md)). ABLE CPU in HDL: three-step micro-cycle state machine, register file, ALU (a '181-style function set is enough), flags |
-| 4.3 | **Done** (`sim/lockstep.py`, `hdl/sim/`): random programs, MONITOR boot + `CATALOG` (1.36M instructions) and ORK-LM (6M) agree. **Lockstep verification:** run the same image in an HDL simulator (Verilator) and the software simulator; compare instruction traces |
-| 4.4 | **Done** (`hdl/able_system.sv`, `hdl/dev/dev_extmem.sv`, `hdl/board/ddram_word.sv`; also D3 and D4567). Memory in BRAM; external memory in DDR3 |
-| 4.5 | **Done** (`hdl/dev/dev_terminal.sv`, `hdl/core/term_display.sv`, `hdl/core/ps2_ascii.sv`). Terminal: an 80 × 24 character display on the video output plus the MiSTer keyboard |
-| 4.6 | **Done** (`hdl/dev/dev_floppy.sv`, `hdl/core/sd_floppy.sv`, `hdl/core/boot_loader.sv`). Floppy images from the SD card; the boot loader does the M1 high-level boot in hardware |
-
-**Done when:** the core on real MiSTer hardware boots Release L to `Ready >`
-and lists the catalog.
-
-### M5. FPGA FM voices, keyboard and audio
-* Implement the M3 voice spec in HDL (number of voices configurable);
-  audio out.
-* MIDI/USB → original-keyboard and panel emulation; show panel state
-  (on-screen or LEDs).
-
-**Done when:** the real-time program plays FM timbres from a MIDI keyboard
-on MiSTer.
-
-### M6. Model C extensions (now part of M7)
-* Add D10 (`rpc` repeat counter, `ppc` link), R12 stack (`MR12D`) and
-  ADC/SBB behind the model switch, using
-  [`model-c-runtime-analysis.md`](model-c-runtime-analysis.md).
-* Validate by running the MIT `*RTC-7` runtime code paths, and later Model
-  C software if images turn up.
-
-### M7. Release 5.3 (Model D, SCSI W0, velocity keyboard, poly)
-Target the last release, whose binaries ship with Synclavier³ and whose
-source is the MIT tree: requirements, evidence and steps in
-[`release-5.3.md`](release-5.3.md).
-
-**Done when:** the core boots Release 5.3 from a W0 image on the SD card,
-runs SYN-5.3 and plays FM timbres from the later timbre banks via MIDI.
+Lower value on MiSTer (possible, not planned): SMPTE card (D70–D73,
+subsystem 8), multichannel distributor (D32/D33, mixed to stereo),
+guitar interface (D134/D135, `SYN-5.3G`), printer port (D40/D41).
 
 ## 5. Verification strategy
 
 | Level | Method | Reference |
 |---|---|---|
 | Decode | Disassembler matches NED listings (541/541 words, 78/78 targets) | `tests/test_able_disasm.py` |
-| CPU semantics | Unit tests per instruction class and flag rule | `instruction-set.md`, `data/able-opcodes.csv` |
-| Real code | Boot Release L; run the loaders and runtime routines | Release L image, `jbemond/Software` |
-| Devices | Behaviour matches NED driver code (loaders, XPL libraries) | `boot-and-loaders.md`, `docs/devices/` |
-| HDL | Lockstep trace comparison with the software simulator | M4.3 |
+| CPU semantics | Unit tests per instruction class, flag rule and model | `tests/sim/` |
+| Real code | Boot Release L and Release 5.3; run ORK-LM and SYN-5.3 | user images |
+| Devices | Behaviour matches NED driver code | `docs/devices/`, `poly-synth.md` |
+| HDL | Lockstep trace comparison with the simulator (CPU, system, board top) | `hdl/sim/`, `tests/hdl/` |
+| Hardware | `scripts/mister/mister_run.sh`: load, keys, MIDI, screenshot + OCR on a MiSTer | [`hdl.md`](hdl.md) |
 | Sound | A/B against real-hardware recordings of known patches | M3.3, help needed |
 
-## 6. Planned repository layout
-
-```
-docs/            research + specs (existing), plus devices/, fm-voice.md, simulator.md
-data/            CSV tables (existing)
-tools/           disassembler, disk tool (existing)
-sim/             software simulator (M1–M3)
-  cpu.py  bus.py  devices/  boot.py  trace.py
-hdl/             FPGA core (M4–M5)
-tests/           disassembler tests (existing), sim/, hdl/
-boards/          FPRM/FPSM reverse-engineering notes (existing)
-```
-
-Implementation language for `sim/`: **Python first**, for speed of
-development and because it shares the decode tables with `tools/`. If the
-real-time program needs more speed, hot paths can be ported to C or a
-compiled extension (decision D3).
-
-## 7. Risks and mitigations
+## 6. Risks and mitigations
 
 | # | Risk | Mitigation |
 |---|---|---|
-| R1 | Exact FM sound (clock, envelope tables, scaling) can't be confirmed without hardware | Build from the card analysis and patents; ask owners for recordings of known patches; keep parameters adjustable |
-| R2 | Release L device behaviour differs from what NED's later-release source shows | Prefer evidence from Release L binary disassembly and logs; record differences per release |
-| R3 | Real-time software sensitive to CPU throughput or bus timing | Configurable timing model; measure timer-interrupt behaviour in the simulator; owner bus measurements if available |
-| R4 | Python simulator too slow for real-time code | Profile; port the CPU loop to C; batch device ticks |
-| R5 | Keyboard and panel protocol harder than expected | Start with the minimal model needed to reach the main loop; expand with M2 evidence |
+| R1 | Exact FM and poly sound can't be confirmed without hardware | Build from the card analysis, patents and NED source; ask owners for recordings; keep parameters adjustable |
+| R2 | Device behaviour differs between releases | Prefer evidence from the release's own binary and source; record differences per release |
+| R3 | Real-time software sensitive to CPU throughput | Throttle + code cache; the status line's lag/underrun counters on hardware |
+| R4 | FPGA resources (62 % ALMs) for 32 FM voices and new devices | Time-multiplex voices through block RAM |
+| R5 | DDR3 bandwidth shared by external memory, code cache and poly fetches | Arbiter in `synclavier_core.sv`; measure underruns with more voices |
 | R6 | Licensing of software images | Users supply images; only MIT material in the repo |
 
-## 8. Help wanted from Synclavier owners
+## 7. Help wanted from Synclavier owners
 
-In priority order (details in [`bench-checklist.md`](bench-checklist.md)):
-1. **Audio recordings** of known Release L timbres and notes (for M3).
+Details in [`bench-checklist.md`](bench-checklist.md):
+1. **Audio recordings** of known timbres and notes (FM and poly).
 2. **Dumps** of the PROMs (FPSM SMR/DDE/INITROM, FPRM U18/U28) and the
-   **MFC/D40Q boot ROM**.
+   MFC/D40Q boot ROM.
 3. High-resolution board photos; edge-connector measurements.
-4. Later release disk images, especially ones compiled for Model C.
+4. MIDI subsystem card and poly voice card documentation.
 
-## 9. Decisions needed
+## 8. Decisions
 
-| # | Decision | Recommendation | Status |
-|---|---|---|---|
-| D1 | Project licence | MIT (matches NED's released software) | **Decided:** MIT, see `LICENSE` |
-| D2 | Workflow | Feature branches + PRs into `main`, with CI on PRs | **Decided:** see `CONTRIBUTING.md` and `.github/workflows/tests.yml` |
-| D3 | Simulator language | Python first; C for hot paths if needed | Open |
-| D4 | FPGA framework | Decide at M4: plain MiSTer template vs JTFRAME | **Decided:** Template_MiSTer (no JTFRAME module applies; see [`hdl.md`](hdl.md#mister-core-hdlcore-hdlboard-mister)) |
-| D5 | First keyboard target | ORK (original keyboard) as used by Release L | Open |
-
-## 10. Next action
-
-**M1's acceptance test passes:** Release L `MONITOR` boots from a
-user-supplied `.simg` (`03-SYSTD`), prints `Ready >`, and `CATALOG` lists
-the disk (`python3 -m sim.boot IMAGE --f1 18-UTILS`). M1.8 (more CPU unit
-tests) remains open.
-
-**M2.1 is done:** `ORK-LM` runs under the simulator (welcome screen, main
-loop, 10 simulated seconds without a halt) and every device access can be
-logged (`python3 -m sim.rtp IMAGE --log out.csv`).
-
-**M2.2/M2.3 are done** for every device ORK-LM touches (maps in
-[`devices/`](devices/)). **M2.4 is done:** with the button map, a timbre
-recalled from `06-TIMBD` plays, and every FM write of a note is logged
-(`--fm-log`). **M2's acceptance test passes** (main loop runs, every device
-it touches is documented). Next: **M3.1**, the FM voice spec from the card
-analysis and patents, decoding the logged `ONU`/`NNU`/`INC`, `TIM`,
-envelope and `VOL` writes. **M3.1a is done:** pitch is decoded and verified
-([`fm-voice.md`](fm-voice.md): f = 162.764 Hz × 2^ONU × increment /
-divisor; A3 = 440.00 Hz); envelope/index interpolators, D160 limit status,
-shift/pan, wave memory and volume are decoded from NED source, and the
-interpolator is modelled (ORK-LM now ends notes as on hardware).
-**M3.2 is done** and the rendering half of M3.3: `sim/voice.py` is an
-integer voice model driven by the logged D162 writes, and `sim.rtp --wav`
-renders what ORK-LM plays (Release L timbre 0 renders as a pure sine at
-the right pitches). Tuning against hardware recordings (M3.3) waits for
-recordings (risk R1). **M4.2/M4.3 are done:** the HDL CPU
-(`hdl/able_cpu.sv`) agrees with the simulator instruction by instruction
-on random programs, MONITOR's boot and `CATALOG`, and 6M instructions of
-ORK-LM ([`hdl.md`](hdl.md)). The HDL system with D3, D4567, D50/D51
-and D60–D63 agrees with Python in values and simulated time on MONITOR's
-boot, 6M instructions of ORK-LM and a device test program. The D100
-floppy controller in HDL agrees too, including a timbre recall and a
-held note in ORK-LM. **M5 started:** the D130/D131 keyboard/panel and
-D160–D165 FM interface (interpolators, wave memory) are in HDL and agree
-too, so ORK-LM runs in HDL with no device answered from the trace. The
-HDL voice engine produces the same audio samples as `sim/voice.py`,
-sample for sample (ORK-LM's note and an FM test program). **M4 core done in simulation:** the MiSTer core
-(Template_MiSTer, D4) boots Release L from an F0 floppy image from
-power-on, through its boot loader, SD floppies, DDR3 external memory and
-terminal display, and matches the Python run through `CATALOG`; the
-frame shows the catalog. Quartus Lite 17.0 builds run in CI. What remains
-of M4 is the hardware test (boot to `Ready >` on a MiSTer); of M5, the audio path's DAC/pan law (MIDI → clavier and panel is done:
-`hdl/core/midi_in.sv`). M3.3 needs recordings.
-Groundwork: [`timbre-libraries.md`](timbre-libraries.md)
-(Release L bank layout; later NED banks load partly in Release L; FM-only
-entries with parameters in physical units for calibration once the timbre
-record is decoded).
+| # | Decision | Status |
+|---|---|---|
+| D1 | Project licence | **Decided:** MIT (`LICENSE`) |
+| D2 | Workflow | **Decided:** feature branches + PRs with CI (`CONTRIBUTING.md`) |
+| D3 | Simulator language | **Decided:** Python; the HDL (Verilator) runs long traces |
+| D4 | FPGA framework | **Decided:** Template_MiSTer ([`hdl.md`](hdl.md)) |
+| D5 | Keyboard | **Decided:** original keyboard (ORK) for Release L; velocity/pressure keyboard (VPK) for Release 5.3 (selected by the state image; SYN-5.3 takes either, `KEYBOARD.CHECK`) |
+| D6 | Second target | **Decided:** Release 5.3 on Model D (3200 configuration), alongside Release L |

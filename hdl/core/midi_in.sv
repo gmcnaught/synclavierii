@@ -10,6 +10,9 @@
 //     bank.(p/8) for 100 ms, then 1.5 s later timb.(p%8) for 100 ms (the
 //     timing of the ORK-LM note test, sim/lockstep.py ork_lm_note_actions).
 //   control 123 (all notes off) or 120: all keys up.
+// The decoded messages are also outputs (msg_*), for midi_vpk.sv: kind 0
+// note off, 1 note on, 2 program change, 3 control change, 4 pitch bend
+// (m1 = LSB, m2 = MSB), 5 polyphonic key pressure, 6 channel pressure.
 // Running status is handled; real-time bytes (F8-FF) are ignored anywhere;
 // system common and SysEx data are skipped.
 //
@@ -42,7 +45,13 @@ module midi_in #(
     output logic        byte_valid,     // a received byte (tests, the status line)
     output logic [7:0]  byte_data,
     output logic        frame_err,      // a byte whose stop bit was low (dropped)
-    output logic        alt             // receiving at ALT_BAUD
+    output logic        alt,            // receiving at ALT_BAUD
+
+    output logic        msg_valid,      // a decoded channel message
+    output logic [2:0]  msg_kind,
+    output logic [3:0]  msg_chan,
+    output logic [6:0]  msg_m1,
+    output logic [6:0]  msg_m2
 );
     // ---------------------------------------------------------- UART receivers
     logic       v_std, e_std, v_alt, e_alt;
@@ -81,9 +90,10 @@ module midi_in #(
     logic [7:0] status;                 // running status (0: none)
     logic       have1;                  // first data byte received
     logic [6:0] d1;
-    // a complete message: kind 0 note off, 1 note on, 2 program, 3 control
+    // a complete message: kind 0 note off, 1 note on, 2 program, 3 control,
+    // 4 pitch bend, 5 key pressure, 6 channel pressure
     logic       msg;
-    logic [1:0] kind;
+    logic [2:0] kind;
     logic [3:0] chan;
     logic [6:0] m1, m2;
 
@@ -100,7 +110,7 @@ module midi_in #(
                 have1 <= 1'b0;
             end else if (status != 8'd0) begin
                 case (status[7:4])
-                    4'h8, 4'h9, 4'hb: begin                    // two data bytes
+                    4'h8, 4'h9, 4'ha, 4'hb, 4'he: begin        // two data bytes
                         if (!have1) begin
                             d1 <= byte_data[6:0];
                             have1 <= 1'b1;
@@ -110,24 +120,30 @@ module midi_in #(
                             chan <= status[3:0];
                             m1 <= d1;
                             m2 <= byte_data[6:0];
-                            kind <= status[7:4] == 4'hb ? 2'd3 :
-                                    (status[7:4] == 4'h9 && byte_data[6:0] != 7'd0) ? 2'd1 : 2'd0;
+                            kind <= status[7:4] == 4'hb ? 3'd3 :
+                                    status[7:4] == 4'he ? 3'd4 :
+                                    status[7:4] == 4'ha ? 3'd5 :
+                                    (status[7:4] == 4'h9 && byte_data[6:0] != 7'd0) ? 3'd1 : 3'd0;
                         end
                     end
-                    4'hc: begin                                // program change
+                    4'hc, 4'hd: begin                          // program change, channel pressure
                         msg <= 1'b1;
                         chan <= status[3:0];
                         m1 <= byte_data[6:0];
-                        kind <= 2'd2;
+                        m2 <= 7'd0;
+                        kind <= status[7:4] == 4'hc ? 3'd2 : 3'd6;
                     end
-                    4'ha, 4'he: begin                          // two bytes, ignored
-                        have1 <= !have1;
-                    end
-                    default: ;                                 // D0: one byte, ignored
+                    default: ;
                 endcase
             end
         end
     end
+
+    assign msg_valid = msg;
+    assign msg_kind  = kind;
+    assign msg_chan  = chan;
+    assign msg_m1    = m1;
+    assign msg_m2    = m2;
 
     // --------------------------------------------------- keyboard and panel
     logic [11:0] clav [6];
@@ -168,7 +184,7 @@ module midi_in #(
         end else begin
             if (msg) begin
                 case (kind)
-                    2'd0, 2'd1:
+                    3'd0, 3'd1:
                         if (chan == 4'hf) begin                // panel button
                             panel[m1[6:4]][m1[3:0]] <= kind[0];
                             dirty_p[m1[6:4]] <= 1'b1;
@@ -176,19 +192,20 @@ module midi_in #(
                             clav[oct][bit_] <= !kind[0];
                             dirty_c[oct] <= 1'b1;
                         end
-                    2'd2: if (pst == P_IDLE) begin
+                    3'd2: if (pst == P_IDLE) begin
                         prog <= m1;
                         pst <= P_BANK;
                         timer <= '0;
                         panel[6][{1'b0, m1[5:3]}] <= 1'b1;   // bank.n = PBN 96 + n
                         dirty_p[6] <= 1'b1;
                     end
-                    default:
+                    3'd3:
                         if (m1 == 7'd123 || m1 == 7'd120) begin
                             for (int i = 0; i < 5; i++) clav[i] <= 12'hfff;
                             clav[5] <= 12'h001;
                             dirty_c <= 6'h3f;
                         end
+                    default: ;
                 endcase
             end else if (dirty_c == '0 && dirty_p == '0) begin
                 // (the sequencer waits while words are being written out)

@@ -562,10 +562,18 @@ int main(int argc, char** argv) {
 
 #ifdef SYSTEM_DEVICES
         top->kb_host_we = 0;
+        top->vpk_host_we = 0;
         if (t.peek() == 'K') {                   // host key/button change
             t.u8();
-            top->kb_host_panel = t.u8(); top->kb_host_index = t.u8(); top->kb_host_value = t.u16();
-            top->kb_host_we = 1;
+            uint8_t kind = t.u8(), index = t.u8();
+            uint16_t value = t.u16();
+            if (kind < 2) {                      // ORK: 0 clavier octave, 1 panel word
+                top->kb_host_panel = kind; top->kb_host_index = index; top->kb_host_value = value;
+                top->kb_host_we = 1;
+            } else {                             // VPK: op kind - 2 (dev_vpk.sv)
+                top->vpk_host_op = kind - 2; top->vpk_host_addr = index; top->vpk_host_data = value;
+                top->vpk_host_we = 1;
+            }
         }
 #else
         while (t.peek() == 'T' || t.peek() == 'K') {    // D50, D130 are replayed

@@ -1,21 +1,25 @@
 // Self-checking test of hdl/core/panel_mouse.sv (verilator --binary):
 // mouse packets -> pointer position (clamped to the screen) and panel
-// button presses under the pointer (term_display.sv's button rows).
+// button presses under the pointer (term_display.sv's button rows); with
+// vpk set, VPK button presses/releases (PBN) and no ORK writes.
 module panel_mouse_tb;
     logic        clk = 0, rst = 1;
     logic [24:0] ps2_mouse = '0;
     logic [9:0]  x;
     logic [8:0]  y;
-    logic        moved, we;
+    logic        moved, we, vpk = 0, vpk_we, vpk_down;
+    logic [7:0]  vpk_pbn;
     logic [2:0]  index;
     logic [15:0] value;
     int          errors = 0;
     logic [18:0] got [$];
+    logic [8:0]  vgot [$];
 
     panel_mouse dut (.*);
 
     always #5 clk = !clk;
     always @(posedge clk) if (we) got.push_back({index, value});
+    always @(posedge clk) if (vpk_we) vgot.push_back({vpk_down, vpk_pbn});
 
     // one packet: buttons (bit 0 left), dx, dy (up positive)
     task automatic pkt(input logic left, input int dx, input int dy);
@@ -50,6 +54,21 @@ module panel_mouse_tb;
         // a click outside the button rows does nothing
         pkt(0, 0, 200);                                   // y 260 (terminal)
         pkt(1, 0, 0); pkt(0, 0, 0);
+        if (vgot.size() != 0) begin $display("FAIL: VPK writes in ORK mode %p", vgot); errors++; end
+        // VPK panel: row 9 (y 472-479), column 13 (x 520-559) = PBN 157
+        vpk = 1;
+        pkt(0, 140, -215); check_pos(530, 475);
+        pkt(1, 0, 0); pkt(1, 0, -2); pkt(0, 0, 0);        // press, drag, release
+        // row 0 (y 400-407, above the ORK rows), column 1 = PBN 1
+        pkt(0, -240, 73); pkt(0, -240, 0); check_pos(50, 404);
+        pkt(1, 0, 0); pkt(0, 0, 0);
+        // the terminal: nothing
+        pkt(0, 0, 100); pkt(1, 0, 0); pkt(0, 0, 0);
+        if (vgot.size() != 4 || vgot[0] != {1'b1, 8'd157} || vgot[1] != {1'b0, 8'd157} ||
+            vgot[2] != {1'b1, 8'd1} || vgot[3] != {1'b0, 8'd1}) begin
+            $display("FAIL: VPK writes %p", vgot);
+            errors++;
+        end
         if (!moved) begin $display("FAIL: moved not set"); errors++; end
         if (got.size() != 2 || got[0] != {3'd6, 16'h0200} || got[1] != {3'd6, 16'h0000}) begin
             $display("FAIL: writes %p", got);

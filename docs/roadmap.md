@@ -1,57 +1,52 @@
-# Roadmap: toward an FPGA Synclavier II
+# Roadmap: an FPGA Synclavier
 
-*One-page summary. The detailed plan, with tasks, acceptance criteria, verification, risks and decisions, is in [`plan.md`](plan.md).*
+*One-page summary. The detailed plan, with acceptance criteria,
+verification, risks and decisions, is in [`plan.md`](plan.md).*
 
-Goal: a **behavioural** FPGA implementation (for example a MiSTer core) of a
-Synclavier II: ABLE CPU, memory, terminal, disk, FM voices and keyboard,
-running original NED software.
+A **behavioural** MiSTer core of the New England Digital Synclavier,
+running original NED software: Release L on a Synclavier II (Model B), and
+Release 5.3 on a 3200/6400/9600 (Model D). A gate-level copy of the
+FPRM/FPSM boards is not required.
 
-A gate-level copy of the FPRM/FPSM boards is **not** required. An
-instruction-level CPU is enough, so the microcode PROMs, board schematics
-and boot ROM image are useful references but not prerequisites.
-
-## What we have
+## What works
 
 | Piece | Status | Where |
 |---|---|---|
-| CPU instruction set (Model B; Model C extensions) | Complete; disassembler matches NED listings | [`instruction-set.md`](instruction-set.md), [`model-c-runtime-analysis.md`](model-c-runtime-analysis.md) |
-| Software | Release L disks (Model B binaries); MIT-licensed NED source and tools (later releases) | [`release-l-image.md`](release-l-image.md), [`sources.md`](sources.md) |
-| Boot | Simulator boots Release L `MONITOR` (staged in external memory, started by the real `.LD-6` loader) with an emulated D100 floppy controller to `Ready >`; `CATALOG` works (milestone 1 acceptance) | [`boot-and-loaders.md`](boot-and-loaders.md) §4, [`simulator.md`](simulator.md) |
-| Bus and devices | EZbuss pinout; D4567, D24–D27, D60–D63, PSW/PCW protocols | [`able-reference.md`](able-reference.md), [`boot-and-loaders.md`](boot-and-loaders.md) |
-| FM voices (software) | Register semantics decoded (pitch verified against Release L); integer voice model renders what ORK-LM plays to WAV; sine ROM, DAC and pan laws are still choices (milestone 3, without recordings) | [`fm-voice.md`](fm-voice.md) |
-| FM voice hardware | Card-level analysis (SS1–SS7): 8-bit paths, 256-point waveforms, multiplier and shifter, envelope generator, 8-bit MDACs; NED patents US 4,279,185 and 4,345,500 | `Synclavier/Documentation`: *Synclavier FM.docx* (community analysis) |
+| ABLE CPU, Models B, C, D | Simulator and HDL agree instruction by instruction (random programs, MONITOR, ORK-LM, SYN-5.3) | [`instruction-set.md`](instruction-set.md), [`hdl.md`](hdl.md) |
+| Release L | Boots from SD floppies to `Ready >`; ORK-LM plays FM timbres from MIDI on a MiSTer | [`release-l-image.md`](release-l-image.md) |
+| Release 5.3 | Boots from a SCSI W0 image; SYN-5.3 Main Menu, timbre banks (`.NEWDATA`), FM notes from MIDI on a MiSTer | [`release-5.3.md`](release-5.3.md) |
+| FM voices | 8 voices; register semantics decoded, pitch verified; HDL = Python sample for sample | [`fm-voice.md`](fm-voice.md) |
+| Poly sampling | 32 stereo voices, 32 MB poly memory in DDR3 (a 3200); sound files load over SCSI and play | [`poly-synth.md`](poly-synth.md) |
+| Keyboard and panel | ORK model; MIDI notes → keys, channel 16 → panel buttons, program change → timbre recall; on-screen panel with mouse | `hdl/core/midi_in.sv`, [`devices/`](devices/) |
+| Terminal | VT100 subset on the video output, PS/2 keyboard, PF keys | `hdl/core/term_display.sv` |
 
-## Gaps (in order of risk)
+## What's next
 
-1. **Exact FM voice behaviour:** sample rate and clock, envelope rate
-   tables, modulation-index scaling, waveform-bank selection. Needs
-   recordings from a real Synclavier II playing known patches.
-2. **Device register maps** for the FM interface (D160 → SS4), the
-   original keyboard and button panel, the D3/D16 timers, D50/D51 terminal
-   and D100 floppy. Work these out from NED's MIT source plus disassembly of
-   the Release L real-time program, checking for differences between releases.
-3. **Timing:** the real-time software assumes about 1 µs per instruction,
-   asynchronous SYN-handshaked transfers and 5 ms timer interrupts. The core
-   needs approximately correct throughput, not just correct results.
-4. **Keyboard and panel:** emulate the ORK keys, buttons, lights, knob and
-   ribbon; map MIDI/USB input; show the panel state.
-5. **Terminal and storage:** VT100-style terminal; SD-backed `.simg` disks
-   (floppy-controller emulation or a disk-call trap).
-6. **Validation reference:** no runnable emulator exists to compare
-   against, hence milestone 1.
-7. **Distribution:** Release L binaries carry no licence, so a core ships
-   without software and users supply disk images. NED's later software is MIT.
-
-## Milestones
-
-| # | Milestone | Needs hardware? |
+| # | Item | Value |
 |---|---|---|
-| 1 | **Software simulator** (instruction-level, stand-in devices): boot Release L `MONITOR` to `Ready >` | No |
-| 2 | Run the Release L real-time program with stubbed devices; log the device accesses it makes, giving the register maps (gap 2) | No |
-| 3 | Software FM voice model from the card analysis and patents; tune against recordings | Recordings help |
-| 4 | FPGA core: CPU + memory + terminal + SD disk, booting to `Ready >` | No |
-| 5 | FPGA FM voices, MIDI keyboard input, audio out | Recordings help |
-| 6 | Optional: Model C extensions (D10 repeat/link, R12 stack, ADC/SBB) for later software | No |
+| M8a | **Velocity/pressure keyboard** (VPK) for Release 5.3, played from MIDI; Launchkey pads and pots mapped to panel buttons and the control knob | velocity, pressure, wheels; the full 160-button panel |
+| M8b | **MIDI subsystem card** (D70–D72): SYN-5.3's own MIDI in/out and routing | MIDI out, multi-channel MIDI |
+| M9 | **32 FM voices** (9600): voice state in block RAM, one voice per clock | full 9600 FM polyphony |
+| M10 | **Poly memory up to ~224 MB** (of the core's 256 MB DDR3 window) | larger sample libraries |
+| M11 | **SCSI load timing**: SD reads take simulated time | no audio stall while sound files load |
+| M12 | **Second SCSI disk** (target 4) | more storage |
+| M13 | **Graphics terminal + mouse** (VT640, D44/D45) | notation and timbre display screens |
 
-Hardware owners can help at any point. See [`bench-checklist.md`](bench-checklist.md),
-especially the PROM dumps and recordings of known patches.
+Possible but low value on MiSTer: SMPTE, multichannel outputs, guitar
+interface, printer port.
+
+Not planned: Direct-to-Disk (separate 68K system, no firmware),
+sample-to-memory recording (no audio input), mono sampling, the Macintosh
+terminal.
+
+## Open gaps
+
+1. **Exact sound:** FM and poly DAC, envelope and mix details are model
+   choices until recordings of a real machine are available.
+2. **FPGA resources:** 62 % of ALMs used; 32 FM voices need a
+   time-multiplexed voice engine.
+3. **Distribution:** Release L and Synclavier³ images are not
+   redistributable; users supply them.
+
+Hardware owners can help: see [`bench-checklist.md`](bench-checklist.md),
+especially recordings of known patches and PROM dumps.

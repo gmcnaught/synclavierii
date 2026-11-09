@@ -21,8 +21,8 @@ Where to start:
 | [`docs/bench-checklist.md`](docs/bench-checklist.md) | What to do when someone has a board or bin: PROM reads, measurements, photos |
 | [`docs/sources.md`](docs/sources.md) | Pinned sources: checksums, commit IDs, page map |
 | [`docs/simulator.md`](docs/simulator.md) | **Software simulator:** how to use `sim/`, behaviour, and the choices the manual leaves open |
-| [`docs/plan.md`](docs/plan.md) | **Project plan:** scope, architecture, milestones M0–M6 with acceptance criteria, verification, risks, decisions |
-| [`docs/roadmap.md`](docs/roadmap.md) | **Toward an FPGA Synclavier II:** what we have, the gaps in order of risk, and milestones |
+| [`docs/plan.md`](docs/plan.md) | **Project plan:** scope, architecture, milestones M0–M13 with acceptance criteria, verification, risks, decisions |
+| [`docs/roadmap.md`](docs/roadmap.md) | **One-page summary:** what works, what is next, open gaps |
 | [`docs/research-log.md`](docs/research-log.md) | How we got here, including corrections and dead ends |
 | [`data/`](data/README.md) | CSVs: EZbuss pinout, opcode map, netlist (STD/OBS/HYP) |
 

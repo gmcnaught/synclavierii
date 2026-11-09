@@ -16,6 +16,12 @@ codes (bit 0 = segment a ... bit 6 = g, bit 7 = decimal point), shown as
 characters where the code is a known one, '?' otherwise. Panel row 2 (the
 status counters) changes while a frame is drawn, so a digit there may read
 as '?'.
+
+The velocity keyboard (VPK) panel strip is recognised by panel row 0
+starting " Display" (the ORK's is a rule): row 0 is the 2 x 16-character
+display in two bracketed fields (columns 11-26 and 29-44), row 1 the
+status counters, rows 2-11 the 160 button labels (row r = PBN 16(r-2)..);
+the display is then returned as its 32 characters (a string).
 """
 import os
 import sys
@@ -80,10 +86,16 @@ def _match(font, g, where, inverted):
     return None
 
 
+def is_vpk(panel):
+    """The panel rows (screen_text) are the VPK strip."""
+    return panel[0].startswith(" Display")
+
+
 def screen_text(path, skip=(), strict=True):
-    """(terminal rows, panel rows, inverted) of a 640 x 480 picture.
+    """(terminal rows, panel rows, inverted, display) of a 640 x 480 picture.
     skip: (terminal row, column) cells to read as blank (e.g. under the
     pointer). inverted: {(panel row, column): True} for whole inverted cells.
+    display: the ORK's 4 segment codes, or the VPK's 32 characters.
     strict: raise on an unreadable cell (else it reads as '?')."""
     from tools.gen_font import glyphs
     w, h, px = read_image(path)
@@ -116,18 +128,21 @@ def screen_text(path, skip=(), strict=True):
             line += get(g, "terminal row %d col %d" % (r, c))[0]
         term.append(line.rstrip())
     panel, inverted, display = [], {}, []
+    head = "".join((_match(font, cell(384, c, 1), "", False) or ("?",))[0] for c in range(8))
+    vpk = head.startswith(" Display")
+    status_row = 1 if vpk else 2
     for r in range(12):
         line = ""
         for c in range(80):
             g = cell(384 + 8 * r, c, 1)
-            if r == 1 and 11 <= c <= 14:                       # display digits
+            if not vpk and r == 1 and 11 <= c <= 14:           # display digits
                 code = seg_code(g)
                 if code is None and strict:
                     raise AssertionError("display digit %d: not a segment drawing %r" % (c - 11, g))
                 display.append(code)
                 line += "?" if code is None else SEG_CHARS.get(code & 0x7F, "?")
                 continue
-            if r == 2:                                        # live counters: may tear
+            if r == status_row:                               # live counters: may tear
                 m = _match(font, g, "", True)
                 ch, inv = m if m else ("?", False)
             else:
@@ -135,6 +150,9 @@ def screen_text(path, skip=(), strict=True):
             inverted[(r, c)] = inv
             line += ch
         panel.append(line.rstrip())
+    if vpk:
+        row = panel[0].ljust(80)
+        display = row[11:27] + row[29:45]
     return term, panel, inverted, display
 
 
@@ -143,7 +161,10 @@ def main():
     for ln in term:
         print(ln)
     print("-" * 80)
-    print("display segment codes (octal): %s" % " ".join("---" if c is None else "%03o" % c for c in disp))
+    if is_vpk(panel):
+        print("VPK display: [%s] [%s]" % (disp[:16], disp[16:]))
+    else:
+        print("display segment codes (octal): %s" % " ".join("---" if c is None else "%03o" % c for c in disp))
     for r, ln in enumerate(panel):
         marks = "".join("*" if inv.get((r, c)) else " " for c in range(80)).rstrip()
         print(ln + ("    [lit at columns: %s]" % [c for c, m in enumerate(marks) if m == "*"][:20]

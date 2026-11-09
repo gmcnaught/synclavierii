@@ -23,7 +23,8 @@ Trace format v2 (little-endian):
           2 char_rdy, 3 rx_wait ns, 4 tx_busy ns, 5 xmit_irq), 4 D100
           (fields as hdl/dev/dev_floppy.sv's state load), 5 D160 (as
           dev_fm.sv), 6 wave memory byte (index = memory x 256 + point),
-          7 D130 (as dev_keyboard.sv; index 31 = strict)
+          7 D130 (as dev_keyboard.sv; index 30 = velocity keyboard
+            (dev_vpk.sv) instead, 31 = strict)
     'F' u8 drive u16 sectors u8 spt u8 sides u8 protected, words
                                            a floppy in that drive
     'O' u64 rr u16 to_next u8 phase, 16 x (u16 acc u8 prescale u8 point)
@@ -159,9 +160,19 @@ def _device_header(cpu):
             for i, b in enumerate(mem):
                 if b:
                     out += struct.pack("<cBHI", b"V", 6, m * 256 + i, b)
-        for idx, v in enumerate([kb.creg, kb.dreg] + kb.clavier + kb.buttons + kb.lights
-                                + kb.display):
-            out += struct.pack("<cBHI", b"V", 7, idx, int(v) & 0xFFFFFFFF)
+        from .devices.synth import VelocityKeyboard
+        if isinstance(kb, VelocityKeyboard):
+            # dev_vpk.sv has no load port: it starts as at power-on
+            fresh = VelocityKeyboard(kb.strict)
+            if any(getattr(kb, f) != getattr(fresh, f) for f in
+                   ("creg", "dreg", "request", "keys", "reported", "velocity", "pressure",
+                    "analog", "switches", "banks", "lights", "chars")):
+                raise ValueError("velocity keyboard state is not the power-on state")
+            out += struct.pack("<cBHI", b"V", 7, 30, 1)
+        else:
+            for idx, v in enumerate([kb.creg, kb.dreg] + kb.clavier + kb.buttons + kb.lights
+                                    + kb.display):
+                out += struct.pack("<cBHI", b"V", 7, idx, int(v) & 0xFFFFFFFF)
         out += struct.pack("<cBHI", b"V", 7, 31, bool(kb.strict and fm.strict))
         assert kb.strict == fm.strict
     for dev, idx, v in ((0, 0, rtc.elapsed), (0, 1, rtc.pending),
@@ -260,7 +271,33 @@ def record(cpu, path, instructions, snapshot_every=256, max_steps=None, max_wait
         term.feed = recorded_feed
 
     kb = getattr(cpu, "keyboard", None)
-    if kb is not None:
+    vpk_wrapped = ()
+    if kb is not None and hasattr(kb, "set_analog"):     # velocity keyboard: 'K' kind 2 + op
+        from .devices.synth import VPK_ANALOG, VPK_KEY_OFFSET
+        orig = {f: getattr(kb, f) for f in ("press_key", "press_button", "set_analog", "set_pressure")}
+
+        def k_event(op, addr, data):
+            ev.extend(struct.pack("<cBBH", b"K", 2 + op, addr & 0xFF, data & 0xFF))
+
+        def v_key(key, down=True, velocity=100):
+            orig["press_key"](key, down, velocity)
+            k_event(0 if down else 1, key - VPK_KEY_OFFSET, max(1, min(127, velocity)) if down else 0)
+
+        def v_button(pbn, down=True):
+            orig["press_button"](pbn, down)
+            k_event(2, pbn, int(bool(down)))
+
+        def v_analog(name, value):
+            orig["set_analog"](name, value)
+            k_event(3, VPK_ANALOG.index(name) if isinstance(name, str) else name, value)
+
+        def v_pressure(key, value):
+            orig["set_pressure"](key, value)
+            k_event(5, key - VPK_KEY_OFFSET, value)
+        kb.press_key, kb.press_button, kb.set_analog, kb.set_pressure = (
+            v_key, v_button, v_analog, v_pressure)
+        vpk_wrapped = tuple(orig)
+    elif kb is not None:
         press_key, press_button = kb.press_key, kb.press_button
 
         def recorded_key(key, down=True):
@@ -345,7 +382,10 @@ def record(cpu, path, instructions, snapshot_every=256, max_steps=None, max_wait
         del cpu.read_psw
         if term is not None:
             del term.feed
-        if kb is not None:
+        if vpk_wrapped:
+            for f in vpk_wrapped:
+                delattr(kb, f)
+        elif kb is not None:
             del kb.press_key, kb.press_button
     return n
 
@@ -403,12 +443,12 @@ def random_cpu(seed, model="B"):
 
 SYSTEM_RTL = ["hdl/able_cpu.sv", "hdl/code_cache.sv", "hdl/dev/dev_rtc.sv", "hdl/dev/dev_muldiv.sv",
               "hdl/dev/dev_extmem.sv", "hdl/dev/dev_terminal.sv",
-              "hdl/dev/dev_floppy.sv", "hdl/dev/dev_keyboard.sv",
+              "hdl/dev/dev_floppy.sv", "hdl/dev/dev_keyboard.sv", "hdl/dev/dev_vpk.sv",
               "hdl/dev/dev_fm.sv", "hdl/dev/fm_voices.sv",
               "hdl/dev/pcm_out.sv", "hdl/throttle.sv", "hdl/able_system.sv"]
 CORE_RTL = ["hdl/core/sd_floppy.sv", "hdl/dev/dev_scsi.sv", "hdl/dev/dev_poly.sv",
             "hdl/core/boot_loader.sv", "hdl/core/term_display.sv",
-            "hdl/core/ps2_ascii.sv", "hdl/core/midi_in.sv", "hdl/core/panel_mouse.sv", "hdl/core/audio_fifo.sv",
+            "hdl/core/ps2_ascii.sv", "hdl/core/midi_in.sv", "hdl/core/midi_vpk.sv", "hdl/core/panel_mouse.sv", "hdl/core/audio_fifo.sv",
             "hdl/core/synclavier_core.sv",
             "hdl/board/ddram_word.sv"]
 TOPS = {
@@ -551,6 +591,31 @@ def w0_poly_actions(cpu):
             (16_600 * ms, lambda c: kb.press_key(45, False))]
 
 
+def w0_vpk_actions(cpu):
+    """Velocity keyboard actions for a W0 boot with poly voices (as
+    w0_poly_actions): BANK 2, ENTRY 1 on the VPK panel (CLARA3), key 45 with
+    velocity 100 and pressure, mod and pitch wheels, then partial volume
+    selected and the knob deflected (one step down)."""
+    from .devices.synth import vpk_button_number as B
+    kb = cpu.keyboard
+    ms = 1_000_000
+    acts = []
+    for t, name in ((10_600, "bankb"), (10_900, "timb.1"), (12_500, "entryb"), (12_800, "timb.0")):
+        acts += [(t * ms, lambda c, n=name: kb.press_button(B(n))),
+                 ((t + 100) * ms, lambda c, n=name: kb.press_button(B(n), False))]
+    acts += [(16_000 * ms, lambda c: kb.press_key(45, velocity=100)),
+             (16_100 * ms, lambda c: kb.set_pressure(45, 90)),
+             (16_200 * ms, lambda c: kb.set_analog("mod wheel", 150)),
+             (16_300 * ms, lambda c: kb.set_analog("pitch wheel", 170)),
+             (16_600 * ms, lambda c: kb.press_key(45, False)),
+             (16_700 * ms, lambda c: kb.set_analog("pitch wheel", 128)),
+             (16_800 * ms, lambda c: kb.press_button(B("pvol"))),
+             (16_900 * ms, lambda c: kb.press_button(B("pvol"), False)),
+             (17_200 * ms, lambda c: kb.set_analog("knob", 88)),
+             (17_220 * ms, lambda c: kb.set_analog("knob", 128))]
+    return acts
+
+
 def syn53_cpu(image, skip=0):
     """Release 5.3 from a W0 image (sim.boot.boot_from_w0, 30 MB disk): boot
     to Ready, CREATE USER, SET RTP SYN-5.3, PLAY, then `skip` instructions."""
@@ -595,6 +660,9 @@ def main(argv=None):
     ap.add_argument("--poly", action="store_true",
                     help="w0boot: with poly voices (sim/devices/poly.py); at 10.6 s recall "
                          "bank 2 entry 1 (W0:CLARA3) and hold key 45 at 16 s")
+    ap.add_argument("--vpk", action="store_true",
+                    help="w0boot: the velocity keyboard instead of the ORK (with --poly: "
+                         "w0_vpk_actions)")
     a = ap.parse_args(argv)
     if a.mode == "check":
         ok, text = check(a.args[0], top=a.top, wav=a.wav, realtime=a.realtime, state=a.state,
@@ -613,7 +681,7 @@ def main(argv=None):
         if a.poly:
             from .devices.poly import PolySynth
             poly = PolySynth()
-        cpu, _ = boot_from_w0(a.args[0], poly=poly)
+        cpu, _ = boot_from_w0(a.args[0], poly=poly, keyboard="vpk" if a.vpk else "ork")
         path = a.args[1]
     elif a.mode == "monitor":
         from .boot import boot_from_image
@@ -634,7 +702,7 @@ def main(argv=None):
     if a.mode == "ork-lm-note":
         actions = ork_lm_note_actions(cpu, dbg, a.args[0])
     if a.mode == "w0boot" and a.poly:
-        actions = w0_poly_actions(cpu)
+        actions = w0_vpk_actions(cpu) if a.vpk else w0_poly_actions(cpu)
     n = record(cpu, path, a.instructions, on_wait=on_wait if a.mode == "monitor" else None,
                actions=actions, audio=a.audio)
     if a.mode == "monitor":

@@ -2,7 +2,11 @@
 """Write hdl/core/panel_labels.svh: a 4-character screen label for each of
 the original panel's 128 buttons (physical button number = 16 x panel word
 + bit), abbreviated from sim/devices/synth.py ORK_BUTTONS (NED's logical
-names, 05-BUTT:075-OLDL).
+names, 05-BUTT:075-OLDL), and for each of the velocity keyboard's 160
+buttons (PBN 0-159) from VPK_BUTTONS (05-BUTT:071-NEWL, blank where NED
+has no function). The ORK labels are a function (logic); the VPK labels
+an initialised array read on a clock (term_display.sv), i.e. a ROM in
+block RAM.
 
 Run:  python3 tools/gen_panel_labels.py
 tests/hdl/test_board.py checks that the file is up to date and reads the
@@ -13,7 +17,7 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
-from sim.devices.synth import ORK_BUTTONS  # noqa: E402
+from sim.devices.synth import ORK_BUTTONS, VPK_BUTTONS  # noqa: E402
 
 PATH = os.path.join(ROOT, "hdl", "core", "panel_labels.svh")
 
@@ -38,21 +42,44 @@ FIXED = {
     "bnkovwrt": "BkOW", "entrywrt": "EnWr", "lpt": "LPT", "lpfc": "LPFc", "hpt": "HPT",
     "hpfc": "HPFc", "bpt": "BPT", "bpfc": "BPFc", "bwdth": "BW", "dsel": "DSel",
 }
+# VPK names not on the original panel
+VPK_FIXED = {
+    "pvol": "PVol", "hgs": "HGS", "mark": "Mark", "sloop": "SLp", "chain": "Chn",
+    "insert": "Ins", "delete": "Del", "just": "Just", "startup": "StUp", "trvol": "TVol",
+    "trackpan": "TPan", "trrout": "TRte", "bankb": "Bank", "entryb": "Entr", "slib": "SLib",
+    "seqb": "Seq", "split": "Splt", "kbdlkey": "LKey", "kbdrkey": "RKey", "poly": "Poly",
+    "tname": "TNam", "dynenvl": "DEnL", "dynenvh": "DEnH", "midixpos": "MXps",
+    "vkxpos": "VXps", "hadj": "HAdj", "moddep": "MDep", "invert": "Inv", "quant": "Qnt",
+    "raise": "Rais", "stmode": "StMd", "strate": "StRt", "stdepth": "StDp", "stcen": "StCn",
+    "pchorus": "PCho", "info": "Info",
+}
 PREFIX = {"psel": "PS", "coef": "C", "trak": "Tr", "bank": "Bk", "timb": "Tb", "seqr": "Sq"}
+
+
+def _label(name, fixed):
+    if name is None:
+        return "    "
+    if name in fixed:
+        lab = fixed[name]
+    else:
+        stem, n = name.split(".")
+        lab = PREFIX[stem] + str(int(n) + 1)              # numbered from 1, as printed
+    assert len(lab) <= 4, name
+    return lab.ljust(4)
 
 
 def labels():
     """128 labels, 4 characters each (space padded)."""
-    out = []
-    for name in ORK_BUTTONS:
-        if name in FIXED:
-            lab = FIXED[name]
-        else:
-            stem, n = name.split(".")
-            lab = PREFIX[stem] + str(int(n) + 1)          # numbered from 1, as printed
-        assert len(lab) <= 4, name
-        out.append(lab.ljust(4))
+    out = [_label(name, FIXED) for name in ORK_BUTTONS]
     assert len(out) == 128 and len(set(out)) == 128
+    return out
+
+
+def vpk_labels():
+    """160 VPK labels by PBN, 4 characters each (blank: no function)."""
+    out = [_label(name, dict(FIXED, **VPK_FIXED)) for name in VPK_BUTTONS]
+    used = [lab for lab in out if lab.strip()]
+    assert len(out) == 160 and len(set(used)) == len(used)
     return out
 
 
@@ -65,7 +92,16 @@ def text():
         for k, ch in enumerate(lab):
             if ch != " ":
                 lines.append("        9'd%d: panel_label = 8'h%02x;   // %s" % (b * 4 + k, ord(ch), lab.strip()))
-    lines += ["        default: panel_label = 8'h20;", "    endcase", "endfunction", ""]
+    lines += ["        default: panel_label = 8'h20;", "    endcase", "endfunction", "",
+              "// VPK_BUTTONS: {PBN[7:0], character[1:0]} (PBN 0-159; the rest unused).",
+              "// Read on a clock only, so synthesis makes it a ROM (block RAM).",
+              "logic [7:0] vpk_label_rom [1024];",
+              "initial begin"]
+    for b, lab in enumerate(vpk_labels()):
+        for k, ch in enumerate(lab):
+            lines.append("    vpk_label_rom[%d] = 8'h%02x;%s" % (b * 4 + k, ord(ch),
+                                                               ("   // " + lab.strip()) if k == 0 and lab.strip() else ""))
+    lines += ["end", ""]
     return "\n".join(lines)
 
 

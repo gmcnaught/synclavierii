@@ -9,7 +9,15 @@ module midi_in_tb;
     logic [15:0] host_value;
     logic        byte_valid, frame_err, alt;
     logic [7:0]  byte_data;
+    logic        msg_valid;
+    logic [2:0]  msg_kind;
+    logic [3:0]  msg_chan;
+    logic [6:0]  msg_m1, msg_m2;
     longint      cyc = 0;
+
+    // decoded messages: {kind, chan, m1, m2}
+    logic [20:0] msgs [$];
+    always @(posedge clk) if (msg_valid) msgs.push_back({msg_kind, msg_chan, msg_m1, msg_m2});
 
     midi_in #(.CLK_HZ(HZ)) dut (.*);
 
@@ -104,6 +112,20 @@ module midi_in_tb;
         if (alt) begin $display("FAIL: did not return to 31250"); errors++; end
         send(8'h90); send(8'd64); send(8'd100);
         expect_writes('{w(0, 2, 16'h0fef)});
+        // decoded messages: pitch bend, key pressure (running status), channel
+        // pressure, control change; none of them writes the keyboard
+        msgs.delete();
+        send(8'he3); send(8'h12); send(8'h40);
+        send(8'ha4); send(8'd60); send(8'd70); send(8'd62); send(8'd71);
+        send(8'hd5); send(8'd99);
+        send(8'hb0); send(8'd21); send(8'd5);
+        expect_writes('{});
+        if (msgs.size() != 5 || msgs[0] !== {3'd4, 4'd3, 7'h12, 7'h40} ||
+            msgs[1] !== {3'd5, 4'd4, 7'd60, 7'd70} || msgs[2] !== {3'd5, 4'd4, 7'd62, 7'd71} ||
+            msgs[3] !== {3'd6, 4'd5, 7'd99, 7'd0} || msgs[4] !== {3'd3, 4'd0, 7'd21, 7'd5}) begin
+            $display("FAIL: decoded messages (%0d)", msgs.size());
+            errors++;
+        end
         if (errors != 0) $fatal(1);
         $display("midi_in OK");
         $finish;

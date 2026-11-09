@@ -182,6 +182,34 @@ def test_term_display_panel():
     assert all(px[104 * w + 600 + i] for i in range(5)) and not px[104 * w + 605]
 
 
+def test_term_display_vpk():
+    """The VPK panel strip (vpk = 1): the 2 x 16 display, the status line,
+    the 160 labels by PBN; a lit label (state 1, and 3) inverted in both
+    blink phases, a blinking one (state 2) only in the second."""
+    if not HAVE_VERILATOR:
+        print("  skip test_term_display_vpk (needs verilator)")
+        return
+    tmp = tempfile.mkdtemp()
+    try:
+        frames = [os.path.join(tmp, "frame%d.pgm" % i) for i in (1, 2)]
+        _testbench("term_display", "hdl/core/term_display.sv",
+                   ["+vpk", "+frame=" + frames[0], "+frame2=" + frames[1]])
+        shots = [frame_text(f, skip={(6, 75)}) for f in frames]   # (6, 75): under the pointer
+    finally:
+        shutil.rmtree(tmp)
+    for phase, (term, panel, inverted, display) in enumerate(shots):
+        assert term[0] == "HELLO" and term[1] == "WORLD", term[:3]
+        assert display == " SYNCLAVIER 5.3 40 VOICES 36M   ", repr(display)   # 0x01 -> space
+        lit = {33, 159} | ({108} if phase else set())
+        want = expected_panel(vpk=True, display=display, lit=lit, status=panel[1])
+        assert panel == want, "\n".join(panel + ["--- expected"] + want)
+        assert panel[1] == " Lag us 00012A3F   Underrun 0002   Overrun 0000   MIDI 0123 F8 Err 0000 9k6", panel[1]
+        for pbn in range(160):
+            r, c = 2 + pbn // 16, 5 * (pbn % 16)
+            assert all(inverted[(r, c + i)] == (pbn in lit) for i in range(4)), (phase, pbn)
+            assert not inverted[(r, c + 4)]
+
+
 def test_dev_scsi():
     """The SCSI host and disk (hdl/dev/dev_scsi.sv): the sequences of
     tests/sim/test_scsi.py, including MONITOR 5.3's manual last byte."""
@@ -318,11 +346,112 @@ def test_dev_poly():
         os.unlink(path)
 
 
+def vpk_stimulus(path, seed=1, ops=4000):
+    """Stimulus for hdl/sim/dev_vpk_tb.sv from sim/devices/synth.py
+    VelocityKeyboard: KEYBOARD.CHECK, KCR reads, key scans with velocity
+    and pressure reads, analog/switch reads, button scans, light and
+    display writes, random host events, each read with the model's answer."""
+    import random
+    from sim.devices.synth import VelocityKeyboard
+    rng = random.Random(seed)
+    kb = VelocityKeyboard()
+    out = []
+
+    def w(r, v):
+        kb.write(0o130 + r, v & 0xFFFF)
+        out.append("W %d %d" % (r, v & 0xFFFF))
+
+    def rd(r=0):
+        out.append("R %d %d" % (r, kb.read(0o130 + r)))
+
+    def request(req):
+        w(1, 1); w(0, req); w(1, 0o41); w(1, 1); w(1, 0o101); rd(); w(1, 1)
+
+    def host(op, a, d=0):
+        out.append("H %d %d %d" % (op, a, d))
+        if op == 0:
+            kb.press_key(a + 9, True, d)
+        elif op == 1:
+            kb.press_key(a + 9, False)
+        elif op == 2:
+            kb.press_button(a, bool(d & 1))
+        elif op == 3:
+            kb.analog[a & 7] = d
+        elif op == 4:
+            kb.switches = d
+        else:
+            kb.pressure[a] = d
+
+    w(1, 0o105); rd(); w(1, 0o005)
+    for _ in range(ops):
+        x = rng.random()
+        if x < 0.2:
+            r = rng.random()
+            if r < 0.45:
+                host(rng.choice((0, 1)), rng.randrange(76), rng.randrange(128))
+            elif r < 0.7:
+                host(2, rng.randrange(160), rng.randrange(2))
+            elif r < 0.85:
+                host(3, rng.randrange(8), rng.randrange(256))
+            elif r < 0.92:
+                host(4, 0, rng.randrange(256))
+            else:
+                host(5, rng.randrange(80), rng.randrange(256))
+        elif x < 0.35:                       # KCR (144-TIM3)
+            w(0, 0); w(1, 0); w(1, 0o40); w(1, 0); w(1, 0o100); rd(); rd(); w(1, 0)
+        elif x < 0.55:
+            so = rng.randrange(6)
+            request(0o417 | so << 4)
+            request(rng.randrange(80))
+        elif x < 0.65:
+            request(0o200 | rng.choice((rng.randrange(80), rng.randrange(88, 96))))
+        elif x < 0.75:
+            request(0o600 | rng.choice((0, rng.randrange(1, 12))))
+        elif x < 0.87:                       # light (mode 3)
+            a, st = rng.randrange(170), rng.randrange(4)
+            w(1, 3); w(0, a << 8 | st); w(1, 0o43); w(1, 3)
+            if a < 160:
+                out.append("L %d %d" % (a, kb.lights[a]))
+        else:                                # display (mode 2)
+            a, ch = rng.choice((rng.randrange(32), rng.choice((32, 36, 48, 52)))), rng.randrange(256)
+            w(1, 2); w(0, a << 8 | ch); w(1, 0o42); w(1, 2)
+            if a < 32:
+                out.append("C %d %d" % (a, kb.chars[a]))
+        if rng.random() < 0.02:              # an SMPTE-style 20/260 write: no EXW
+            w(1, 0o20); w(1, 0o260); w(1, 0)
+    open(path, "w").write("\n".join(out) + "\n")
+
+
+def test_dev_vpk():
+    """The velocity keyboard (hdl/dev/dev_vpk.sv) against sim/devices/synth.py."""
+    if not HAVE_VERILATOR:
+        print("  skip test_dev_vpk (needs verilator)")
+        return
+    import tempfile
+    for seed in (1, 2, 3):
+        with tempfile.NamedTemporaryFile(suffix=".stim", delete=False) as f:
+            path = f.name
+        try:
+            vpk_stimulus(path, seed)
+            out = _testbench("dev_vpk", "hdl/dev/dev_vpk.sv", args=["+stim=" + path])
+            print("  " + [ln for ln in out.splitlines() if "dev_vpk OK" in ln][0])
+        finally:
+            os.unlink(path)
+
+
 def test_ps2_ascii():
     if not HAVE_VERILATOR:
         print("  skip test_ps2_ascii (needs verilator)")
         return
     _testbench("ps2_ascii", "hdl/core/ps2_ascii.sv")
+
+
+def test_midi_vpk():
+    """MIDI messages -> velocity keyboard host ops; knob pulse and tap timing."""
+    if not HAVE_VERILATOR:
+        print("  skip test_midi_vpk (needs verilator)")
+        return
+    _testbench("midi_vpk", "hdl/core/midi_vpk.sv")
 
 
 def test_midi_in():
@@ -346,9 +475,17 @@ def frame_text(path, skip=()):
     return screen_text(path, skip=skip)
 
 
-def expected_panel(display="    ", units=0):
-    """The panel strip with no lights on."""
-    from tools.gen_panel_labels import labels
+def expected_panel(display="    ", units=0, vpk=False, lit=(), status=None):
+    """The panel strip with no lights on (the ORK's), or the VPK's with the
+    32-character display, status line `status` and PBNs `lit` (only for
+    the inverted-cell check: the text is the same)."""
+    from tools.gen_panel_labels import labels, vpk_labels
+    if vpk:
+        lab = vpk_labels()
+        rows = [(" Display  [%s][%s]" % (display[:16], display[16:])).rstrip(), status]
+        for r in range(10):
+            rows.append(" ".join(lab[16 * r:16 * r + 16]).rstrip())
+        return rows
     lab = labels()
     rows = ["-" * 80, (" Display  [%s]   Units %04X" % (display, units)).rstrip(),
             " Lag us 00000000   Underrun 0000   Overrun 0000   MIDI 0000 00 Err 0000 31k"]

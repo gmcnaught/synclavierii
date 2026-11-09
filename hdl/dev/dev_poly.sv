@@ -1,5 +1,6 @@
-// D154-D157 poly sampling synthesizer (M7.7): one bin of 32 voices and 4M
-// words (16384 sectors) of poly memory behind a word port. The behaviour is
+// D154-D157 poly sampling synthesizer (M7.7): one bin of 32 voices and 16M
+// words (32 MB, 65536 sectors: one 32 MB page, a 3200's poly memory) behind
+// a word port. The behaviour is
 // sim/devices/poly.py's, register for register and tick for tick (the
 // evidence and the choices are there and in docs/poly-synth.md).
 //
@@ -29,7 +30,7 @@
 // (Written for Quartus 17: plain constants, no enum-typed function
 // arguments, no variables declared inside procedural blocks.)
 module dev_poly #(
-    parameter int MEM_BITS = 22                  // poly memory: 2^MEM_BITS words
+    parameter int MEM_BITS = 24                  // poly memory: 2^MEM_BITS words
 ) (
     input  logic        clk,
     input  logic        rst,
@@ -48,6 +49,7 @@ module dev_poly #(
     output logic [MEM_BITS-1:0] m_addr,
     output logic        m_rd,
     output logic        m_wr,
+    output logic        m_wide,       // with m_wr: the whole 64-bit word (4 words)
     output logic [15:0] m_wdata,
     input  logic [15:0] m_rdata,
     input  logic        m_ack,
@@ -293,6 +295,7 @@ module dev_poly #(
     assign m_rd    = (es == E_MEM && !mwr) || es == E_MIX_MEM;
     assign m_wr    = (es == E_MEM && mwr) || es == E_MCLR;
     assign m_wdata = es == E_MCLR ? 16'd0 : req_w;
+    assign m_wide  = es == E_MCLR;
 
     // ------------------------------------------------------------ engine
     always_ff @(posedge clk) begin
@@ -322,11 +325,11 @@ module dev_poly #(
             // all poly memory to zero, as the model starts: SYN-5.3 reads
             // some of it before writing (the bin header, the size probe's
             // saved words, sectors 22-25 at start-up), and DDR3 holds
-            // whatever was there before. 2^MEM_BITS writes (about 1.3 s at
-            // 16 MHz); poly accesses wait for it.
+            // whatever was there before. 2^MEM_BITS / 4 wide writes (about
+            // 0.9 s at 16 MHz for 32 MB); poly accesses wait for it.
             E_MCLR: if (m_ack) begin
-                maddr <= maddr + 28'd1;
-                if (maddr[MEM_BITS-1:0] == {MEM_BITS{1'b1}}) es <= E_IDLE;
+                maddr <= maddr + 28'd4;
+                if (maddr[MEM_BITS-1:2] == {(MEM_BITS - 2){1'b1}}) es <= E_IDLE;
             end
             E_IDLE:
                 if (rate_due) begin

@@ -208,8 +208,8 @@ void board_start(Trace& t, bool& audio_trace) {
             want_xm.resize(sectors * 256);
             for (auto& w : want_xm) w = t.u16();
             // not zero: the loader clears external memory, dev_poly poly sector 0;
-            // the poly memory (words 0x800000 up) is covered too
-            ddr.mem.assign(std::max<size_t>(sectors * 256 / 4, 0xC00000 / 4), 0x5A5A5A5A5A5A5A5Aull);
+            // the poly memory (16M words from 0x1000000) is covered too
+            ddr.mem.assign(std::max<size_t>(sectors * 256 / 4, 0x2000000 / 4), 0x5A5A5A5A5A5A5A5Aull);
         } else if (k == 'F') {
             uint8_t drive = t.u8(); uint16_t sectors = t.u16();
             uint8_t spt = t.u8(), sides = t.u8(), prot = t.u8();

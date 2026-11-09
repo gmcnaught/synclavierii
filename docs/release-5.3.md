@@ -161,15 +161,15 @@ lockstep check against the simulator, as for Release L.
   [`poly-synth.md`](poly-synth.md) (section 8: the model's choices where
   the source is silent).
   * Simulator (`sim/devices/poly.py`, `boot_from_w0(poly=PolySynth())`):
-    SYN-5.3 finds 32 voices and 16384 sectors; BANK 2 + ENTRY 1 loads
+    SYN-5.3 finds 32 voices and 65536 sectors (32 MB, a 3200); BANK 2 + ENTRY 1 loads
     W0:CLARA3 into poly memory over SCSI (all 30 208 sample words match the
     file, at the voice's base address) and key 45 plays it at INC/MOD
     99/200 = 50 kHz, the file's rate (key 57: 198/200, key 33: 50/202).
   * HDL `dev_poly.sv`: voice rows in block RAM, a rate pass every 9900 ns
     and an envelope pass every 40 us of simulated time (one voice per
     clock); a D157 access waits until the passes have caught up, so reads
-    match the model exactly. Poly memory is 4M words of DDR3 (words
-    0x800000 up, shared with D60-D63 and the code cache through an
+    match the model exactly. Poly memory is 16M words (32 MB) of DDR3 (words
+    0x1000000 up, shared with D60-D63 and the code cache through an
     arbiter in `synclavier_core.sv`), cleared after reset. Audio: at each
     48 kHz FM sample the sounding voices' words are fetched and mixed in.
     On only when D51 has the poly bit (state images from

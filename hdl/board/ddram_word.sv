@@ -1,6 +1,7 @@
 // 16-bit word port (synclavier_core xr_*) on MiSTer's DDR3 port (DDRAM_*,
 // Avalon-MM, 64-bit, burst 1). Word w lives at byte BASE + 2w; DDR3 from
-// 0x30000000 is free for cores.
+// 0x30000000 is free for cores. `wide` with wr writes wdata to all four
+// words of the 64-bit word holding w (poly memory clear).
 //
 // Handshake as the simulation RAM models: hold rd/wr until ack, a
 // one-clock pulse with rdata valid; the clock after an ack is ignored. A
@@ -12,9 +13,10 @@ module ddram_word #(
     input  logic        clk,
     input  logic        rst,
 
-    input  logic [23:0] addr,
+    input  logic [25:0] addr,
     input  logic        rd,
     input  logic        wr,
+    input  logic        wide,
     input  logic [15:0] wdata,
     output logic [15:0] rdata,
     output logic        ack,
@@ -46,9 +48,9 @@ module ddram_word #(
         end else case (state)
             S_IDLE:
                 if ((rd || wr) && !ack) begin
-                    DDRAM_ADDR <= BASE_Q + 29'(addr[23:2]);
+                    DDRAM_ADDR <= BASE_Q + 29'(addr[25:2]);
                     DDRAM_DIN  <= {4{wdata}};
-                    DDRAM_BE   <= 8'b0000_0011 << {addr[1:0], 1'b0};
+                    DDRAM_BE   <= wide ? 8'hFF : 8'b0000_0011 << {addr[1:0], 1'b0};
                     DDRAM_RD   <= rd;
                     DDRAM_WE   <= wr;
                     lane <= addr[1:0];

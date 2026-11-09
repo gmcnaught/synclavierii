@@ -46,9 +46,10 @@ module synclavier_core #(
     output logic [7:0]  sd_buff_din,
     input  logic        sd_buff_wr,
 
-    output logic [23:0] xr_addr,
+    output logic [25:0] xr_addr,         // words; poly memory from 0x1000000
     output logic        xr_rd,
     output logic        xr_wr,
+    output logic        xr_wide,         // with xr_wr: all 4 words of the 64-bit word
     output logic [15:0] xr_wdata,
     input  logic [15:0] xr_rdata,
     input  logic        xr_ack,
@@ -231,14 +232,15 @@ module synclavier_core #(
     // state image made with poly voices); otherwise it answers as a stub
     logic [15:0] poly_rdata, p_wdata;
     logic        poly_ack, p_rd, p_wr, p_ack;
-    logic [21:0] p_addr;
+    logic [23:0] p_addr;
+    logic        p_wide;
     logic        mix_valid;
     logic signed [15:0] mix_l, mix_r;
     dev_poly poly (
         .clk, .rst(cpu_rst), .enable(term_bits[10]), .tick, .tick_ns,
         .sel(sel_poly), .rd(dev_rd), .wr(dev_wr), .reg_sel(dev_num[1:0]), .wdata(dev_wdata),
         .rdata(poly_rdata), .ack(poly_ack),
-        .m_addr(p_addr), .m_rd(p_rd), .m_wr(p_wr), .m_wdata(p_wdata), .m_rdata(xr_rdata),
+        .m_addr(p_addr), .m_rd(p_rd), .m_wr(p_wr), .m_wide(p_wide), .m_wdata(p_wdata), .m_rdata(xr_rdata),
         .m_ack(p_ack),
         .mix_in_valid(pcm_valid), .mix_in_l(pcm_l), .mix_in_r(pcm_r),
         .mix_out_valid(mix_valid), .mix_out_l(mix_l), .mix_out_r(mix_r)
@@ -261,7 +263,7 @@ module synclavier_core #(
     assign m_wr     = cpu_rst ? 1'b0      : (scsi_m ? scsi_wr : s_fd_wr);
     assign m_wdata  = scsi_m ? scsi_wdata : s_fd_wdata;
     // external memory port: the boot loader in reset; then D60-D63 and the
-    // code cache (able_system) or poly memory (words 0x800000 up), one
+    // code cache (able_system) or poly memory (words 0x1000000 up), one
     // access at a time, granted while the port is free
     logic xb, xo;                                      // busy, owner (1 = poly)
     always_ff @(posedge clk) begin
@@ -273,7 +275,8 @@ module synclavier_core #(
     end
     assign s_xm_ack = xr_ack && xb && !xo;
     assign p_ack    = xr_ack && xb && xo;
-    assign xr_addr  = cpu_rst ? b_xm_addr : xo ? {2'b10, p_addr} : s_xm_addr;
+    assign xr_addr  = cpu_rst ? {2'b00, b_xm_addr} : xo ? {2'b01, p_addr} : {2'b00, s_xm_addr};
+    assign xr_wide  = !cpu_rst && xb && xo && p_wide;
     assign xr_rd    = cpu_rst ? 1'b0      : xb && (xo ? p_rd : s_xm_rd);
     assign xr_wr    = cpu_rst ? b_xm_wr   : xb && (xo ? p_wr : s_xm_wr);
     assign xr_wdata = cpu_rst ? b_xm_wdata : xo ? p_wdata : s_xm_wdata;

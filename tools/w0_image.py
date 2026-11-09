@@ -15,8 +15,9 @@ image (Synclavier3's "W0 Disk Image.simg", not redistributable):
                      machine just before MONITOR starts, as sim.boot.
                      boot_from_w0 sets it up (Model D, 8192 sectors of
                      external memory, the SCSI loader slot of .LD-7 at
-                     LOC.LOAD, MONITOR staged in external memory). Mount as
-                     the state image (S2). The core then boots MONITOR, which
+                     LOC.LOAD, MONITOR staged in external memory; D51's
+                     poly bit: a 3200's poly sampling, 32 voices and 32 MB,
+                     unless --no-poly). Mount as the state image (S2). The core then boots MONITOR, which
                      runs W0's PROFILE ("set rtp syn-5.3 ... play") over SCSI.
 
 Both are made by the simulator, so the core starts exactly where the

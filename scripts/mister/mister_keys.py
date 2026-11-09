@@ -20,7 +20,7 @@ import time
 # Linux input event codes
 NAMED = {'ESC': 1, 'BACKSPACE': 14, 'TAB': 15, 'ENTER': 28, 'LEFTCTRL': 29, 'LEFTSHIFT': 42,
          'SPACE': 57, 'F1': 59, 'F2': 60, 'F3': 61, 'F12': 88, 'UP': 103, 'DOWN': 108,
-         'LEFT': 105, 'RIGHT': 106}
+         'LEFT': 105, 'RIGHT': 106, 'F4': 62, 'KPENTER': 96}
 ROWS = {'1234567890': 2, 'qwertyuiop': 16, 'asdfghjkl': 30, 'zxcvbnm': 44}
 CHAR = {}
 for row, start in ROWS.items():

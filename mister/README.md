@@ -63,6 +63,13 @@ Mount `ORK-LM.SST` as the State image (S2), `03-SYSTD.IMG` as F0 and
 For timbres, mount `06-TIMBD.IMG` as F0 and press a bank button, then a
 timbre button (mouse, MIDI channel 16, or MIDI program change).
 
+Terminal keys (ORK-LM's screens, VT100 conventions): the arrow keys move;
+Enter is the VT100 RETURN; keypad Enter is the VT100 ENTER (`ESC O M`,
+"<ENTER> when done"); Esc twice also works as ENTER; F1–F4 are PF1–PF4.
+In the Timbre Directory (welcome menu A) the timbres on 06-TIMBD are all
+named WORKSPACE: pick one with the arrows, Return recalls it, keypad
+Enter leaves the screen.
+
 MIDI: set the UART to MidiLink (USB MIDI) in the MiSTer menu. Channels
 1–15 play the keyboard (MIDI notes 36–96 = the ORK's 61 keys); channel 16
 note n presses panel button n; program change p recalls timbre p (bank

@@ -506,7 +506,7 @@ def build(top="cpu", force=False):
 
 
 def check(path, max_instructions=None, top="cpu", wav=None, realtime=False, frame=None,
-          state=None, w0=None):
+          state=None, w0=None, w1=None):
     """Run a trace on the HDL. Returns (ok, output text). wav: write the
     system's 48 kHz PCM output (pcm_out.sv) to this WAV file. realtime:
     run the system with the throttle on (50 MHz); behaviour must not change
@@ -521,6 +521,8 @@ def check(path, max_instructions=None, top="cpu", wav=None, realtime=False, fram
         env["LOCKSTEP_STATE"] = state
     if w0:
         env["LOCKSTEP_W0"] = w0
+    if w1:
+        env["LOCKSTEP_W1"] = w1
     if wav:
         env["LOCKSTEP_WAV"] = wav
     if realtime:
@@ -718,6 +720,8 @@ def main(argv=None):
     ap.add_argument("--realtime", action="store_true", help="check --top system with the throttle on")
     ap.add_argument("--state", help="check --top board: state image (S2)")
     ap.add_argument("--w0", help="check --top board: SCSI disk image (S3)")
+    ap.add_argument("--w1", help="w0boot: a second SCSI disk (W1, target 4) and a 3-entry "
+                                 "device table; check --top board: its image (S4)")
     ap.add_argument("--poly", action="store_true",
                     help="w0boot: with poly voices (sim/devices/poly.py); at 10.6 s recall "
                          "bank 2 entry 1 (W0:CLARA3) and hold key 45 at 16 s")
@@ -725,6 +729,8 @@ def main(argv=None):
                     help="w0boot: with the MIDI card (sim/devices/midi.py; with --poly --vpk: "
                          "w0_midi_actions)")
     ap.add_argument("--poly-mb", type=int, default=32, help="w0boot --poly: poly memory in MB")
+    ap.add_argument("--commands", help="w0boot: MONITOR commands typed at each wait for "
+                                       "terminal input, separated by ';' (e.g. 'catalog w1:')")
     ap.add_argument("--fm-voices", type=int, default=8,
                     help="w0boot: FM voices installed (32: a 9600; with --vpk and no --midi: "
                          "w0_chord_actions)")
@@ -734,7 +740,7 @@ def main(argv=None):
     a = ap.parse_args(argv)
     if a.mode == "check":
         ok, text = check(a.args[0], top=a.top, wav=a.wav, realtime=a.realtime, state=a.state,
-                         w0=a.w0)
+                         w0=a.w0, w1=a.w1)
         print(text, end="")
         return 0 if ok else 1
     t = time.time()
@@ -754,8 +760,16 @@ def main(argv=None):
             from .devices.midi import MidiSubsystem
             midi = MidiSubsystem()
         cpu, _ = boot_from_w0(a.args[0], poly=poly, keyboard="vpk" if a.vpk else "ork", midi=midi,
-                              fm_voices=a.fm_voices)
+                              fm_voices=a.fm_voices, w1=a.w1)
         path = a.args[1]
+        if a.commands:
+            lines = [c.strip() + "\r" for c in a.commands.split(";")]
+
+            def on_wait(cpu):          # type the next command at each prompt
+                if lines:
+                    cpu.terminal.feed(lines.pop(0))
+                    return True
+                return False
     elif a.mode == "monitor":
         from .boot import boot_from_image
         cpu, _ = boot_from_image(a.args[0], "03-SYSTD", f1="18-UTILS")
@@ -778,10 +792,11 @@ def main(argv=None):
         actions = (w0_midi_actions(cpu) if a.midi and a.vpk else
                    w0_chord_actions(cpu) if a.vpk and a.fm_voices > 8 else
                    w0_vpk_actions(cpu) if a.vpk else w0_poly_actions(cpu))
-    n = record(cpu, path, a.instructions, on_wait=on_wait if a.mode == "monitor" else None,
+    n = record(cpu, path, a.instructions,
+               on_wait=on_wait if a.mode == "monitor" or (a.mode == "w0boot" and a.commands) else None,
                actions=actions, audio=a.audio)
-    if a.mode == "monitor":
-        print(cpu.terminal.text()[-300:], file=sys.stderr)
+    if a.mode == "monitor" or (a.mode == "w0boot" and a.commands):
+        print(cpu.terminal.text()[-600:], file=sys.stderr)
     print("recorded %d instructions in %.1f s -> %s%s" % (
         n, time.time() - t, path, " (halted: %s)" % (cpu.halted,) if cpu.halted else ""),
         file=sys.stderr)

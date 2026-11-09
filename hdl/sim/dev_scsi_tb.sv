@@ -16,6 +16,7 @@ module dev_scsi_tb;
     dev_scsi #(.TARGET(4'd5)) dut (
         .clk, .rst, .sel, .rd, .wr, .reg_sel, .wdata, .rdata, .ack,
         .present(1'b1), .protect(1'b0), .blocks(17'd4),
+        .present1(1'b0), .protect1(1'b0), .blocks1(17'd0), .d_unit(),
         .d_addr, .d_rd, .d_wr, .d_wdata, .d_rdata, .d_ack
     );
 

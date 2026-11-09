@@ -106,7 +106,7 @@ hps_io #(.CONF_STR(CONF_STR), .VDNUM(5)) hps_io
 
 ///////////////////////   CLOCKS   ///////////////////////////////
 
-// rtl/pll: clk_sys 16 MHz (core; synclavier_core CLK_HZ must match),
+// rtl/pll: clk_sys 50 MHz (core; synclavier_core CLK_HZ must match),
 // clk_vid 25 MHz (terminal video, 640 x 480)
 wire clk_sys, clk_vid;
 pll pll
@@ -133,7 +133,7 @@ wire  [7:0] r, g, b;
 wire        led_disk, booting, boot_error, halted;
 wire signed [15:0] audio_l, audio_r;
 
-synclavier_core #(.CLK_HZ(16_000_000), .VID_CE_DIV(1)) core
+synclavier_core #(.CLK_HZ(50_000_000), .VID_CE_DIV(1)) core
 (
 	.clk(clk_sys),
 	.clk_vid(clk_vid),

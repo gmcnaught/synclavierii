@@ -1,10 +1,10 @@
 # Worst setup paths of the compiled design (quartus_sta -t sta_paths.tcl):
 #   output_files/worst_paths.txt        60 worst paths, all clocks
-#   output_files/worst_paths_core.txt   30 worst into the core clock (16 MHz)
+#   output_files/worst_paths_core.txt   30 worst into the core clock (50 MHz)
 #   output_files/worst_paths_video.txt  30 worst into the video clock (25 MHz)
 #   output_files/worst_paths_full.txt   the 5 worst into the core clock, in detail
-#   output_files/core_50mhz.txt         every core-clock endpoint that would
-#       fail at 50 MHz (slack < 42.5 ns at the 62.5 ns period: path > 20 ns),
+#   output_files/core_50mhz.txt         every core-clock endpoint whose worst
+#       path is over 20 ns (slack < period - 20 ns; any core period),
 #       the worst path to each, and a count per module (fmax work list)
 #   output_files/core_modules.txt       the worst path from each main module
 project_open Synclavier
@@ -19,7 +19,8 @@ report_timing -setup -npaths 30 -detail summary -to_clock $video -file output_fi
 report_timing -setup -npaths 5 -detail full_path -to_clock $core -file output_files/worst_paths_full.txt
 
 # the 50 MHz work list: one path per failing endpoint, grouped by module
-set margin [expr {62.5 - 20.0}]
+set period [get_clock_info -period $core]
+set margin [expr {$period - 20.0}]
 set fh [open output_files/core_50mhz.txt w]
 set paths [get_timing_paths -setup -to_clock $core -less_than_slack $margin -npaths 20000 -nworst 1]
 set n 0
@@ -37,12 +38,12 @@ foreach_in_collection p $paths {
     if {![info exists count($mod)]} { set count($mod) 0; set worst($mod) 1e9 }
     incr count($mod)
     if {$slack < $worst($mod)} { set worst($mod) $slack }
-    puts $fh [format "%8.3f  %8.3f ns  %s  ->  %s" $slack [expr {62.5 - $slack}] $from $to]
+    puts $fh [format "%8.3f  %8.3f ns  %s  ->  %s" $slack [expr {$period - $slack}] $from $to]
 }
 puts $fh ""
 puts $fh "$n endpoints with paths over 20 ns. Per module (endpoints, longest path ns):"
 foreach mod [lsort [array names count]] {
-    puts $fh [format "%6d  %8.3f  %s" $count($mod) [expr {62.5 - $worst($mod)}] $mod]
+    puts $fh [format "%6d  %8.3f  %s" $count($mod) [expr {$period - $worst($mod)}] $mod]
 }
 close $fh
 
@@ -59,7 +60,7 @@ foreach m $mods {
     if {[get_collection_size $regs] == 0} { puts $fh "$m: no registers"; continue }
     set ps [get_timing_paths -setup -from $regs -to_clock $core -npaths 1]
     foreach_in_collection p $ps {
-        puts $fh [format "%-28s %8.3f ns  %s -> %s" $m [expr {62.5 - [get_path_info $p -slack]}] \
+        puts $fh [format "%-28s %8.3f ns  %s -> %s" $m [expr {$period - [get_path_info $p -slack]}] \
             [get_node_info -name [get_path_info $p -from]] [get_node_info -name [get_path_info $p -to]]]
     }
 }

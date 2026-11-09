@@ -41,7 +41,7 @@
 // catch-up applies the difference with sim/fm.py Interpolator.advance_to's
 // closed form (a clock at the sample instant counts as before it). So one
 // pass per 5.2 us does all the work: about 40 clocks for 32 voices, of the
-// 83 a 16 MHz MiSTer clock has. CPU accesses to D160-D163 wait while the
+// 260 a 50 MHz MiSTer clock has. CPU accesses to D160-D163 wait while the
 // engine has work (no simulated time passes); the CPU itself waits
 // (`stall`) only if a sample instant arrives while the last is still being
 // done.
@@ -213,7 +213,7 @@ module dev_fm #(
 
     // ----------------------------------------------------------- pipeline
     // B: RAM outputs for the voice issued last clock
-    logic          vb_ok, ve_ok, vf_ok, vg_ok, vh_ok;
+    logic          vb_ok, ve_ok, vf_ok, vg_ok, vp_ok, vh_ok;
     logic [VB-1:0] vb_a;
     // Stages C (L0) .. D (L7): per lane (bank 0 = modulator, 1 = carrier)
     // the oscillator's accumulator mod divisor (3 x 3 bits), then
@@ -300,7 +300,8 @@ module dev_fm #(
     logic [7:0]  wave_q;
     logic [7:0]  g_vk, g_vol, g_pan;
     logic signed [25:0] h_s;
-    logic [7:0]  h_pan;
+    logic signed [17:0] p_p;
+    logic [7:0]  p_vol, p_pan, h_pan;
     logic signed [39:0] sum_l, sum_r;
     wire  mix = mode == M_SAMPLE;
 
@@ -319,7 +320,9 @@ module dev_fm #(
     wire [7:0]  f_off  = 8'(f_prod >> (4'd8 - 4'(f_f13m[1:0])));
     assign wave_addr = {f_timk[4:0], f_pk + f_off};
     wire signed [8:0]  g_w = $signed({1'b0, wave_q}) - 9'sd128;
-    wire signed [25:0] g_s = 26'(g_w) * $signed({18'd0, g_vk}) * $signed({18'd0, g_vol});
+    // (w - 128) x envelope, then x VOL a clock later (timing)
+    wire signed [17:0] g_p = 18'(g_w) * $signed({10'd0, g_vk});
+    wire signed [25:0] p_s = 26'(p_p) * $signed({18'd0, p_vol});
     wire signed [39:0] h_add_r = 40'(h_s) * $signed({32'd0, h_pan});
     wire signed [39:0] h_add_l = 40'(h_s) * $signed(40'd256 - {32'd0, h_pan});
 
@@ -425,7 +428,7 @@ module dev_fm #(
             running <= 1'b0; pend_s <= 1'b0; icount <= '0;
             settle <= '0; caught <= 1'b0; g <= '0;
             vb_ok <= 1'b0; lok <= '0; ve_ok <= 1'b0;
-            vf_ok <= 1'b0; vg_ok <= 1'b0; vh_ok <= 1'b0;
+            vf_ok <= 1'b0; vg_ok <= 1'b0; vp_ok <= 1'b0; vh_ok <= 1'b0;
             if (ld_we && ld_wave) wave[ld_addr] <= ld_data[7:0];
             else if (ld_we && ld_addr < 13'd32) case (ld_addr[4:0])
                 5'd0: channel_word <= ld_data[15:0];
@@ -471,7 +474,7 @@ module dev_fm #(
                     issue_v <= issue_v + 1'b1;
                     vb_ok <= 1'b1;
                     vb_a <= issue_v[VB-1:0];
-                end else if (!vb_ok && lok == '0 && !ve_ok && !vf_ok && !vg_ok && !vh_ok) begin
+                end else if (!vb_ok && lok == '0 && !ve_ok && !vf_ok && !vg_ok && !vp_ok && !vh_ok) begin
                     running <= 1'b0;
                     settle <= 2'd2;
                     if (mode == M_CATCH) caught <= 1'b1;
@@ -579,9 +582,11 @@ module dev_fm #(
             vg_ok <= vf_ok;
             g_vk <= f_vk; g_vol <= f_f13k; g_pan <= f_f13m & 8'o374;
 
-            // ---- G -> H: sample
-            vh_ok <= vg_ok;
-            h_s <= g_s; h_pan <= g_pan;
+            // ---- G -> P -> H: sample
+            vp_ok <= vg_ok;
+            p_p <= g_p; p_vol <= g_vol; p_pan <= g_pan;
+            vh_ok <= vp_ok;
+            h_s <= p_s; h_pan <= p_pan;
 
             // ---- H: accumulate
             if (vh_ok) begin

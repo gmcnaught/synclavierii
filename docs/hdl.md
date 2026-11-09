@@ -165,7 +165,7 @@ bit 0) is 8 unless the state image says otherwise (device 5 index 16;
   is one address; the engine works one voice per clock. One pass per
   sample instant (Python's render instants, start + ⌊k × 10⁹ / 192000⌋
   ns) brings every oscillator and interpolator up to the instant and
-  mixes: about 40 clocks for 32 voices, of the 83 a 16 MHz MiSTer clock
+  mixes: about 50 clocks for 32 voices, of the 260 the 50 MHz MiSTer clock
   has per 5.2 µs. A pitch or interpolator write, or a D160 read with
   function 12, first brings that voice up to now (a one-voice pass).
 * Interpolators: their 192 kHz clocks are counted (mod 4); each channel

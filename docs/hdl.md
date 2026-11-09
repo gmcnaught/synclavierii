@@ -162,13 +162,16 @@ bit 0) is 8 unless the state image says otherwise (device 5 index 16;
 `tools/w0_image.py --fm-voices 32`, `make_system(fm_voices=32)`).
 
 * Channel state is in small RAMs, even and odd channels apart, so a voice
-  is one address; the engine works one voice per clock in passes. Per
-  192 kHz interpolator clock: every interpolator one clock. Per sample
-  instant (Python's render instants, start + ⌊k × 10⁹ / 192000⌋ ns):
-  every oscillator advanced to the instant, then mixed. When both fall in
-  one instruction's tick they are done in time order (a clock at the
-  instant counts as before it). A pass over 32 voices takes about 40
-  clocks; 260 clocks are available per 5.2 µs in real time.
+  is one address; the engine works one voice per clock. One pass per
+  sample instant (Python's render instants, start + ⌊k × 10⁹ / 192000⌋
+  ns) brings every oscillator and interpolator up to the instant and
+  mixes: about 40 clocks for 32 voices, of the 83 a 16 MHz MiSTer clock
+  has per 5.2 µs. A pitch or interpolator write, or a D160 read with
+  function 12, first brings that voice up to now (a one-voice pass).
+* Interpolators: their 192 kHz clocks are counted (mod 4); each channel
+  keeps the count it has had and is given the difference with the closed
+  form of `Interpolator.advance_to` (none due: unchanged). A clock at the
+  sample instant counts as before it.
 * Oscillators at 656015360/123 Hz (5.3335 MHz) of simulated time. A
   counter holds the ticks since the last sample instant; each channel
   holds how many of them it has had already. A pitch write first advances

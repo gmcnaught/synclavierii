@@ -165,7 +165,7 @@ module synclavier_core #(
     logic        s_fd_rd, s_fd_wr;
     logic [15:0] s_fd_wdata;
     logic [23:0] s_xm_addr;
-    logic        s_xm_rd, s_xm_wr;
+    logic        s_xm_rd, s_xm_wr, s_xm_ack;
     logic [15:0] s_xm_wdata;
     logic        dev_rd, dev_wr;
     logic [6:0]  dev_num;
@@ -184,7 +184,7 @@ module synclavier_core #(
         .dev_irq(12'd0),
         .ext_sectors,
         .xm_addr(s_xm_addr), .xm_rd(s_xm_rd), .xm_wr(s_xm_wr), .xm_wdata(s_xm_wdata),
-        .xm_rdata(xr_rdata), .xm_ack(xr_ack),
+        .xm_rdata(xr_rdata), .xm_ack(s_xm_ack),
         .fd_present, .fd_protect, .fd_sectors0, .fd_sectors1,
         .fd_spt0(FD_SPT), .fd_spt1(FD_SPT), .fd_sides0(FD_SIDES), .fd_sides1(FD_SIDES),
         .fd_addr(s_fd_addr), .fd_rd(s_fd_rd), .fd_wr(s_fd_wr), .fd_wdata(s_fd_wdata),
@@ -209,8 +209,8 @@ module synclavier_core #(
 
     // ------------------------------------------- devices outside able_system
     //   D24-D27 SCSI host with the W0 disk on SD drive 3 (dev_scsi.sv)
-    //   D154-D157 poly interface with no voices: writes accepted, reads 0
-    //     ([HYP] SYN-5.3 writes D155 without checking D51's poly bit;
+    //   D154-D157 poly synth (dev_poly.sv); without D51's poly bit a stub:
+    //     writes accepted, reads 0 ([HYP] SYN-5.3 writes D155 without checking D51's poly bit;
     //     sim/devices/stubs.py PolyNoVoices)
     // Any other device: no SYN (the CPU halts, as the real machine hangs).
     logic [15:0] dev_rdata, scsi_rdata;
@@ -227,10 +227,27 @@ module synclavier_core #(
         .d_addr(scsi_addr), .d_rd(scsi_rd), .d_wr(scsi_wr), .d_wdata(scsi_wdata),
         .d_rdata(m_rdata), .d_ack(m_ack && (scsi_rd || scsi_wr))
     );
+    // D154-D157 poly synth (dev_poly.sv), on when D51 has the poly bit (a
+    // state image made with poly voices); otherwise it answers as a stub
+    logic [15:0] poly_rdata, p_wdata;
+    logic        poly_ack, p_rd, p_wr, p_ack;
+    logic [21:0] p_addr;
+    logic        mix_valid;
+    logic signed [15:0] mix_l, mix_r;
+    dev_poly poly (
+        .clk, .rst(cpu_rst), .enable(term_bits[10]), .tick, .tick_ns,
+        .sel(sel_poly), .rd(dev_rd), .wr(dev_wr), .reg_sel(dev_num[1:0]), .wdata(dev_wdata),
+        .rdata(poly_rdata), .ack(poly_ack),
+        .m_addr(p_addr), .m_rd(p_rd), .m_wr(p_wr), .m_wdata(p_wdata), .m_rdata(xr_rdata),
+        .m_ack(p_ack),
+        .mix_in_valid(pcm_valid), .mix_in_l(pcm_l), .mix_in_r(pcm_r),
+        .mix_out_valid(mix_valid), .mix_out_l(mix_l), .mix_out_r(mix_r)
+    );
+
     always_comb begin
         dev_rdata = 16'd0; dev_ack = 1'b0; dev_nosyn = 1'b0;
         if (sel_scsi)      begin dev_rdata = scsi_rdata; dev_ack = scsi_ack; end
-        else if (sel_poly) dev_ack = 1'b1;
+        else if (sel_poly) begin dev_rdata = poly_rdata; dev_ack = poly_ack; end
         else               dev_nosyn = dev_rd || dev_wr;
     end
 
@@ -243,15 +260,28 @@ module synclavier_core #(
     assign m_rd     = cpu_rst ? b_fd_rd   : (scsi_m ? scsi_rd : s_fd_rd);
     assign m_wr     = cpu_rst ? 1'b0      : (scsi_m ? scsi_wr : s_fd_wr);
     assign m_wdata  = scsi_m ? scsi_wdata : s_fd_wdata;
-    assign xr_addr  = cpu_rst ? b_xm_addr : s_xm_addr;
-    assign xr_rd    = cpu_rst ? 1'b0      : s_xm_rd;
-    assign xr_wr    = cpu_rst ? b_xm_wr   : s_xm_wr;
-    assign xr_wdata = cpu_rst ? b_xm_wdata : s_xm_wdata;
+    // external memory port: the boot loader in reset; then D60-D63 and the
+    // code cache (able_system) or poly memory (words 0x800000 up), one
+    // access at a time, granted while the port is free
+    logic xb, xo;                                      // busy, owner (1 = poly)
+    always_ff @(posedge clk) begin
+        if (cpu_rst) xb <= 1'b0;
+        else if (!xb) begin
+            if (s_xm_rd || s_xm_wr) begin xb <= 1'b1; xo <= 1'b0; end
+            else if (p_rd || p_wr) begin xb <= 1'b1; xo <= 1'b1; end
+        end else if (xr_ack) xb <= 1'b0;
+    end
+    assign s_xm_ack = xr_ack && xb && !xo;
+    assign p_ack    = xr_ack && xb && xo;
+    assign xr_addr  = cpu_rst ? b_xm_addr : xo ? {2'b10, p_addr} : s_xm_addr;
+    assign xr_rd    = cpu_rst ? 1'b0      : xb && (xo ? p_rd : s_xm_rd);
+    assign xr_wr    = cpu_rst ? b_xm_wr   : xb && (xo ? p_wr : s_xm_wr);
+    assign xr_wdata = cpu_rst ? b_xm_wdata : xo ? p_wdata : s_xm_wdata;
 
     // to real time: a FIFO played at a steady 48 kHz (audio_fifo.sv)
     logic [15:0] underruns, overruns;
     audio_fifo #(.CLK_HZ(CLK_HZ)) to_real_time (
-        .clk, .rst, .in_valid(pcm_valid), .in_l(pcm_l), .in_r(pcm_r),
+        .clk, .rst, .in_valid(mix_valid), .in_l(mix_l), .in_r(mix_r),
         .out_l(audio_l), .out_r(audio_r), .out_strobe(), .underruns, .overruns
     );
 

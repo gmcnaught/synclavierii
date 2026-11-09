@@ -406,7 +406,8 @@ SYSTEM_RTL = ["hdl/able_cpu.sv", "hdl/code_cache.sv", "hdl/dev/dev_rtc.sv", "hdl
               "hdl/dev/dev_floppy.sv", "hdl/dev/dev_keyboard.sv",
               "hdl/dev/dev_fm.sv", "hdl/dev/fm_voices.sv",
               "hdl/dev/pcm_out.sv", "hdl/throttle.sv", "hdl/able_system.sv"]
-CORE_RTL = ["hdl/core/sd_floppy.sv", "hdl/dev/dev_scsi.sv", "hdl/core/boot_loader.sv", "hdl/core/term_display.sv",
+CORE_RTL = ["hdl/core/sd_floppy.sv", "hdl/dev/dev_scsi.sv", "hdl/dev/dev_poly.sv",
+            "hdl/core/boot_loader.sv", "hdl/core/term_display.sv",
             "hdl/core/ps2_ascii.sv", "hdl/core/midi_in.sv", "hdl/core/panel_mouse.sv", "hdl/core/audio_fifo.sv",
             "hdl/core/synclavier_core.sv",
             "hdl/board/ddram_word.sv"]
@@ -533,6 +534,23 @@ def ork_lm_note_actions(cpu, dbg, image):
             (3700 * ms, lambda c: kb.press_key(48, False))]
 
 
+def w0_poly_actions(cpu):
+    """Panel and key actions for a W0 boot with poly voices: SYN-5.3 is at
+    its Main Menu by 10.3 s; recall bank 2 entry 1 (CLARA3, a sound file
+    loaded into poly memory over SCSI), then hold key 45 (A, the file's
+    pitch) for 0.6 s."""
+    from .devices.synth import button_number
+    kb = cpu.keyboard
+    ms = 1_000_000
+    b, e = button_number("bank.1"), button_number("timb.0")
+    return [(10_600 * ms, lambda c: kb.press_button(b)),
+            (10_700 * ms, lambda c: kb.press_button(b, False)),
+            (12_200 * ms, lambda c: kb.press_button(e)),
+            (12_300 * ms, lambda c: kb.press_button(e, False)),
+            (16_000 * ms, lambda c: kb.press_key(45)),
+            (16_600 * ms, lambda c: kb.press_key(45, False))]
+
+
 def syn53_cpu(image, skip=0):
     """Release 5.3 from a W0 image (sim.boot.boot_from_w0, 30 MB disk): boot
     to Ready, CREATE USER, SET RTP SYN-5.3, PLAY, then `skip` instructions."""
@@ -574,6 +592,9 @@ def main(argv=None):
     ap.add_argument("--realtime", action="store_true", help="check --top system with the throttle on")
     ap.add_argument("--state", help="check --top board: state image (S2)")
     ap.add_argument("--w0", help="check --top board: SCSI disk image (S3)")
+    ap.add_argument("--poly", action="store_true",
+                    help="w0boot: with poly voices (sim/devices/poly.py); at 10.6 s recall "
+                         "bank 2 entry 1 (W0:CLARA3) and hold key 45 at 16 s")
     a = ap.parse_args(argv)
     if a.mode == "check":
         ok, text = check(a.args[0], top=a.top, wav=a.wav, realtime=a.realtime, state=a.state,
@@ -588,7 +609,11 @@ def main(argv=None):
         path = a.args[1]
     elif a.mode == "w0boot":
         from .boot import boot_from_w0
-        cpu, _ = boot_from_w0(a.args[0])
+        poly = None
+        if a.poly:
+            from .devices.poly import PolySynth
+            poly = PolySynth()
+        cpu, _ = boot_from_w0(a.args[0], poly=poly)
         path = a.args[1]
     elif a.mode == "monitor":
         from .boot import boot_from_image
@@ -608,6 +633,8 @@ def main(argv=None):
     actions = []
     if a.mode == "ork-lm-note":
         actions = ork_lm_note_actions(cpu, dbg, a.args[0])
+    if a.mode == "w0boot" and a.poly:
+        actions = w0_poly_actions(cpu)
     n = record(cpu, path, a.instructions, on_wait=on_wait if a.mode == "monitor" else None,
                actions=actions, audio=a.audio)
     if a.mode == "monitor":

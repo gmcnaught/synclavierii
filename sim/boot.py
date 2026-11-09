@@ -148,7 +148,8 @@ LD7_SLOT_WORDS = 768        # .LD-7: three 768-word loaders (LOADER:MRGLOAD)
 LD7_SCSI_SLOT = 2           # FLPLOAD., WINLOAD., SCSILOA. in that order
 
 
-def boot_from_w0(image, ext_sectors=8192, target=5, devices=2, disk_mb=None, **system_kw):
+def boot_from_w0(image, ext_sectors=8192, target=5, devices=2, disk_mb=None, poly=None,
+                 **system_kw):
     """Return (cpu, layout) ready to boot MONITOR from a Release 5.3-style W0:
     image (a hard-disk .simg, e.g. Synclavier3's "W0 Disk Image.simg").
 
@@ -157,7 +158,8 @@ def boot_from_w0(image, ext_sectors=8192, target=5, devices=2, disk_mb=None, **s
     MONITOR copied in through the loader's ECOPY entry as for floppies.
     devices: storage device table entries to keep (keep_devices).
     disk_mb: pad the disk to this size (free space after the image's files;
-    READ CAPACITY reports it). Writes
+    READ CAPACITY reports it). poly: a devices.poly.PolySynth (D51 poly bit
+    set); default the no-voices stub (stubs.PolyNoVoices). Writes
     go to the in-memory copy of the image (cpu.w0), never the file.
     """
     from tools.ned_disk import load, read_file
@@ -169,12 +171,16 @@ def boot_from_w0(image, ext_sectors=8192, target=5, devices=2, disk_mb=None, **s
     disk = ScsiDisk.from_file(image)
     if disk_mb:
         disk.data.extend(bytes(max(0, disk_mb * 1024 * 1024 - len(disk.data))))
-    cpu = make_system(ext_sectors=ext_sectors, scsi={target: disk}, model="D",
-                      synth=True, floppy=True, **system_kw)
+    if poly is None:
+        cpu = make_system(ext_sectors=ext_sectors, scsi={target: disk}, model="D",
+                          synth=True, floppy=True, **system_kw)
+        from .devices.stubs import PolyNoVoices
+        cpu.poly = cpu.bus.attach(PolyNoVoices())
+    else:
+        cpu = make_system(ext_sectors=ext_sectors, scsi={target: disk}, model="D",
+                          synth=True, floppy=True, poly=poly, **system_kw)
     # D57: Model D, D40Q, M64K (MONITOR CHECK.MEM.SIZ needs both boards for 63K)
     cpu.d57 = 0o7
-    from .devices.stubs import PolyNoVoices
-    cpu.poly = cpu.bus.attach(PolyNoVoices())
     cpu.w0 = disk
     return cpu, boot(cpu, program, slot)
 

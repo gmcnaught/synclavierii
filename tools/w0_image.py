@@ -61,6 +61,8 @@ def main(argv=None):
     ap.add_argument("outdir")
     ap.add_argument("--mb", type=int, default=30)
     ap.add_argument("--newdata", help="timbre bank file (.stmb) for W0:.NEWDATA")
+    ap.add_argument("--no-poly", action="store_true",
+                    help="state image without poly voices (D51 poly bit clear)")
     a = ap.parse_args(argv)
     os.makedirs(a.outdir, exist_ok=True)
     newdata = a.newdata
@@ -74,7 +76,11 @@ def main(argv=None):
     open(w0, "wb").write(disk)
     from sim.boot import boot_from_w0
     from tools.state_image import state_bytes
-    cpu, _ = boot_from_w0(w0)
+    poly = None
+    if not a.no_poly:
+        from sim.devices.poly import PolySynth
+        poly = PolySynth()
+    cpu, _ = boot_from_w0(w0, poly=poly)
     sst = os.path.join(a.outdir, "W0-53.SST")
     data = state_bytes(cpu)
     open(sst, "wb").write(data)

@@ -295,6 +295,24 @@ def test_model_c_no_interrupt_right_after_pcw_write():
     assert not cpu.pcs
 
 
+def test_model_c_no_interrupt_between_call_and_prologue():
+    dev = FakeDevice([0o120])
+    cpu = make("""
+        IM(4) TO ATRA
+        IM(0) TO R0
+        IM(0) TO R0
+        IM(0) TO R0
+        PROC: D10 TO R5
+        IM(1) TO R1
+    """, devices=[dev])
+    cpu.model, cpu.ion = "C", True
+    dev.irq = 1 << 10
+    cpu.step()                                     # the call: no interrupt yet
+    assert cpu.pcs and cpu.pc == 4
+    cpu.step()                                     # D10 read with the right link
+    assert cpu.r[5] == 1 and not cpu.pcs
+
+
 def test_model_c_priority_encoder():
     cpu = make("""
         R0 TO D2

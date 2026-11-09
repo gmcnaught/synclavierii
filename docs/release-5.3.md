@@ -102,8 +102,15 @@ lockstep check against the simulator, as for Release L.
   * **Poly interface D154–D157**: SYN-5.3 writes D155 without checking
     D51's poly bit; a no-voices stub (`stubs.PolyNoVoices`, [HYP]) accepts
     writes, reads 0.
-  With these, SYN-5.3 runs from its external pages (16–28) with no unknown
-  device access for 60M instructions and starts sending its screen.
+  * **No interrupt right after a taken absolute transfer** (Model C/D):
+    the link (D10) must reach the callee's first instruction (`D10 TO
+    MR12D`; SREG: "disable interrupts (preserve D10)"); an interrupt
+    there corrupted SYN-5.3's stack.
+  **Result:** SYN-5.3 reaches its **Main Menu on a plain VT100 terminal**
+  (about 80M instructions, 75 s simulated), "Release 5.3.0 2021/03/09",
+  "Current Catalog: W0:", with no unknown device accessed and the poly
+  stub untouched after start-up. The menu offers <PF1>/<PF3>/<PF4>
+  (keyboard F1/F3/F4) and <BREAK> (Monitor).
 
 ## 5. NED/Able era check
 
@@ -120,9 +127,10 @@ Synclavier³ Mac interpreter:
   hardware. Guarded paths use `interp_is_running` (e.g. `10-INT:144-TIM2`:
   "If interpreter is running, don't try to actually measure the D16"),
   so the hardware path is kept.
-* [UNK] Whether SYN-5.3's screens and features need a Mac terminal
-  (Termulator), and which hardware path `interp_is_running` takes on our
-  core (it must read 0). Checked at M7.5.
+* [OBS] SYN-5.3 draws its Main Menu with VT100 sequences (plus VT640
+  graphics passages, which term_display skips): no Mac terminal needed to
+  start. [UNK] Individual screens (e.g. Audio Event Editor, which needs
+  Direct-to-Disk) may still assume a Mac.
 
 ## 6. Open questions [UNK]
 

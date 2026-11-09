@@ -31,7 +31,12 @@ bit 0 first): a read returns 2 x the number of the highest bit set in the
 last word written (0 if none), as the Model B software scan finds it.
 
 Models C and D: no interrupt is taken at the end of an instruction that
-writes the PCW (D1), only after the next one. [INF] NED RTP/INTRO SREG:
+writes the PCW (D1) or makes a taken absolute transfer, only after the
+next one. [INF] The link (D10) must survive from a call to the callee's
+first instruction (every prologue starts "D10 TO MR12D"; SREG starts
+"im(-20) to D1  disable interrupts (preserve D10)"), while an interrupt
+entry and its return jump rewrite it; SYN-5.3 corrupts its stack when an
+interrupt is taken between "IM(35) TO ATRA" and PGX's "D10 to MR12D". [INF] NED RTP/INTRO SREG:
 "R14 to D1 restore interrupts ... D10 to ATRA and return to our caller
 (this two instruction enable/transfer sequence will NOT be interrupted)";
 the Model D interrupt exit (C.PGSW: R14 to D1, MR12I to ATRA) relies on it.
@@ -307,6 +312,7 @@ class CPU:
             if self._cond(da):
                 self.ppc = self.pc   # Model C link: the return address
                 self.pc = val
+                self.int_shadow = self.model != "B"
             else:
                 write = False
         elif dk == D_JREL:

@@ -35,11 +35,19 @@ BSY released with the target's bit on the data bus. Commands: TEST UNIT
 READY, REZERO, REQUEST SENSE, READ(6/10), WRITE(6/10), SEEK, INQUIRY, MODE
 SELECT, RESERVE, RELEASE, MODE SENSE, START/STOP, PREVENT/ALLOW, READ
 CAPACITY, VERIFY; others give CHECK CONDITION, ILLEGAL REQUEST.
+Disk time (block_ns > 0): a READ's data arrives one block per block_ns of
+simulated time from the command (block i at t0 + (i + 1) x block_ns). Until
+the block under the read position has arrived the target does not assert
+REQ (D25), and a D26/D27 data read is held (BUS_WAIT: the CPU retries
+while time runs, as the D24's handshake would wait). SYN-5.3's driver
+polls D25 for REQ before each block, so it waits between instructions
+with its interrupts running, as on the instrument. block_ns = 0: data is
+there at once (the default; the simulator's earlier behaviour).
 Blocks are 512 bytes = one 256-word NED sector; the image file is the
 sectors in order with big-endian words (a `.simg`), so SCSI bytes are the
 file's bytes.
 """
-from ..bus import Device
+from ..bus import BUS_WAIT, Device
 
 BLOCK = 512
 
@@ -144,9 +152,13 @@ class ScsiHost(Device):
 
     numbers = (0o24, 0o25, 0o26, 0o27)
 
-    def __init__(self, targets=None, initiator=6):
+    def __init__(self, targets=None, initiator=6, block_ns=0):
         self.targets = dict(targets or {})
         self.initiator = initiator
+        self.block_ns = block_ns
+        self.time_ns = 0
+        self.timed = False       # the data phase of a READ with disk time
+        self.t0 = 0
         self.select_bits = 0     # D24 board select bits (7400) after a select write
         self.data_out = 0        # initiator's data bus
         self.sig_out = 0         # initiator's signals
@@ -171,9 +183,11 @@ class ScsiHost(Device):
             return self.select_bits | (self.data_out & 0o377) | self._peek()
         if dev == 0o25:
             sig = PHASE_SIGNALS[self.phase]
-            if self.acked:
+            if self.acked or not self._ready():
                 sig &= ~REQ
             return (self.sig_out | sig) & SIGNALS
+        if not self._ready():
+            return BUS_WAIT
         if dev == 0o26:
             return self._get()
         hi = self._get()
@@ -192,7 +206,7 @@ class ScsiHost(Device):
                 self._free()
             elif self.phase == FREE:
                 self._selection()
-            elif ack_edge and not self.acked:
+            elif ack_edge and not self.acked and self._ready():
                 if self.phase in (DATA_IN, STATUS, MSG_IN):
                     self._get()
                 else:
@@ -259,9 +273,19 @@ class ScsiHost(Device):
             return 0x00                          # COMMAND COMPLETE
         return 0o377
 
+    def tick(self, ns):
+        self.time_ns += ns
+
+    def _ready(self):
+        """The data under the read position has arrived (disk time)."""
+        return (not self.timed or self.phase != DATA_IN
+                or self.time_ns >= self.t0 + (self.pos // BLOCK + 1) * self.block_ns)
+
     def _execute(self):
         cdb = bytes(self.cdb)
         self.log.append((self.target_id, cdb))
+        self.timed = self.block_ns > 0 and cdb[0] in (0x08, 0x28)
+        self.t0 = self.time_ns
         status, data, out_len, done = self.target.execute(cdb)
         self.status = status
         if data:

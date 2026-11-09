@@ -16,6 +16,10 @@
 // REZERO, REQUEST SENSE, READ(6/10), WRITE(6/10), SEEK, INQUIRY, MODE
 // SELECT, RESERVE, RELEASE, MODE SENSE, START/STOP, PREVENT/ALLOW, READ
 // CAPACITY, VERIFY; others CHECK CONDITION, ILLEGAL REQUEST).
+// Disk time (block_ns > 0; sim/devices/scsi.py): a READ's block i arrives
+// (i + 1) x block_ns of simulated time after the command; until the block
+// under the read position has arrived REQ is low on D25 and a D26/D27 read
+// is held (`hold`: the CPU retries while time runs). block_ns = 0: at once.
 // Two disks: TARGET (W0, sd_floppy drive 3) and TARGET1 (W1, drive 4),
 // each answering selection only while its image is mounted; `d_unit` says
 // which one the word port is for. A disk is 512-byte blocks of 256
@@ -27,6 +31,10 @@ module dev_scsi #(
 ) (
     input  logic        clk,
     input  logic        rst,
+    input  logic        tick,
+    input  logic [9:0]  tick_ns,
+    input  logic [19:0] block_ns,     // disk time per block (0: none)
+    output logic        hold,
     input  logic        sel,
     input  logic        rd,
     input  logic        wr,
@@ -163,7 +171,14 @@ module dev_scsi #(
     wire        ex_range = ex_lba + {15'd0, ex_n} > {15'd0, dblocks};
     wire [24:0] ex_len4  = {17'd0, cdb[4]};
 
-    wire start = sel && (rd || wr) && !ack && q == Q_IDLE;
+    // disk time
+    logic        timed;
+    logic [39:0] elapsed, due;
+    wire ready = !timed || phase != P_DATA_IN || elapsed >= due;
+    // only before an access starts (its own bytes move pos on while it runs)
+    assign hold = sel && rd && reg_sel[1] && phase == P_DATA_IN && !ready && q == Q_IDLE && !ack;
+
+    wire start = sel && (rd || wr) && !ack && q == Q_IDLE && !hold;
 
     assign d_addr  = q == Q_STORE ? st_addr : {want_blk[15:0], want_word[7:0]};
     assign d_rd    = q == Q_FETCH;
@@ -172,7 +187,9 @@ module dev_scsi #(
 
     always_ff @(posedge clk) begin
         ack <= 1'b0;
+        if (tick && timed && elapsed < 40'hFF_FFFF_FFFF - 40'd1024) elapsed <= elapsed + 40'(tick_ns);
         if (rst) begin
+            timed <= 1'b0;
             q <= Q_IDLE;
             phase <= P_FREE;
             src <= G_DISK;
@@ -191,7 +208,7 @@ module dev_scsi #(
                 q <= need_fetch ? Q_FETCH : Q_RUN;
             end
             2'd1: if (rd) begin
-                rdata <= {7'd0, sig_out | (phase_sig & (acked ? ~REQ : 9'h1FF))};
+                rdata <= {7'd0, sig_out | (phase_sig & (acked || !ready ? ~REQ : 9'h1FF))};
                 q <= Q_ACK;
             end else begin
                 sig_out <= wdata[8:0];
@@ -208,7 +225,7 @@ module dev_scsi #(
                         cw_ok <= 1'b0;
                     end
                     q <= Q_ACK;
-                end else if (wdata[2] && !sig_out[2] && !acked) begin // ACK by hand
+                end else if (wdata[2] && !sig_out[2] && !acked && ready) begin // ACK by hand
                     acked <= 1'b1;
                     is_peek <= 1'b0; nbytes <= 2'd1; acc <= '0;
                     if (phase == P_DATA_IN || phase == P_STATUS || phase == P_MSG_IN) begin
@@ -247,6 +264,7 @@ module dev_scsi #(
                 nbytes <= nbytes - 2'd1;
                 if (phase == P_DATA_IN) begin
                     pos <= pos + 25'd1;
+                    if (pos[8:0] == 9'd511) due <= due + 40'(block_ns);   // into the next block
                     if (pos + 25'd1 == len) phase <= P_STATUS;
                     // the next byte of a D27 read may need the next disk word
                     else if (nbytes == 2'd2 && src == G_DISK && pos[0]) q <= Q_FETCH;
@@ -280,6 +298,9 @@ module dev_scsi #(
         end
 
         Q_EXEC: begin                        // the command is complete: run it
+            timed <= block_ns != 20'd0 && (ex_op == 8'h08 || ex_op == 8'h28);
+            elapsed <= '0;
+            due <= 40'(block_ns);
             last_sense <= sense_key;
             sense_key <= 8'd0;
             status <= 8'h00;

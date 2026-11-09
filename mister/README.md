@@ -109,9 +109,32 @@ image (S2): MONITOR 5.3 boots from W0, runs its PROFILE and starts SYN-5.3
 </mistergamedescription>
 ```
 
-MIDI: set the UART to MidiLink (USB MIDI) in the MiSTer menu. Channels
-1–15 play the keyboard (MIDI notes 36–96 = the ORK's 61 keys); channel 16
-note n presses panel button n; program change p recalls timbre p (bank
-p/8, timbre p%8) with the timbre floppy in F0 (Release L) or from
-`W0:.NEWDATA` (Release 5.3). SYN-5.3 detects the original keyboard (ORK)
-and plays it as Release L does; MIDI 60 is its middle C (key 36).
+MIDI: set the UART to MidiLink (USB MIDI) in the MiSTer menu.
+
+**Release L (original keyboard, ORK).** Channels 1–15 play the keyboard
+(MIDI notes 36–96 = the ORK's 61 keys; no velocity); channel 16 note n
+presses panel button n; program change p recalls timbre p (bank p/8,
+timbre p%8) with the timbre floppy in F0. MIDI 60 is middle C (key 36).
+
+**Release 5.3 (velocity/pressure keyboard, VPK).** `W0-53.SST` puts the
+VPK on D130/D131 (`docs/devices/d130-velocity-keyboard.md`;
+`tools/w0_image.py --ork` for the ORK instead). The panel strip shows the
+VPK's 2 × 16 display and its 160 buttons. MIDI (`hdl/core/midi_vpk.sv`;
+defaults for a Novation Launchkey MK3):
+
+| MIDI | VPK |
+|---|---|
+| notes, channels 1–9, 11–14 | keys with velocity (MIDI 33–108; middle C = MIDI 60) |
+| key pressure / channel pressure | per-key pressure |
+| pitch bend, CC 1, CC 2 | pitch wheel, mod wheel, breath |
+| CC 4, CC 11, CC 16 | pedal 1, pedal 2, ribbon |
+| CC 64 | sustain switch |
+| channel 10 notes 36–51 (drum pads) | buttons: 36 BANK, 37 ENTRY, 38 START, 39 STOP, 44 RECORD, 45 CONTINUE, 46 REWIND, 47 FAST FORWARD; 40–43 and 48–51 the numbered buttons 1–8 |
+| CC 21 (pot 1) | the control knob: changes the selected parameter, one step per pot step (fast turns 4) |
+| CC 22–28 (pots 2–8) | select partial volume, partial tuning, ratio, attack, initial decay, sustain, final decay, then act as the knob |
+| channel 16 note n, channel 15 note n | button n, button 128 + n |
+| program change p | BANK, button (p/8)%8+1, ENTRY, button p%8+1 |
+
+Velocity, pressure and the wheels act on a timbre once they are patched to
+it, as on the real instrument (hold a VK button such as VK VEL and press
+the destination, e.g. PARTIAL VOLUME).

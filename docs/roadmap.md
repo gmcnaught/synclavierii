@@ -24,15 +24,16 @@ FPRM/FPSM boards is not required.
 
 | # | Item | Value |
 |---|---|---|
-| M8 | **MIDI subsystem card** (D70–D72): SYN-5.3 receives MIDI itself, with velocity, controllers and MIDI out; Launchkey knobs and pads mapped to settings | velocity and expression; the ORK has none |
+| M8a | **Velocity/pressure keyboard** (VPK) for Release 5.3, played from MIDI; Launchkey pads and pots mapped to panel buttons and the control knob | velocity, pressure, wheels; the full 160-button panel |
+| M8b | **MIDI subsystem card** (D70–D72): SYN-5.3's own MIDI in/out and routing | MIDI out, multi-channel MIDI |
 | M9 | **32 FM voices** (9600): voice state in block RAM, one voice per clock | full 9600 FM polyphony |
 | M10 | **Poly memory up to ~224 MB** (of the core's 256 MB DDR3 window) | larger sample libraries |
 | M11 | **SCSI load timing**: SD reads take simulated time | no audio stall while sound files load |
 | M12 | **Second SCSI disk** (target 4) | more storage |
 | M13 | **Graphics terminal + mouse** (VT640, D44/D45) | notation and timbre display screens |
 
-Possible but low value on MiSTer: SMPTE, multichannel outputs, the
-velocity keyboard protocol, guitar interface, printer port.
+Possible but low value on MiSTer: SMPTE, multichannel outputs, guitar
+interface, printer port.
 
 Not planned: Direct-to-Disk (separate 68K system, no firmware),
 sample-to-memory recording (no audio input), mono sampling, the Macintosh

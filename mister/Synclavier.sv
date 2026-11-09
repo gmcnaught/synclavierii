@@ -181,6 +181,10 @@ synclavier_core #(.CLK_HZ(16_000_000), .VID_CE_DIV(1)) core
 	.kb_host_panel(1'b0),
 	.kb_host_index(3'd0),
 	.kb_host_value(16'd0),
+	.vpk_host_we(1'b0),
+	.vpk_host_op(3'd0),
+	.vpk_host_addr(8'd0),
+	.vpk_host_data(8'd0),
 
 	.led_disk(led_disk),
 	.booting(booting),

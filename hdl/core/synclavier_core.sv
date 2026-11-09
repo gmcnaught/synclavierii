@@ -8,6 +8,8 @@
 //   term_display  the system terminal (D50) as 80 x 24 text on video;
 //   ps2_ascii     the keyboard (hps_io ps2_key) as terminal input;
 //   midi_in       MIDI (UART, MidiLink) to the original keyboard and panel;
+//   midi_vpk      the same MIDI to the velocity keyboard when the state image
+//                 selects it (SYN-5.3; able_system kb_vpk);
 //   panel_mouse   the mouse: click the panel buttons shown on the screen.
 // External memory (D60-D63: EXT_SECTORS sectors for a floppy boot, a
 // state image's own size otherwise, at most 4096) is a word port (xr_*):
@@ -71,6 +73,10 @@ module synclavier_core #(
     input  logic        kb_host_panel,
     input  logic [2:0]  kb_host_index,
     input  logic [15:0] kb_host_value,
+    input  logic        vpk_host_we,    // velocity keyboard host ops (simulation; beats MIDI)
+    input  logic [2:0]  vpk_host_op,
+    input  logic [7:0]  vpk_host_addr,
+    input  logic [7:0]  vpk_host_data,
 
     output logic        led_disk,
     output logic        booting,
@@ -173,6 +179,13 @@ module synclavier_core #(
     logic [15:0] dev_wdata;
     logic [15:0] kb_lights [8];
     logic [15:0] kb_display [3];
+    logic        kb_vpk;
+    logic [1:0]  vpk_lights [160];
+    logic [7:0]  vpk_chars [32];
+    logic [7:0]  vpk_dp [4];
+    logic        v_we;
+    logic [2:0]  v_op;
+    logic [7:0]  v_addr, v_data;
     logic        kb_rx_valid;
     logic [7:0]  kb_rx_data;
     logic [31:0] lag_us;
@@ -195,6 +208,8 @@ module synclavier_core #(
         .kb_host_index(kb_host_we ? kb_host_index : h_index),
         .kb_host_value(kb_host_we ? kb_host_value : h_value),
         .kb_lights, .kb_display,
+        .kb_vpk, .vpk_host_we(v_we), .vpk_host_op(v_op), .vpk_host_addr(v_addr),
+        .vpk_host_data(v_data), .vpk_lights, .vpk_chars, .vpk_dp,
         .audio_valid, .audio_l(audio_sum_l), .audio_r(audio_sum_r),
         .pcm_valid, .pcm_l, .pcm_r,
         .ld_voice_we, .ld_voice_addr, .ld_voice_data,
@@ -295,7 +310,21 @@ module synclavier_core #(
     midi_in #(.CLK_HZ(CLK_HZ)) midi (
         .clk, .rst, .rxd(midi_rxd),
         .host_we(midi_we), .host_panel(midi_panel), .host_index(midi_index), .host_value(midi_value),
-        .byte_valid(midi_byte), .byte_data(midi_data), .frame_err(midi_ferr), .alt(midi_alt)
+        .byte_valid(midi_byte), .byte_data(midi_data), .frame_err(midi_ferr), .alt(midi_alt),
+        .msg_valid(midi_msg), .msg_kind(midi_kind), .msg_chan(midi_chan),
+        .msg_m1(midi_m1), .msg_m2(midi_m2)
+    );
+    logic        midi_msg;
+    logic [2:0]  midi_kind;
+    logic [3:0]  midi_chan;
+    logic [6:0]  midi_m1, midi_m2;
+    logic        mv_we;
+    logic [2:0]  mv_op;
+    logic [7:0]  mv_addr, mv_data;
+    midi_vpk #(.CLK_HZ(CLK_HZ)) midi_to_vpk (
+        .clk, .rst, .msg_valid(midi_msg && kb_vpk), .msg_kind(midi_kind), .msg_chan(midi_chan),
+        .msg_m1(midi_m1), .msg_m2(midi_m2),
+        .host_we(mv_we), .host_op(mv_op), .host_addr(mv_addr), .host_data(mv_data)
     );
     // for the status line: bytes received, the last one, framing errors
     logic        midi_byte, midi_ferr, midi_alt;
@@ -315,10 +344,34 @@ module synclavier_core #(
     logic [15:0] mouse_value;
     logic [9:0]  ptr_x;
     logic [8:0]  ptr_y;
+    logic        mouse_vpk_we, mouse_vpk_down;
+    logic [7:0]  mouse_vpk_pbn;
     panel_mouse mouse (
         .clk, .rst, .ps2_mouse, .x(ptr_x), .y(ptr_y), .moved(ptr_on),
-        .we(mouse_we), .index(mouse_index), .value(mouse_value)
+        .we(mouse_we), .index(mouse_index), .value(mouse_value),
+        .vpk(kb_vpk), .vpk_we(mouse_vpk_we), .vpk_pbn(mouse_vpk_pbn), .vpk_down(mouse_vpk_down)
     );
+
+    // Velocity keyboard host ops, one a clock: simulation, then MIDI, then a
+    // mouse button change (held until sent).
+    logic        mp_we, mp_down;
+    logic [7:0]  mp_pbn;
+    always_ff @(posedge clk) begin
+        if (rst) mp_we <= 1'b0;
+        else if (mouse_vpk_we) begin
+            mp_we <= 1'b1; mp_pbn <= mouse_vpk_pbn; mp_down <= mouse_vpk_down;
+        end else if (mp_we && !vpk_host_we && !mv_we) mp_we <= 1'b0;
+    end
+    always_comb begin
+        v_we = vpk_host_we || mv_we || mp_we;
+        if (vpk_host_we) begin
+            v_op = vpk_host_op; v_addr = vpk_host_addr; v_data = vpk_host_data;
+        end else if (mv_we) begin
+            v_op = mv_op; v_addr = mv_addr; v_data = mv_data;
+        end else begin
+            v_op = 3'd2; v_addr = mp_pbn; v_data = {7'd0, mp_down};
+        end
+    end
 
     // Clavier words from MIDI go straight through. A panel button is down
     // while MIDI or the mouse holds it: each source's words are kept and the
@@ -365,6 +418,7 @@ module synclavier_core #(
         .in_valid(cpu_rst ? msg_valid : term_tx_valid),
         .in_data(cpu_rst ? msg_data : term_tx_data),
         .color, .lights(kb_lights), .display(kb_display),
+        .vpk(kb_vpk), .vpk_lights, .vpk_chars,
         .ptr_on, .ptr_x, .ptr_y, .lag_us, .underruns, .overruns,
         .midi_count, .midi_last, .midi_errs, .midi_alt,
         .ce_pix, .r(vga_r), .g(vga_g), .b(vga_b), .hs(vga_hs), .vs(vga_vs),

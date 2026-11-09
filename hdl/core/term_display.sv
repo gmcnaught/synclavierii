@@ -10,6 +10,14 @@
 //                  line: real time given up by the throttle (us) and audio
 //                  FIFO underruns/overruns, in hex;
 //   and the mouse pointer (panel_mouse.sv) once the mouse has moved.
+// With `vpk` set the strip shows the velocity keyboard (D130) panel
+// instead, 12 rows of 8 lines: the 2 x 16-character display as two
+// bracketed fields (characters outside 20-7E shown as spaces; decimal
+// points not shown); the status line; and the 160 buttons, 16 a row (row r
+// = PBN 16r..16r+15), each a 4-character label inverted while its light is
+// on, or every other ~0.54 s (32 frames) while it blinks. vpk_lights is
+// indexed by light address = (PBN & 15) + 144 - (PBN & ~15), states 0 off,
+// 1 on, 2 blink (3 = on). No rule or help line.
 //
 // Character handling: the VT100 subset (and VT640 graphics passages skipped)
 // that Release L's programs use, exactly as tools/vt100.py (the reference
@@ -48,6 +56,9 @@ module term_display #(
     input  logic [7:0]  midi_last,
     input  logic [15:0] midi_errs,
     input  logic        midi_alt,       // MIDI line at 9600 rather than 31250
+    input  logic        vpk,            // show the VPK panel (else the ORK's)
+    input  logic [1:0]  vpk_lights [160], // by light address (clk domain, read as they are)
+    input  logic [7:0]  vpk_chars [32],   // display: 0-15 upper line, 16-31 lower
 
     output logic        ce_pix,
     output logic [7:0]  r,
@@ -337,18 +348,82 @@ module term_display #(
         hex_char = n < 4'd10 ? 8'h30 + 8'(n) : 8'h37 + 8'(n);
     endfunction
 
-    // the character, inverse flag and decimal point at panel row pr, column c
+    // the status line's character at column h[9:3]
+    logic [7:0] st_ch;
+    always_comb begin
+        st_ch = 8'h20;
+        case (h[9:3])
+            7'd1: st_ch = "L"; 7'd2: st_ch = "a"; 7'd3: st_ch = "g"; 7'd4: st_ch = " ";
+            7'd5: st_ch = "u"; 7'd6: st_ch = "s";
+            7'd8: st_ch = hex_char(lag_us[31:28]);  7'd9: st_ch = hex_char(lag_us[27:24]);
+            7'd10: st_ch = hex_char(lag_us[23:20]); 7'd11: st_ch = hex_char(lag_us[19:16]);
+            7'd12: st_ch = hex_char(lag_us[15:12]); 7'd13: st_ch = hex_char(lag_us[11:8]);
+            7'd14: st_ch = hex_char(lag_us[7:4]);   7'd15: st_ch = hex_char(lag_us[3:0]);
+            7'd19: st_ch = "U"; 7'd20: st_ch = "n"; 7'd21: st_ch = "d"; 7'd22: st_ch = "e";
+            7'd23: st_ch = "r"; 7'd24: st_ch = "r"; 7'd25: st_ch = "u"; 7'd26: st_ch = "n";
+            7'd28: st_ch = hex_char(underruns[15:12]); 7'd29: st_ch = hex_char(underruns[11:8]);
+            7'd30: st_ch = hex_char(underruns[7:4]);   7'd31: st_ch = hex_char(underruns[3:0]);
+            7'd35: st_ch = "O"; 7'd36: st_ch = "v"; 7'd37: st_ch = "e"; 7'd38: st_ch = "r";
+            7'd39: st_ch = "r"; 7'd40: st_ch = "u"; 7'd41: st_ch = "n";
+            7'd43: st_ch = hex_char(overruns[15:12]); 7'd44: st_ch = hex_char(overruns[11:8]);
+            7'd45: st_ch = hex_char(overruns[7:4]);   7'd46: st_ch = hex_char(overruns[3:0]);
+            7'd50: st_ch = "M"; 7'd51: st_ch = "I"; 7'd52: st_ch = "D"; 7'd53: st_ch = "I";
+            7'd55: st_ch = hex_char(midi_count[15:12]); 7'd56: st_ch = hex_char(midi_count[11:8]);
+            7'd57: st_ch = hex_char(midi_count[7:4]);   7'd58: st_ch = hex_char(midi_count[3:0]);
+            7'd60: st_ch = hex_char(midi_last[7:4]);    7'd61: st_ch = hex_char(midi_last[3:0]);
+            7'd63: st_ch = "E"; 7'd64: st_ch = "r"; 7'd65: st_ch = "r";
+            7'd67: st_ch = hex_char(midi_errs[15:12]);  7'd68: st_ch = hex_char(midi_errs[11:8]);
+            7'd69: st_ch = hex_char(midi_errs[7:4]);    7'd70: st_ch = hex_char(midi_errs[3:0]);
+            7'd72: st_ch = midi_alt ? "9" : "3";
+            7'd73: st_ch = midi_alt ? "k" : "1";
+            7'd74: st_ch = midi_alt ? "6" : "k";
+            default: ;
+        endcase
+    end
+
+    wire [3:0] pr = 4'((v - 10'd384) >> 3);                  // panel row
+    // button cell (40 pixels) and character in it (0-3 label, 4 gap)
+    wire [3:0] bcell = 4'(h[9:3] / 7'd5);
+    wire [2:0] k = 3'(h[9:3] % 7'd5);
+
+    // VPK: the display character at column h[9:3] (11-26 upper, 29-44 lower)
+    wire [4:0] vd_idx = h[9:3] <= 7'd26 ? 5'(h[9:3] - 7'd11) : 5'(h[9:3] - 7'd13);
+    wire [7:0] vd_raw = vpk_chars[vd_idx];
+    wire [7:0] vd_ch  = vd_raw >= 8'h20 && vd_raw <= 8'h7e ? vd_raw : 8'h20;
+    // VPK button row pr - 2: PBN {vrow, bcell}, light address {9 - vrow, bcell}
+    wire [3:0] vrow = 4'(pr - 4'd2);
+    wire [7:0] vla  = pr >= 4'd2 ? {4'd9 - vrow, bcell} : 8'd0;
+    wire [1:0] vst  = vpk_lights[vla];
+    wire [9:0] vl_addr = {vrow, bcell, k[1:0]};
+
+    // the character, inverse flag and decimal point at panel row pr, column c;
+    // p_vlab: the character is the VPK label ROM's (read a clock later)
     logic [7:0] p_ch;
-    logic       p_inv, p_dp, p_seg;
+    logic       p_inv, p_dp, p_seg, p_vlab;
     logic [7:0] seg_byte;
     always_comb begin
-        logic [3:0] bcell;
-        logic [2:0] k;
-        p_ch = 8'h20; p_inv = 1'b0; p_dp = 1'b0; p_seg = 1'b0;
-        bcell = 4'(h[9:3] / 7'd5);
-        k = 3'(h[9:3] % 7'd5);
+        p_ch = 8'h20; p_inv = 1'b0; p_dp = 1'b0; p_seg = 1'b0; p_vlab = 1'b0;
         seg_byte = 8'd0;
-        case (pr)
+        if (vpk) case (pr)
+            4'd0: begin                                           // display
+                case (h[9:3])
+                    7'd1: p_ch = "D"; 7'd2: p_ch = "i"; 7'd3: p_ch = "s"; 7'd4: p_ch = "p";
+                    7'd5: p_ch = "l"; 7'd6: p_ch = "a"; 7'd7: p_ch = "y";
+                    7'd10, 7'd28: p_ch = "[";
+                    7'd27, 7'd45: p_ch = "]";
+                    default: ;
+                endcase
+                if ((h[9:3] >= 7'd11 && h[9:3] <= 7'd26) || (h[9:3] >= 7'd29 && h[9:3] <= 7'd44))
+                    p_ch = vd_ch;
+            end
+            4'd1: p_ch = st_ch;                                   // status
+            default:                                              // buttons
+                if (k < 3'd4) begin
+                    p_vlab = 1'b1;
+                    p_inv = vst[0] || (vst[1] && frame[5]);
+                end
+        endcase
+        else case (pr)
             4'd0: p_ch = 8'h2d;                                   // rule
             4'd1: begin                                           // display, units
                 case (h[9:3])
@@ -372,35 +447,7 @@ module term_display #(
                     p_dp = seg_byte[7];
                 end
             end
-            4'd2: begin                                           // status, hex
-                case (h[9:3])
-                    7'd1: p_ch = "L"; 7'd2: p_ch = "a"; 7'd3: p_ch = "g"; 7'd4: p_ch = " ";
-                    7'd5: p_ch = "u"; 7'd6: p_ch = "s";
-                    7'd8: p_ch = hex_char(lag_us[31:28]);  7'd9: p_ch = hex_char(lag_us[27:24]);
-                    7'd10: p_ch = hex_char(lag_us[23:20]); 7'd11: p_ch = hex_char(lag_us[19:16]);
-                    7'd12: p_ch = hex_char(lag_us[15:12]); 7'd13: p_ch = hex_char(lag_us[11:8]);
-                    7'd14: p_ch = hex_char(lag_us[7:4]);   7'd15: p_ch = hex_char(lag_us[3:0]);
-                    7'd19: p_ch = "U"; 7'd20: p_ch = "n"; 7'd21: p_ch = "d"; 7'd22: p_ch = "e";
-                    7'd23: p_ch = "r"; 7'd24: p_ch = "r"; 7'd25: p_ch = "u"; 7'd26: p_ch = "n";
-                    7'd28: p_ch = hex_char(underruns[15:12]); 7'd29: p_ch = hex_char(underruns[11:8]);
-                    7'd30: p_ch = hex_char(underruns[7:4]);   7'd31: p_ch = hex_char(underruns[3:0]);
-                    7'd35: p_ch = "O"; 7'd36: p_ch = "v"; 7'd37: p_ch = "e"; 7'd38: p_ch = "r";
-                    7'd39: p_ch = "r"; 7'd40: p_ch = "u"; 7'd41: p_ch = "n";
-                    7'd43: p_ch = hex_char(overruns[15:12]); 7'd44: p_ch = hex_char(overruns[11:8]);
-                    7'd45: p_ch = hex_char(overruns[7:4]);   7'd46: p_ch = hex_char(overruns[3:0]);
-                    7'd50: p_ch = "M"; 7'd51: p_ch = "I"; 7'd52: p_ch = "D"; 7'd53: p_ch = "I";
-                    7'd55: p_ch = hex_char(midi_count[15:12]); 7'd56: p_ch = hex_char(midi_count[11:8]);
-                    7'd57: p_ch = hex_char(midi_count[7:4]);   7'd58: p_ch = hex_char(midi_count[3:0]);
-                    7'd60: p_ch = hex_char(midi_last[7:4]);    7'd61: p_ch = hex_char(midi_last[3:0]);
-                    7'd63: p_ch = "E"; 7'd64: p_ch = "r"; 7'd65: p_ch = "r";
-                    7'd67: p_ch = hex_char(midi_errs[15:12]);  7'd68: p_ch = hex_char(midi_errs[11:8]);
-                    7'd69: p_ch = hex_char(midi_errs[7:4]);    7'd70: p_ch = hex_char(midi_errs[3:0]);
-                    7'd72: p_ch = midi_alt ? "9" : "3";
-                    7'd73: p_ch = midi_alt ? "k" : "1";
-                    7'd74: p_ch = midi_alt ? "6" : "k";
-                    default: ;
-                endcase
-            end
+            4'd2: p_ch = st_ch;                                   // status, hex
             4'd3, 4'd4, 4'd5, 4'd6, 4'd7, 4'd8, 4'd9, 4'd10:     // buttons
                 if (k < 3'd4) begin
                     p_ch = panel_label({3'(pr - 4'd3), bcell, k[1:0]});
@@ -421,16 +468,15 @@ module term_display #(
     wire [4:0]  prow = phys(top, lrow);
     wire [1:0]  ra   = in_text ? rattr[prow] : 2'd0;     // this row's line attribute
     wire [6:0]  tcol = ra != 2'd0 ? {1'b0, h[9:4]} : h[9:3];
-    wire [3:0]  pr = 4'((v - 10'd384) >> 3);
     wire [2:0]  line = !in_text ? v[2:0] :
                        ra == 2'd1 ? {1'b0, v[3:2]} :     // double height: top half
                        ra == 2'd2 ? {1'b1, v[3:2]} :     // bottom half
                        v[3:1];
     wire        cursor_here = in_text && lrow == row && tcol == col && v[3:1] == 3'd7 && frame[5];
 
-    logic [7:0] tq, pq, glyph;
+    logic [7:0] tq, pq, vl1, glyph;
     logic [2:0] line1;
-    logic       text1, inv1, dp1, cur1, vis1, inv2, dp2, cur2, vis2, seg1, wide1, wide2;
+    logic       text1, inv1, dp1, cur1, vis1, inv2, dp2, cur2, vis2, seg1, wide1, wide2, vsel1;
     logic [6:0] segv1;
 
     // a 7-segment digit in an 8 x 8 cell (bit 0 = leftmost pixel): a on
@@ -451,6 +497,8 @@ module term_display #(
         tq <= tram[{prow, tcol}];                             // text RAM: one read port
         wide1 <= ra != 2'd0;
         pq <= p_ch;
+        vl1 <= vpk_label_rom[vl_addr];                        // VPK label ROM (block RAM)
+        vsel1 <= p_vlab;
         text1 <= in_text;
         inv1 <= in_panel && p_inv;
         dp1 <= in_panel && p_dp;
@@ -461,7 +509,7 @@ module term_display #(
         line1 <= line;
         h1 <= h; v1 <= v;
         // stage 2
-        glyph <= (seg1 ? seg_glyph(segv1, line1) : font8x8({(text1 ? tq[6:0] : pq[6:0]), line1})) |
+        glyph <= (seg1 ? seg_glyph(segv1, line1) : font8x8({(text1 ? tq[6:0] : vsel1 ? vl1[6:0] : pq[6:0]), line1})) |
                  (dp1 && line1 >= 3'd6 ? 8'h80 : 8'h00);       // decimal point
         inv2 <= inv1 || (text1 && tq[7]);                       // reverse video cell
         wide2 <= wide1;

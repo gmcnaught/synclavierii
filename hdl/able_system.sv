@@ -66,6 +66,16 @@ module able_system #(
     input  logic [15:0] kb_host_value,
     output logic [15:0] kb_lights [8],
     output logic [15:0] kb_display [3],
+    // velocity/pressure keyboard (dev_vpk.sv) in place of the ORK when kb_vpk
+    // (load port: device 7 index 30), host side
+    output logic        kb_vpk,
+    input  logic        vpk_host_we,
+    input  logic [2:0]  vpk_host_op,
+    input  logic [7:0]  vpk_host_addr,
+    input  logic [7:0]  vpk_host_data,
+    output logic [1:0]  vpk_lights [160],
+    output logic [7:0]  vpk_chars [32],
+    output logic [7:0]  vpk_dp [4],
 
     // audio: one sample (sums over the voices) per 1/192000 s of simulated time
     output logic        audio_valid,
@@ -187,10 +197,30 @@ module able_system #(
     always_ff @(posedge clk)
         if (rst && ld_dev_we && ld_dev_sel == 3'd7 && ld_dev_addr == 13'd31)
             synth_strict <= ld_dev_data[0];
+    logic rst_d;                            // ORK unless this reset's state load selects the VPK
+    always_ff @(posedge clk) begin
+        rst_d <= rst;
+        if (rst && !rst_d) kb_vpk <= 1'b0;
+        else if (rst && ld_dev_we && ld_dev_sel == 3'd7 && ld_dev_addr == 13'd30)
+            kb_vpk <= ld_dev_data[0];
+    end
+
+    logic [15:0] ork_rdata, vpk_rdata;
+    logic        ork_ack, ork_nosyn, vpk_ack, vpk_nosyn;
+    assign kb_rdata = kb_vpk ? vpk_rdata : ork_rdata;
+    assign kb_ack   = kb_vpk ? vpk_ack : ork_ack;
+    assign kb_nosyn = kb_vpk ? vpk_nosyn : ork_nosyn;
+
+    dev_vpk vpk (
+        .clk, .rst, .sel(sel_kb && kb_vpk), .rd(io_rd), .wr(io_wr), .reg_sel(io_dev[0]),
+        .wdata(io_wdata), .rdata(vpk_rdata), .ack(vpk_ack), .nosyn(vpk_nosyn), .strict(synth_strict),
+        .host_we(vpk_host_we), .host_op(vpk_host_op), .host_addr(vpk_host_addr),
+        .host_data(vpk_host_data), .lights(vpk_lights), .chars(vpk_chars), .dp(vpk_dp)
+    );
 
     dev_keyboard keyboard (
-        .clk, .rst, .sel(sel_kb), .rd(io_rd), .wr(io_wr), .reg_sel(io_dev[0]),
-        .wdata(io_wdata), .rdata(kb_rdata), .ack(kb_ack), .nosyn(kb_nosyn), .strict(synth_strict),
+        .clk, .rst, .sel(sel_kb && !kb_vpk), .rd(io_rd), .wr(io_wr), .reg_sel(io_dev[0]),
+        .wdata(io_wdata), .rdata(ork_rdata), .ack(ork_ack), .nosyn(ork_nosyn), .strict(synth_strict),
         .host_we(kb_host_we), .host_panel(kb_host_panel), .host_index(kb_host_index),
         .host_value(kb_host_value), .lights(kb_lights), .display(kb_display),
         .ld_we(ld_dev_we && ld_dev_sel == 3'd7 && ld_dev_addr < 13'd27),

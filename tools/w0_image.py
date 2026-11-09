@@ -17,7 +17,8 @@ image (Synclavier3's "W0 Disk Image.simg", not redistributable):
                      external memory, the SCSI loader slot of .LD-7 at
                      LOC.LOAD, MONITOR staged in external memory; D51's
                      poly bit: a 3200's poly sampling, 32 voices and 32 MB,
-                     unless --no-poly). Mount as the state image (S2). The core then boots MONITOR, which
+                     unless --no-poly; the velocity/pressure keyboard on
+                     D130/D131, unless --ork). Mount as the state image (S2). The core then boots MONITOR, which
                      runs W0's PROFILE ("set rtp syn-5.3 ... play") over SCSI.
 
 Both are made by the simulator, so the core starts exactly where the
@@ -64,6 +65,8 @@ def main(argv=None):
     ap.add_argument("--newdata", help="timbre bank file (.stmb) for W0:.NEWDATA")
     ap.add_argument("--no-poly", action="store_true",
                     help="state image without poly voices (D51 poly bit clear)")
+    ap.add_argument("--ork", action="store_true",
+                    help="state image with the original keyboard instead of the velocity keyboard")
     a = ap.parse_args(argv)
     os.makedirs(a.outdir, exist_ok=True)
     newdata = a.newdata
@@ -81,7 +84,7 @@ def main(argv=None):
     if not a.no_poly:
         from sim.devices.poly import PolySynth
         poly = PolySynth()
-    cpu, _ = boot_from_w0(w0, poly=poly)
+    cpu, _ = boot_from_w0(w0, poly=poly, keyboard="ork" if a.ork else "vpk")
     sst = os.path.join(a.outdir, "W0-53.SST")
     data = state_bytes(cpu)
     open(sst, "wb").write(data)

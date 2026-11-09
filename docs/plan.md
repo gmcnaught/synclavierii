@@ -22,8 +22,9 @@ The core has two targets, chosen at build/boot time:
 | **Synclavier II, Release L** (1986) | ABLE Model B | `ORK-LM` (user-supplied `.simg`, no licence) | floppies F0/F1 + state image | 8 FM |
 | **3200/6400/9600, Release 5.3.0** (2021/03/09) | ABLE Model D (Model C instructions + D11 paging) | `SYN-5.3` from Synclavier³'s W0 image (user-supplied); source is NED's MIT tree | SCSI W0 on the SD card + state image | 8 FM, 32 poly sampling (stereo/panning), 32 MB poly memory |
 
-Both run on the original keyboard (ORK) model, driven from MIDI, and a
-VT100 terminal on the video output.
+Release L runs on the original keyboard (ORK) model, Release 5.3 on the
+velocity/pressure keyboard (VPK) model; both are driven from MIDI. A VT100
+terminal is on the video output.
 
 **In scope next** (section 4, M8–M12): the MIDI subsystem card, 32 FM
 voices, larger poly memory, SCSI load timing, a second SCSI disk, the
@@ -95,7 +96,8 @@ MiSTer.
 
 | # | Milestone | What it takes | Done when |
 |---|---|---|---|
-| **M8** | **MIDI subsystem card** (D70–D72, subsystem select 16–23) | Register spec from the NED source ([`devices/d70-midi-subsystem.md`](devices/d70-midi-subsystem.md)); card model in `sim/`; `dev_midi.sv` fed by the MiSTer UART; MIDI out to the UART. Controller (knob/pad) mapping for the user's Launchkey: native SYN-5.3 controller routings where they exist, panel buttons/knob otherwise | SYN-5.3 detects the card; a MIDI keyboard plays the current timbre with velocity; mod wheel, pitch bend and sustain act; pads and knobs change settings |
+| **M8a** | **Velocity/pressure keyboard** (VPK, D130/D131) for Release 5.3 | Spec [`devices/d130-velocity-keyboard.md`](devices/d130-velocity-keyboard.md); `VelocityKeyboard` in `sim/`; `dev_vpk.sv`; `midi_vpk.sv` maps MIDI (Launchkey keys, pads, pots, wheels) to it; on-screen VPK panel | SYN-5.3 detects the VPK; keys play with velocity; pads and pots change settings; board lockstep and MiSTer test |
+| M8b | **MIDI subsystem card** (D70–D72, subsystem select 16–23) | Register spec ([`devices/d70-midi-subsystem.md`](devices/d70-midi-subsystem.md)); card model; `dev_midi.sv` on the MiSTer UART; MIDI out | SYN-5.3 detects the card; MIDI in/out through SYN-5.3's own MIDI routing |
 | M9 | **32 FM voices** (9600) | `fm_voices.sv` keeps every channel in registers and advances all in parallel; 32 voices need voice state in block RAM, one voice per clock (the last fit used 62 % of ALMs, 50 % of RAM blocks) | SYN-5.3 counts 32 FM voices; audio matches `sim/voice.py` |
 | M10 | **Poly memory above 32 MB** | OSD size choice; `xr_addr` 26 → 27 bits for more than 96 MB. Core DDR3 window `0x30000000`–`0x3FFFFFFF` (256 MB) → poly at most ~224 MB; check SYN-5.3's size probe with sizes that are not a power of two | SYN-5.3 reports the chosen size; a sound file loads above 32 MB |
 | M11 | **SCSI load timing** | SD reads currently cost no simulated time, so audio stalls while sound files load | no underruns while CLARA3 loads |
@@ -104,7 +106,6 @@ MiSTer.
 
 Lower value on MiSTer (possible, not planned): SMPTE card (D70–D73,
 subsystem 8), multichannel distributor (D32/D33, mixed to stereo),
-velocity/pressure keyboard protocol on D130/D131 (M8 covers velocity),
 guitar interface (D134/D135, `SYN-5.3G`), printer port (D40/D41).
 
 ## 5. Verification strategy
@@ -147,5 +148,5 @@ Details in [`bench-checklist.md`](bench-checklist.md):
 | D2 | Workflow | **Decided:** feature branches + PRs with CI (`CONTRIBUTING.md`) |
 | D3 | Simulator language | **Decided:** Python; the HDL (Verilator) runs long traces |
 | D4 | FPGA framework | **Decided:** Template_MiSTer ([`hdl.md`](hdl.md)) |
-| D5 | Keyboard | **Decided:** original keyboard (ORK) for both releases; SYN-5.3 detects it (`KEYBOARD.CHECK`), no velocity keyboard needed |
+| D5 | Keyboard | **Decided:** original keyboard (ORK) for Release L; velocity/pressure keyboard (VPK) for Release 5.3 (selected by the state image; SYN-5.3 takes either, `KEYBOARD.CHECK`) |
 | D6 | Second target | **Decided:** Release 5.3 on Model D (3200 configuration), alongside Release L |

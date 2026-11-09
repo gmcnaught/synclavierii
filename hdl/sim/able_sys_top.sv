@@ -38,6 +38,10 @@ module able_sys_top (
     input  logic        kb_host_panel,
     input  logic [2:0]  kb_host_index,
     input  logic [15:0] kb_host_value,
+    input  logic        vpk_host_we,
+    input  logic [2:0]  vpk_host_op,
+    input  logic [7:0]  vpk_host_addr,
+    input  logic [7:0]  vpk_host_data,
     output logic        audio_valid,
     output logic signed [39:0] audio_l,
     output logic signed [39:0] audio_r,
@@ -115,6 +119,10 @@ module able_sys_top (
     logic [31:0] lag_us;
     logic [15:0] kb_lights [8];
     logic [15:0] kb_display [3];
+    logic        kb_vpk;
+    logic [1:0]  vpk_lights [160];
+    logic [7:0]  vpk_chars [32];
+    logic [7:0]  vpk_dp [4];
 
     able_system sys (.*);
 endmodule

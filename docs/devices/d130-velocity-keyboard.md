@@ -15,8 +15,11 @@ keyboard.
 | D130 | `DREG` "keyboard interface data register" | read and write |
 | D131 | `CREG` "keyboard interface control register" | write |
 
-`SYNLITS/GLOBLITS:97-99` (`DREG`, `CREG`, `PULSE_EXWR`). Not modelled yet;
-section 8 gives the model's choices.
+`SYNLITS/GLOBLITS:97-99` (`DREG`, `CREG`, `PULSE_EXWR`). Model:
+`sim/devices/synth.py` `VelocityKeyboard` (section 8's choices),
+`hdl/dev/dev_vpk.sv` (checked against it: `tests/hdl/test_board.py
+test_dev_vpk`); MIDI to the VPK: `hdl/core/midi_vpk.sv`. The state image
+selects it (device 7 index 30, `sim/lockstep.py`).
 
 Tags: **[OBS]** read in the source (file:line, paths under `out/ned53/`),
 **[INF]** concluded from it, **[UNK]** not settled, **[CHOICE]** the model's
@@ -308,6 +311,16 @@ until hardware evidence turns up.
 | Display | 32 character bytes (power-on: spaces) and the DP words at 32/48/36/52; render 2 × 16 with the DP bit rule of 5.4 |
 | Answer timing | HDL: answer combinational from the latched request and current state (valid on the next I/O read) |
 | Coexistence | a run-time select (ORK or VPK) on D130/D131; default ORK so Release L and existing tests are unchanged |
+
+**Result (simulator, Release 5.3 W0):** SYN-5.3 passes `KEYBOARD.CHECK`
+(no cable message) and reaches its Main Menu; the display shows
+` SYNCLAVIER 5.3 ` / `40 VOICES 36M` (8 FM + 32 poly, 32 + 4 MB); BANK,
+2, ENTRY, 1 on the VPK panel recalls CLARA3 (`1-2-1 … CLARA3`); a key
+plays it and SYN reads its velocity (request `044` → transit time 20 for
+velocity 127). With PARTIAL VOLUME selected, a knob deflection of −40 for
+20 ms changes it by 1 and of −61 by 3 (`midi_vpk.sv` uses these).
+Velocity changes a note's volume only once a timbre patches it (VK VEL +
+destination), as on the instrument.
 
 Checks for the model: SYN-5.3 passes `KEYBOARD.CHECK` without the "Please
 Check Cable" message; the display shows the sign-on (section 5.4); `timb.0`

@@ -55,6 +55,7 @@ def _testbench(name, rtl, args=()):
     p = subprocess.run([os.path.join(mdir, "V%s_tb" % name)] + list(args),
                        capture_output=True, text=True)
     assert p.returncode == 0 and "%s OK" % name in p.stdout, p.stdout + p.stderr
+    return p.stdout
 
 
 def test_audio_fifo():
@@ -92,12 +93,13 @@ def _vt100_check(data, tag):
         src = os.path.join(tmp, "in.bin")
         frame = os.path.join(tmp, "frame.pgm")
         open(src, "wb").write(data)
-        _testbench("term_display", "hdl/core/term_display.sv", ["+frame=" + frame, "+input=" + src])
+        out = _testbench("term_display", "hdl/core/term_display.sv", ["+frame=" + frame, "+input=" + src])
         w, h, px = read_frame(frame)
     finally:
         shutil.rmtree(tmp)
     t = Terminal()
     t.feed(data)
+    assert "keypad_app %d" % t.keypad in out, (tag, out, t.keypad)
     want = t.render()
     wide = t.attr[t.row] != 0
     cx0, cx1 = (16 * t.col, 16 * t.col + 16) if wide else (8 * t.col, 8 * t.col + 8)
@@ -136,6 +138,7 @@ def test_term_display_vt100():
     run_seconds(cpu, dbg, 10)
     t = _vt100_check(bytes(out), "ORK-LM")
     assert "Select screen with arrow keys" in "\n".join(t.text())
+    assert t.keypad                                         # ORK-LM sends ESC =
 
 
 def test_panel_mouse():

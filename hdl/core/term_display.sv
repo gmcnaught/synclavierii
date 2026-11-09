@@ -17,7 +17,9 @@
 // with a pending wrap at column 80; CR, LF/VT/FF, BS, HT; ESC [ ... H f A B C
 // D J K m (reverse video); ESC # 3/4/6/5 line attributes (double height,
 // double width); ESC ( 0 / B line-drawing set (font codes 0x00-0x1F);
-// ESC 7 8 D E M c; GS starts Tektronix graphics, skipped up to CAN.
+// ESC 7 8 D E M c; ESC = / > keypad application / numeric mode (output
+// keypad_app, for ps2_ascii); GS starts Tektronix graphics, skipped up to
+// CAN.
 // A cell is {reverse, character[6:0]}.
 //
 // Video: 800 x 525 pixels per frame, one pixel per `ce` of vclk (on MiSTer
@@ -58,7 +60,8 @@ module term_display #(
 
     input  logic [11:0] peek_addr,      // simulation: {row (physical), column}
     output logic [7:0]  peek_data,
-    output logic [4:0]  top_row         // physical row shown at the top
+    output logic [4:0]  top_row,        // physical row shown at the top
+    output logic        keypad_app      // ESC = seen (ESC >, ESC c, reset: cleared)
 );
     `include "font8x8.svh"
     `include "panel_labels.svh"
@@ -151,6 +154,7 @@ module term_display #(
             col <= '0; row <= '0; top <= '0;
             wrap <= 1'b0; rev <= 1'b0; gfx <= 1'b0;
             sv_col <= '0; sv_row <= '0; sv_rev <= 1'b0;
+            keypad_app <= 1'b0;
             ps <= S_NORM;
             for (int i = 0; i < ROWS; i++) rattr[i] <= 2'd0;
             start_erase(5'd0, 7'd0, 5'(ROWS - 1), 7'(COLS - 1));   // clear the screen
@@ -200,7 +204,10 @@ module term_display #(
                             wrap <= 1'b0;
                             if (row != 5'd0) row <= row - 5'd1;
                         end
+                        8'h3d: keypad_app <= 1'b1;                  // = keypad application
+                        8'h3e: keypad_app <= 1'b0;                  // > keypad numeric
                         8'h63: begin                                // c reset
+                            keypad_app <= 1'b0;
                             col <= '0; row <= '0; wrap <= 1'b0; rev <= 1'b0; gfx <= 1'b0;
                             sv_col <= '0; sv_row <= '0; sv_rev <= 1'b0;
                             start_erase(5'd0, 7'd0, 5'(ROWS - 1), 7'(COLS - 1));

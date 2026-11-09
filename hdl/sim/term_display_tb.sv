@@ -5,7 +5,8 @@
 //   display: "12.34" (7-segment codes as NED's DIGITS table; DP on digit 2),
 //            units 0x0004
 //   pointer at (600, 100)
-//   terminal: "HELLO" then CR LF and "WORLD", or the bytes of +input=FILE
+//   terminal: "HELLO" then CR LF and "WORLD", or the bytes of +input=FILE;
+//   prints the keypad mode at the end ("keypad_app N")
 module term_display_tb;
     logic        clk = 0, rst = 1;
     logic        in_valid = 0;
@@ -15,6 +16,7 @@ module term_display_tb;
     logic        ce_pix, hs, vs, hblank, vblank;
     logic [7:0]  r, g, b, peek_data;
     logic [4:0]  top_row;
+    logic        keypad_app;
 
     term_display #(.CE_DIV(1)) dut (
         .clk, .rst, .vclk(clk), .in_valid, .in_data, .color(2'd0),
@@ -22,7 +24,7 @@ module term_display_tb;
         .lag_us(32'h0001_2a3f), .underruns(16'h0002), .overruns(16'h0000),
         .midi_count(16'h0123), .midi_last(8'hf8), .midi_errs(16'h0000), .midi_alt(1'b1),
         .ce_pix, .r, .g, .b, .hs, .vs, .hblank, .vblank,
-        .peek_addr(12'd0), .peek_data, .top_row
+        .peek_addr(12'd0), .peek_data, .top_row, .keypad_app
     );
 
     always #5 clk = !clk;
@@ -72,6 +74,7 @@ module term_display_tb;
             @(negedge clk);
         end
         $fclose(fd);
+        $display("keypad_app %0d", keypad_app);
         $display("term_display OK");
         $finish;
     end

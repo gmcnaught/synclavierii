@@ -29,8 +29,10 @@ ORK-LM's welcome menu uses: cursor addressing (ESC [ r ; c H), erase
               G1 ignored
   ESC 7 / 8   save / restore cursor and attribute
   ESC D / E / M   index, next line, reverse index (at the top: no scroll)
-  ESC c       reset: clear, home, normal
-  ESC =, ESC >, ESC FF and other ESC c: ignored
+  ESC c       reset: clear, home, normal, numeric keypad
+  ESC = / >   keypad application / numeric mode (`keypad`: what the
+              keyboard sends for keypad Enter, hdl/core/ps2_ascii.sv)
+  ESC FF and other ESC c: ignored
 
 Picture (640 x 384 terminal area): row r is lines 16r-16r+15; normal rows
 show columns 0-79 at 8 pixels, each font row twice; double-width rows show
@@ -64,6 +66,7 @@ class Terminal:
         self.state = "normal"
         self.params = [0]
         self.priv = False
+        self.keypad = False
 
     # -- primitives ------------------------------------------------------------
     def put(self, c):
@@ -135,6 +138,10 @@ class Terminal:
                 self.wrap = False
                 if self.row > 0:
                     self.row -= 1
+            elif c == ord("="):
+                self.keypad = True
+            elif c == ord(">"):
+                self.keypad = False
             elif c == ord("c"):
                 self.reset()
             return

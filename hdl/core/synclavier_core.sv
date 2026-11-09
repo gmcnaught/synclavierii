@@ -287,7 +287,8 @@ module synclavier_core #(
     end
 
     // ------------------------------------------------------ terminal, video
-    ps2_ascii keys (.clk, .rst, .ps2_key, .valid(kb_rx_valid), .ascii(kb_rx_data));
+    logic keypad_app;
+    ps2_ascii keys (.clk, .rst, .ps2_key, .keypad_app, .valid(kb_rx_valid), .ascii(kb_rx_data));
 
     term_display #(.CE_DIV(VID_CE_DIV)) display (
         .clk, .rst, .vclk(clk_vid),
@@ -298,6 +299,6 @@ module synclavier_core #(
         .midi_count, .midi_last, .midi_errs, .midi_alt,
         .ce_pix, .r(vga_r), .g(vga_g), .b(vga_b), .hs(vga_hs), .vs(vga_vs),
         .hblank(vga_hblank), .vblank(vga_vblank),
-        .peek_addr, .peek_data, .top_row
+        .peek_addr, .peek_data, .top_row, .keypad_app
     );
 endmodule

@@ -5,15 +5,38 @@
 // MONCAT 04-IOMOD), Tab = HT, Esc = ESC, Delete = DEL. The arrow keys send
 // the codes the real-time program maps arrows to (NED SYNLITS:ASCIILIT
 // U.ARR/D.ARR/L.ARR/R.ARR, as an ADM-3A sends them): up ^K, down ^J,
-// left ^H, right ^L. One character per key press, the clock after the event.
+// left ^H, right ^L. VT100 keys that send ESC O x: F1-F4 = PF1-PF4
+// (ESC O P/Q/R/S) and, in keypad application mode (term_display's
+// keypad_app: the program sent ESC =, as ORK-LM does), keypad Enter =
+// ESC O M, which the real-time program takes as ENTER (NED TTYMOD:TTYSOU
+// maps ESC M to ESC); in numeric mode keypad Enter is CR. One character per
+// key press, the clock after the event; the three of an ESC O x on three
+// consecutive clocks (a key event meanwhile waits).
 module ps2_ascii (
     input  logic        clk,
     input  logic        rst,
     input  logic [10:0] ps2_key,
+    input  logic        keypad_app,
     output logic        valid,
     output logic [7:0]  ascii
 );
     logic toggle_q, shift_l, shift_r, ctrl, caps;
+    logic [1:0] ss3_n;                  // ESC O x: characters still to send
+    logic [7:0] ss3_b1, ss3_b2;
+
+    // the x of an ESC O x key; 0 = not one
+    function automatic logic [7:0] ss3(input logic ext, input logic [7:0] code, input logic app);
+        ss3 = 8'd0;
+        if (ext) begin
+            if (code == 8'h5a && app) ss3 = "M";           // keypad Enter
+        end else case (code)
+            8'h05: ss3 = "P";                               // F1 = PF1
+            8'h06: ss3 = "Q";                               // F2 = PF2
+            8'h04: ss3 = "R";                               // F3 = PF3
+            8'h0c: ss3 = "S";                               // F4 = PF4
+            default: ;
+        endcase
+    endfunction
 
     // {unshifted, shifted}; 0 = no character
     function automatic logic [15:0] keymap(input logic ext, input logic [7:0] code);
@@ -72,19 +95,32 @@ module ps2_ascii (
     wire        letter    = m[7:0] >= "A" && m[7:0] <= "Z";
     wire        shifted   = (shift_l || shift_r) ^ (caps && letter);
     wire [7:0]  ch        = shifted ? m[7:0] : m[15:8];
+    wire [7:0]  x         = ss3(ext, code, keypad_app);
 
     always_ff @(posedge clk) begin
         valid <= 1'b0;
         if (rst) begin
             toggle_q <= ps2_key[10];
             shift_l <= 1'b0; shift_r <= 1'b0; ctrl <= 1'b0; caps <= 1'b0;
+            ss3_n <= 2'd0;
+        end else if (ss3_n != 2'd0) begin
+            valid <= 1'b1;
+            ascii <= ss3_b1;
+            ss3_b1 <= ss3_b2;
+            ss3_n <= ss3_n - 2'd1;
         end else if (event_now) begin
             toggle_q <= ps2_key[10];
             if (!ext && code == 8'h12) shift_l <= pressed;
             else if (!ext && code == 8'h59) shift_r <= pressed;
             else if (code == 8'h14) ctrl <= pressed;           // left or right
             else if (!ext && code == 8'h58) begin if (pressed) caps <= !caps; end
-            else if (pressed && ch != 8'd0) begin
+            else if (pressed && x != 8'd0) begin
+                valid <= 1'b1;
+                ascii <= 8'o033;
+                ss3_b1 <= "O";
+                ss3_b2 <= x;
+                ss3_n <= 2'd2;
+            end else if (pressed && ch != 8'd0) begin
                 valid <= 1'b1;
                 ascii <= ctrl && letter ? (m[7:0] & 8'o037) : ch;
             end

@@ -217,6 +217,8 @@ void board_start(Trace& t, bool& audio_trace) {
         } else if (k == 'O') {
             t.p += 8 + 2 + 1 + 16 * 4;
             audio_trace = true;
+        } else if (k == 'C') {                     // Model C/D CPU state: not on the board yet
+            t.p += 18;
         } else if (k == 'V') {                     // device state: loaded by the core itself
             uint8_t sel = t.u8(); uint16_t addr = t.u16(); uint32_t v = t.u32();
             if (sel == 6 && addr < 8192) want_wave[addr] = (uint8_t)v;
@@ -362,8 +364,10 @@ int main(int argc, char** argv) {
 #endif
     top->dev_ack = top->dev_nosyn = top->dev_hold = top->halt_req = 0;
     top->dev_irq = 0;
+    top->cpu_model = 1; top->cpu_d57 = 0;          // Model B unless the trace says ('C')
 #ifdef SYSTEM
     top->fd_present = top->fd_protect = 0;
+    top->term_bits = 01000;                        // D60 present
 #endif
     for (int i = 0; i < 16; i++) {
         top->dbg_we = 1; top->dbg_addr = i; top->dbg_wdata = t.u16(); tick();
@@ -380,16 +384,32 @@ int main(int argc, char** argv) {
         if (k == 'B') break;
         if (k == 'X') {                            // external memory
             uint32_t sectors = t.u32();
+            if (sectors > 8192) { std::fprintf(stderr, "external memory > 8192 sectors\n"); return 2; }
 #ifdef SYSTEM
-            if (sectors > 4096) { std::fprintf(stderr, "external memory > 4096 sectors\n"); return 2; }
             top->ext_sectors = sectors;
+#endif
             for (uint32_t a = 0; a < sectors * 256; a++) {
                 top->ld_xm_we = 1; top->ld_xm_addr = a; top->ld_xm_data = t.u16(); tick();
             }
             top->ld_xm_we = 0;
+        } else if (k == 'C') {                     // Model C/D CPU state
+            top->cpu_model = t.u8(); top->cpu_d57 = t.u16();
+            uint16_t bits = t.u16();
+#ifdef SYSTEM
+            top->term_bits = bits;
 #else
-            t.p += (size_t)sectors * 512;
+            (void)bits;
 #endif
+            top->dbg_we = 1;
+            top->dbg_addr = 17; top->dbg_wdata = t.u16(); tick();             // page
+            top->dbg_addr = 18; top->dbg_wdata = t.u16(); tick();             // ppc
+            { uint8_t nx = t.u8(), left = t.u8();
+              top->dbg_addr = 19; top->dbg_wdata = (nx << 8) | left; tick(); }
+            top->dbg_addr = 20; top->dbg_wdata = t.u16(); tick();             // repeat word
+            top->dbg_addr = 21; top->dbg_wdata = t.u16(); tick();             // repeat pc
+            top->dbg_addr = 22; top->dbg_wdata = t.u16(); tick();             // D2
+            top->dbg_addr = 23; top->dbg_wdata = t.u8(); tick();              // shadow
+            top->dbg_we = 0;
         } else if (k == 'F') {                     // floppy media
             uint8_t drive = t.u8(); uint16_t sectors = t.u16();
             uint8_t spt = t.u8(), sides = t.u8(), prot = t.u8();

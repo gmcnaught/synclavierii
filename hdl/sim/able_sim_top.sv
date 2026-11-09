@@ -6,6 +6,11 @@
 module able_sim_top (
     input  logic        clk,
     input  logic        rst,
+    input  logic [1:0]  cpu_model,
+    input  logic [15:0] cpu_d57,
+    input  logic        ld_xm_we,          // Model D code pages (external memory words)
+    input  logic [20:0] ld_xm_addr,
+    input  logic [15:0] ld_xm_data,
     input  logic        ld_mem_we,
     input  logic [15:0] ld_mem_addr,
     input  logic [15:0] ld_mem_data,
@@ -51,8 +56,26 @@ module able_sim_top (
         mem_rdata <= mem[mem_addr];
     end
 
+    // Model D code fetches: the trace's external memory (writes through
+    // D60-D63 are answered from the trace and do not reach this copy)
+    logic [15:0] xram [1 << 21];
+    logic [23:0] cm_addr;
+    logic        cm_rd, cm_ack;
+    logic [15:0] cm_rdata;
+    always_ff @(posedge clk) begin
+        if (rst) begin
+            cm_ack <= 1'b0;
+            if (ld_xm_we) xram[ld_xm_addr] <= ld_xm_data;
+        end else begin
+            cm_ack <= cm_rd && !cm_ack;
+            cm_rdata <= cm_addr[23:21] != 3'd0 ? 16'hFFFF : xram[cm_addr[20:0]];
+        end
+    end
+
     able_cpu cpu (
-        .clk, .rst, .mem_addr, .mem_we, .mem_wdata, .mem_rdata,
+        .clk, .rst, .model(cpu_model), .d57(cpu_d57),
+        .cm_addr, .cm_rd, .cm_rdata, .cm_ack,
+        .mem_addr, .mem_we, .mem_wdata, .mem_rdata,
         .io_rd(dev_rd), .io_wr(dev_wr), .io_dev(dev_num), .io_wdata(dev_wdata),
         .io_rdata(dev_rdata), .io_ack(dev_ack), .io_nosyn(dev_nosyn), .io_hold(dev_hold),
         .io_held, .tick, .tick_ns,

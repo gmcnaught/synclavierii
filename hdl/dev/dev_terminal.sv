@@ -10,11 +10,11 @@
 // as it is empty and the previous character's time has passed (Python
 // receives eagerly: on input, after a D50 read and after every tick).
 module dev_terminal #(
-    parameter logic [15:0] DEVICE_BITS = 16'o001000,   // D60 present
     parameter int FIFO_BITS = 8
 ) (
     input  logic        clk,
     input  logic        rst,
+    input  logic [15:0] device_bits,  // D51 device-present bits 15-8 (e.g. 1000 = D60)
     input  logic        sel,
     input  logic        rd,
     input  logic        wr,
@@ -65,7 +65,7 @@ module dev_terminal #(
     wire [7:0]  char_eff = char_rdy ? rx_char : fifo[head];
     wire signed [31:0] wait_eff = recv_now ? char_ns : rx_wait;
 
-    assign rdata = reg_sel ? (DEVICE_BITS | {13'd0, tx_busy <= 0, rdy_eff, xmit_irq})
+    assign rdata = reg_sel ? ((device_bits & 16'hFF00) | {13'd0, tx_busy <= 0, rdy_eff, xmit_irq})
                            : {8'd0, char_eff};
     assign ack   = sel && (reg_sel || wr || rdy_eff);
     assign hold  = sel && rd && !reg_sel && !rdy_eff;

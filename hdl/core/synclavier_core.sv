@@ -172,6 +172,7 @@ module synclavier_core #(
 
     able_system #(.CLK_HZ(CLK_HZ)) sys (
         .clk, .rst(cpu_rst), .rt_enable, .lag_us,
+        .cpu_model(2'd1), .cpu_d57(16'd0), .term_bits(16'o001000),
         .dev_rd, .dev_wr, .dev_num, .dev_wdata,
         .dev_rdata(16'd0), .dev_ack(1'b0), .dev_nosyn(dev_rd || dev_wr), .dev_hold(1'b0),
         .dev_irq(12'd0),

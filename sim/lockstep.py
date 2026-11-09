@@ -28,6 +28,9 @@ Trace format v2 (little-endian):
                                            a floppy in that drive
     'O' u64 rr u16 to_next u8 phase, 16 x (u16 acc u8 prescale u8 point)
                                            voice engine state (audio traces)
+    'C' u8 model u16 d57 u16 D51 device bits, u16 page u16 ppc u8 rpt_next
+        u8 rpt_left u16 rpt_word u16 rpt_pc u16 d2 u8 shadow
+                                           Model C/D CPU state (sim/cpu.py)
   events, in the order the instruction performs them:
     'P' u16       interrupt bits returned by a PSW read (device 001)
     'w' u32       the next read was held (BUS_WAIT) for this many steps
@@ -52,6 +55,9 @@ Usage:
   python3 -m sim.lockstep monitor IMAGE OUT.trace [--instructions N]
   python3 -m sim.lockstep ork-lm IMAGE OUT.trace [--instructions N]
   python3 -m sim.lockstep ork-lm-note IMAGE OUT.trace   (timbre recall + C4 held)
+  python3 -m sim.lockstep syn53 W0IMAGE OUT.trace [--skip N]
+                                    (Release 5.3: boot W0, CREATE USER, PLAY
+                                     SYN-5.3, skip N instructions, record)
   python3 -m sim.lockstep check OUT.trace [--top cpu|system]
 """
 import os
@@ -224,6 +230,12 @@ def record(cpu, path, instructions, snapshot_every=256, max_steps=None, max_wait
     out += struct.pack("<16HB", *cpu.r, _flags(cpu))
     out += struct.pack("<65536H", *cpu.mem)
     out += _device_header(cpu)
+    if cpu.model != "B":
+        term = getattr(cpu, "terminal", None)
+        out += struct.pack("<cBHHHHBBHHHB", b"C", "ABCD".index(cpu.model), cpu.d57,
+                           term.device_bits if term else 0, cpu.page, cpu.ppc,
+                           cpu.rpt_next, cpu.rpt_left, cpu.rpt_word, cpu.rpt_pc, cpu.d2,
+                           cpu.int_shadow)
     aud = _Audio(cpu.fm) if audio else None
     if aud:
         out += aud.header()
@@ -282,8 +294,12 @@ def record(cpu, path, instructions, snapshot_every=256, max_steps=None, max_wait
                 while actions and cpu.time_ns - t0 >= actions[0][0]:
                     actions.pop(0)[1](cpu)
                 steps += 1
-                pc = cpu.pc
-                word = cpu.mem[pc]
+                if cpu.rpt_left:                  # Model C repeat: same instruction
+                    pc, word = cpu.rpt_pc, cpu.rpt_word
+                else:
+                    pc = cpu.pc
+                    base = cpu._paged(cpu.pcs)
+                    word = cpu.mem[pc] if base is None else cpu._code_read(base, pc)
                 running = cpu.step()
                 if aud and not cpu.halted and cpu.waiting is not None:
                     aud.samples(ev)          # a held step: time ran, no instruction
@@ -477,6 +493,8 @@ def _trace_audio(path):
             p += 7
         elif k == b"O":
             p += 11 + 64
+        elif k == b"C":
+            p += 18
     sizes = {b"P": 2, b"R": 3, b"W": 3, b"Q": 2, b"I": 4, b"S": 41, b"H": 1, b"E": 0,
              b"w": 4, b"K": 4, b"A": 16}
     while p < len(b):
@@ -510,12 +528,37 @@ def ork_lm_note_actions(cpu, dbg, image):
             (3700 * ms, lambda c: kb.press_key(48, False))]
 
 
+def syn53_cpu(image, skip=0):
+    """Release 5.3 from a W0 image (sim.boot.boot_from_w0, 30 MB disk): boot
+    to Ready, CREATE USER, SET RTP SYN-5.3, PLAY, then `skip` instructions."""
+    from .boot import boot_from_w0
+    cpu, _ = boot_from_w0(image, disk_mb=30)
+
+    def until(pred, limit):
+        n = 0
+        while n < limit and not cpu.halted and not pred():
+            n += cpu.run(100_000)
+    until(lambda: b"Ready >" in bytes(cpu.terminal.out), 30_000_000)
+    for cmd in (b"create user\r", b"set rtp syn-5.3\r", b"play\r"):
+        k = bytes(cpu.terminal.out).count(b"Ready >")
+        cpu.terminal.feed(cmd)
+        if cmd != b"play\r":
+            until(lambda: bytes(cpu.terminal.out).count(b"Ready >") > k, 10_000_000)
+    n = 0
+    while n < skip and not cpu.halted:
+        n += cpu.run(min(100_000, skip - n))
+    if cpu.halted:
+        raise RuntimeError("SYN-5.3 stopped: %s" % (cpu.halted,))
+    return cpu
+
+
 def main(argv=None):
     import argparse
     import sys
     import time
     ap = argparse.ArgumentParser(description="Record / check HDL lockstep traces (M4.3)")
-    ap.add_argument("mode", choices=("random", "monitor", "ork-lm", "ork-lm-note", "check"))
+    ap.add_argument("mode", choices=("random", "monitor", "ork-lm", "ork-lm-note", "syn53", "check"))
+    ap.add_argument("--skip", type=int, default=0, help="syn53: instructions to run before recording")
     ap.add_argument("args", nargs="+", help="[IMAGE] TRACE")
     ap.add_argument("--instructions", type=int, default=1_000_000)
     ap.add_argument("--seed", type=int, default=1)
@@ -532,6 +575,9 @@ def main(argv=None):
     t = time.time()
     if a.mode == "random":
         cpu, path = random_cpu(a.seed, a.model), a.args[0]
+    elif a.mode == "syn53":
+        cpu = syn53_cpu(a.args[0], a.skip)
+        path = a.args[1]
     elif a.mode == "monitor":
         from .boot import boot_from_image
         cpu, _ = boot_from_image(a.args[0], "03-SYSTD", f1="18-UTILS")
@@ -543,7 +589,7 @@ def main(argv=None):
                 return True
             return False
         path = a.args[1]
-    else:
+    elif a.mode != "syn53":
         from .rtp import start_rtp
         cpu, dbg, _ = start_rtp(a.args[0], "ORK-LM")
         path = a.args[1]

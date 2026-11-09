@@ -172,7 +172,7 @@ class FMSynth:
     def sample_int(self, time_ns):
         """Integer output at time_ns: (sum of s x (256 - pan), sum of s x pan)
         over the voices, s = (w - 128) x envelope x VOL. This is what the
-        HDL voice engine (hdl/dev/fm_voices.sv) computes."""
+        HDL voice engine (hdl/dev/dev_fm.sv) computes."""
         left = right = 0
         for v in range(self.voices):
             mod, car = self.ch[2 * v], self.ch[2 * v + 1]

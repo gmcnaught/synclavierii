@@ -66,7 +66,7 @@ graphics terminal and mouse.
         ├─ D50/D51 terminal ── term_display (VT100 subset) + PS/2 keyboard
         ├─ D100–D104 floppy (SD F0/F1)      D24–D27 SCSI host + W0 disk (SD S3)
         ├─ D130/D131 ORK keyboard + panel ◄─ midi_in (UART/MidiLink), panel mouse
-        ├─ D160–D165 FM interface ─► fm_voices (8) ─┐
+        ├─ D160–D165 FM interface + voice engine (8–32) ─┐
         └─ D154–D157 poly ─► dev_poly (32) + poly memory (DDR3) ─┴─► audio (48 kHz)
 ```
 
@@ -98,7 +98,7 @@ MiSTer.
 
 | # | Milestone | What it takes | Done when |
 |---|---|---|---|
-| **M9** | **32 FM voices** (9600) | `fm_voices.sv` keeps every channel in registers and advances all in parallel; 32 voices need voice state in block RAM, one voice per clock (the last fit used 62 % of ALMs, 50 % of RAM blocks). In the simulator SYN-5.3 with 32 voices plays 20 held keys on 40 channels (with 8 voices: 16) | SYN-5.3 counts 32 FM voices; audio matches `sim/voice.py` |
+| **M9** | **32 FM voices** (9600) | Done in HDL (PR pending hardware): `dev_fm.sv` keeps channel state in RAMs and works one voice per clock (interpolator clock pass, sample pass, pitch-write catch-up); voice count from the state image (`--fm-voices 32`). SYN-5.3 with 32 voices plays 20 held keys on 40 channels (sim) | Board lockstep with audio: 19.6M instructions, 3,275,518 samples identical; MiSTer: fit, timing, no new underruns |
 | M10 | **Poly memory above 32 MB** | OSD size choice; `xr_addr` 26 → 27 bits for more than 96 MB. Core DDR3 window `0x30000000`–`0x3FFFFFFF` (256 MB) → poly at most ~224 MB; check SYN-5.3's size probe with sizes that are not a power of two | SYN-5.3 reports the chosen size; a sound file loads above 32 MB |
 | M11 | **SCSI load timing** | SD reads currently cost no simulated time, so audio stalls while sound files load | no underruns while CLARA3 loads |
 | M12 | **Second SCSI disk** (target 4, listed by MONITOR 5.3) | second target in `dev_scsi`, second SD image | `CATALOG W1:` |

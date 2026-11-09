@@ -511,6 +511,38 @@ def test_system_voice_engine():
     assert nonzero > 5000 and n > 100_000, (nonzero, n)
 
 
+def test_system_voice_engine_32_voices():
+    """The same program on channels 48-63 of a 32-voice engine (a 9600's
+    FM): all 32 voices mixed every sample, sample for sample with
+    sim/voice.py; channels 48+ answer present (D160 bit 0)."""
+    if not HAVE_VERILATOR:
+        print("  skip test_system_voice_engine_32_voices (verilator not found)")
+        return
+    import re
+    from sim.asm import assemble
+    from sim.system import make_system
+    prog = re.sub(r"IM\((\d+)\) TO D160",
+                  lambda m: "PCI TO D160\n        DATA %o" % (int(m.group(1), 8) + 48),
+                  VOICE_PROGRAM)
+    cpu = make_system(synth=True, fm_voices=32)
+    words, _ = assemble(prog)
+    cpu.load(words)
+    with tempfile.NamedTemporaryFile(suffix=".trace", delete=False) as f:
+        path = f.name
+    try:
+        n = record(cpu, path, 2_000_000, audio=True)
+        ok, text = check(path, top="system")
+        nonzero = _nonzero_samples(path)
+    finally:
+        if os.path.exists(path):
+            os.unlink(path)
+    assert ok, text
+    assert cpu.halted and cpu.halted.device == 0o161, cpu.halted
+    assert nonzero > 5000 and n > 100_000, (nonzero, n)
+    chans = {cw & 0xFF for _, cw, _, _ in cpu.fm.log}
+    assert chans == {48, 49, 54, 55, 63}, chans
+
+
 def _nonzero_samples(path):
     """Audio samples in a trace that are not (0, 0)."""
     import struct

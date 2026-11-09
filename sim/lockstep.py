@@ -27,7 +27,8 @@ Trace format v2 (little-endian):
             (dev_vpk.sv) instead, 31 = strict)
     'F' u8 drive u16 sectors u8 spt u8 sides u8 protected, words
                                            a floppy in that drive
-    'O' u64 rr u16 to_next u8 phase, 16 x (u16 acc u8 prescale u8 point)
+    'O' u64 rr u16 to_next u8 phase u8 n, n x (u16 acc u8 prescale u8 point)
+                                           voice engine state, channels 0..n-1
                                            voice engine state (audio traces)
     'C' u8 model u16 d57 u16 D51 device bits, u16 page u16 ppc u8 rpt_next
         u8 rpt_left u16 rpt_word u16 rpt_pc u16 d2 u8 shadow
@@ -151,6 +152,7 @@ def _device_header(cpu):
              fm.adc_select, (fm.time_ns * 24) % 125000, 0] + list(fm.adc)
         for idx, v in enumerate(g):
             out += struct.pack("<cBHI", b"V", 5, idx, int(v) & 0xFFFFFFFF)
+        out += struct.pack("<cBHI", b"V", 5, 16, fm.voices)        # voices present
         for ch in range(nch):
             it = fm.interpolator(ch)            # advanced to now (lazy in Python)
             r = lambda fn: fm.channels.get((ch, fn), 0) & 0o377
@@ -213,7 +215,7 @@ class _Audio:
         self.k = 0
 
     def header(self):
-        out = struct.pack("<cQHB", b"O", self.start * OSC_NUM % OSC_D, 0, 0)
+        out = struct.pack("<cQHBB", b"O", self.start * OSC_NUM % OSC_D, 0, 0, len(self.synth.ch))
         for ch in self.synth.ch:
             o = ch.osc
             out += struct.pack("<HBB", o.acc, o.prescale, o.point)
@@ -460,7 +462,7 @@ def random_cpu(seed, model="B"):
 SYSTEM_RTL = ["hdl/able_cpu.sv", "hdl/code_cache.sv", "hdl/dev/dev_rtc.sv", "hdl/dev/dev_muldiv.sv",
               "hdl/dev/dev_extmem.sv", "hdl/dev/dev_terminal.sv",
               "hdl/dev/dev_floppy.sv", "hdl/dev/dev_keyboard.sv", "hdl/dev/dev_vpk.sv",
-              "hdl/dev/dev_fm.sv", "hdl/dev/fm_voices.sv",
+              "hdl/dev/dev_fm.sv",
               "hdl/dev/pcm_out.sv", "hdl/throttle.sv", "hdl/able_system.sv"]
 CORE_RTL = ["hdl/core/sd_floppy.sv", "hdl/dev/dev_scsi.sv", "hdl/dev/dev_poly.sv", "hdl/dev/dev_midi.sv",
             "hdl/core/boot_loader.sv", "hdl/core/term_display.sv",
@@ -555,7 +557,7 @@ def _trace_audio(path):
         elif k == b"V":
             p += 7
         elif k == b"O":
-            p += 11 + 64
+            p += 12 + 4 * b[p + 11]
         elif k == b"C":
             p += 18
     sizes = {b"P": 2, b"R": 3, b"W": 3, b"Q": 2, b"I": 4, b"S": 41, b"H": 1, b"E": 0,
@@ -654,6 +656,23 @@ def w0_midi_actions(cpu):
     return acts
 
 
+def w0_chord_actions(cpu):
+    """Velocity keyboard actions for a W0 boot: BANK 1, ENTRY 2 on the VPK
+    panel (SIMPLE FM SINE), then 20 keys (30-49) pressed 20 ms apart from
+    14.5 s, all released at 15.6 s: more voices than 8 FM voices hold."""
+    from .devices.synth import vpk_button_number as B
+    kb = cpu.keyboard
+    ms = 1_000_000
+    acts = []
+    for t, name in ((10_600, "bankb"), (10_900, "timb.0"), (12_500, "entryb"), (12_800, "timb.1")):
+        acts += [(t * ms, lambda c, n=name: kb.press_button(B(n))),
+                 ((t + 100) * ms, lambda c, n=name: kb.press_button(B(n), False))]
+    for i, key in enumerate(range(30, 50)):
+        acts += [((14_500 + 20 * i) * ms, lambda c, k=key: kb.press_key(k, velocity=90)),
+                 ((15_600 + 5 * i) * ms, lambda c, k=key: kb.press_key(k, False))]
+    return acts
+
+
 def syn53_cpu(image, skip=0):
     """Release 5.3 from a W0 image (sim.boot.boot_from_w0, 30 MB disk): boot
     to Ready, CREATE USER, SET RTP SYN-5.3, PLAY, then `skip` instructions."""
@@ -701,6 +720,9 @@ def main(argv=None):
     ap.add_argument("--midi", action="store_true",
                     help="w0boot: with the MIDI card (sim/devices/midi.py; with --poly --vpk: "
                          "w0_midi_actions)")
+    ap.add_argument("--fm-voices", type=int, default=8,
+                    help="w0boot: FM voices installed (32: a 9600; with --vpk and no --midi: "
+                         "w0_chord_actions)")
     ap.add_argument("--vpk", action="store_true",
                     help="w0boot: the velocity keyboard instead of the ORK (with --poly: "
                          "w0_vpk_actions)")
@@ -726,7 +748,8 @@ def main(argv=None):
         if a.midi:
             from .devices.midi import MidiSubsystem
             midi = MidiSubsystem()
-        cpu, _ = boot_from_w0(a.args[0], poly=poly, keyboard="vpk" if a.vpk else "ork", midi=midi)
+        cpu, _ = boot_from_w0(a.args[0], poly=poly, keyboard="vpk" if a.vpk else "ork", midi=midi,
+                              fm_voices=a.fm_voices)
         path = a.args[1]
     elif a.mode == "monitor":
         from .boot import boot_from_image
@@ -748,6 +771,7 @@ def main(argv=None):
         actions = ork_lm_note_actions(cpu, dbg, a.args[0])
     if a.mode == "w0boot" and a.poly:
         actions = (w0_midi_actions(cpu) if a.midi and a.vpk else
+                   w0_chord_actions(cpu) if a.vpk and a.fm_voices > 8 else
                    w0_vpk_actions(cpu) if a.vpk else w0_poly_actions(cpu))
     n = record(cpu, path, a.instructions, on_wait=on_wait if a.mode == "monitor" else None,
                actions=actions, audio=a.audio)

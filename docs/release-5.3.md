@@ -112,6 +112,22 @@ lockstep check against the simulator, as for Release L.
   stub untouched after start-up. The menu offers <PF1>/<PF3>/<PF4>
   (keyboard F1/F3/F4) and <BREAK> (Monitor).
 
+* **M7.6 (HDL):**
+  * `able_cpu.sv`: Model C/D behind a runtime `model` input (1 B, 2 C, 3
+    D), exactly as `sim/cpu.py`; code fetches through `code_cache.sv` (16K
+    words, write-through on D62/D63) onto the external memory port.
+    Lockstep: random Model C programs (40 × 3000 instructions) and SYN-5.3
+    start-up on the system top (2 × 2M instructions, 90 % paged) match.
+  * `dev_scsi.sv` (D24-D27 + disk, as `sim/devices/scsi.py`) on SD drive 3;
+    `dev_scsi_tb.sv`. D154-D157 answer as the no-voices stub.
+  * State image version 2 (`tools/state_image.py`): CPU model, Model C/D
+    state, D57, D51 bits, external memory stored / installed (8192 sectors).
+    `tools/w0_image.py` makes `W0-53.IMG` (30 MB + USER) and `W0-53.SST`.
+  * **Board lockstep** (power-on, state image, MONITOR 5.3, PROFILE, PLAY,
+    SYN-5.3 to its Main Menu over the HDL SCSI, DDR3 and SD models): 7.5M
+    instructions match the simulator. With the code cache the core runs
+    them in 76M clocks (4.75 s at 16 MHz) for 6.24 s simulated time.
+
 ## 5. NED/Able era check
 
 Release 5.3 must stay a program for NED's own hardware, not for the

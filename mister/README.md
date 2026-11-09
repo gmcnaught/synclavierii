@@ -70,6 +70,29 @@ In the Timbre Directory (welcome menu A) the timbres on 06-TIMBD are all
 named WORKSPACE: pick one with the arrows, Return recalls it, keypad
 Enter leaves the screen.
 
+### Release 5.3 (Model D)
+
+The core also runs Release 5.3.0, the last Synclavier release, on a Model D
+processor (`docs/release-5.3.md`). Its W0 hard disk ships inside
+Synclavier³ (`Synclavier³.app/Contents/Resources/W0 Disk Image.simg`, not
+included here). Make the two files and copy them to `games/Synclavier/`:
+
+```bash
+python3 tools/w0_image.py "W0 Disk Image.simg" out/w53
+```
+
+Mount `W0-53.IMG` as the SCSI disk W0 (S3), then `W0-53.SST` as the state
+image (S2): MONITOR 5.3 boots from W0, runs its PROFILE and starts SYN-5.3
+(Main Menu after about 6 s). An MGL:
+
+```xml
+<mistergamedescription>
+    <rbf>_Computer/Synclavier</rbf>
+    <file delay="2" type="s" index="3" path="W0-53.IMG"/>
+    <file delay="1" type="s" index="2" path="W0-53.SST"/>
+</mistergamedescription>
+```
+
 MIDI: set the UART to MidiLink (USB MIDI) in the MiSTer menu. Channels
 1–15 play the keyboard (MIDI notes 36–96 = the ORK's 61 keys); channel 16
 note n presses panel button n; program change p recalls timbre p (bank

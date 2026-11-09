@@ -14,7 +14,8 @@ memory; bins 1-3 are absent (their channel numbers do not read back).
 
 Voice model (sections 3.1-3.7) [INF, CHOICES marked]:
   * a rate generator clocked at F0 = 101 010.1 Hz (9900 ns) adds INC
-    (written INC-1) modulo MOD (written 256-MOD); each wrap is one step;
+    (written INC-1) to a 9-bit accumulator; when it reaches MOD (written
+    256-MOD) it drops by MOD and that is one step (at most one per tick);
   * a step moves the sample position by PI words; when position + PSWL
     (negative length) reaches 0 the voice loops back by PSLL (negative loop
     length) if the loop bit is set and PSLL != 0, else its on bit clears
@@ -29,8 +30,9 @@ Voice model (sections 3.1-3.7) [INF, CHOICES marked]:
     moves toward its destination by max(1, |difference| >> 9);
   * an odd voice whose even neighbour has FC 59 (even stereo master) set
     plays the word after its master's position (interleaved stereo frames);
-  * output of a voice [CHOICE: the mix is not in the source]: sample x EVAL
-    / 4096 x volume / 4096 per side; the voices are summed.
+  * output of a voice [CHOICE: the mix is not in the source]: the word at
+    its current address (base + position; 0 when off) x EVAL / 4096 x
+    volume / 4096 per side; the voices are summed.
 """
 from array import array
 
@@ -295,10 +297,11 @@ class PolySynth(Device):
     def _rate(self, v):
         inc = (v.inc_w & 0xFF) + 1
         mod = 256 - (v.mod_w & 0xFF)
-        v.acc += inc
-        if v.acc < mod:
+        acc = v.acc + inc
+        if acc < mod:
+            v.acc = acc & 0x1FF
             return
-        v.acc -= mod
+        v.acc = (acc - mod) & 0x1FF       # a 9-bit accumulator [CHOICE]
         v.pos += v.pi
         if v.pos + v.wl >= 0:
             if v.on & 2 and v.ll != 0:
@@ -319,7 +322,7 @@ class PolySynth(Device):
                 m = self.voice[i - 1]
                 s = self._sample(m.ba + m.pos + 1) if m.on & 1 else 0
             else:
-                s = v.out
+                s = self._sample(v.ba + v.pos) if v.on & 1 else 0
             if s == 0 or v.eval == 0:
                 continue
             e = s * v.eval

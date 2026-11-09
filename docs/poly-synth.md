@@ -569,3 +569,25 @@ They are `Native` calls declared in `-XPL/INTRPRTR:36-42`.
     memory fetches while the CPU streams FC 18/22 (contention).
 11. Which driver performs SCSI→poly transfers on 5.3 (device driver table,
     not in the text source).
+
+---
+
+## 8. Model choices (sim/devices/poly.py, hdl/dev/dev_poly.sv)
+
+The open questions above are settled as follows in the model; the HDL is
+checked against it read for read (`tests/hdl/test_board.py test_dev_poly`).
+Each is a [CHOICE] until hardware evidence turns up.
+
+| Question | Model |
+|---|---|
+| Configuration | one bin, 32 voices (PSNUMV 0x38), 16384 sectors (4M words, 8 MB) |
+| FC after 10, 59, other unlisted FCs; reads | no change; reads never advance FC |
+| PSRON (FC 11), PSON read (FC 10) | the selected voice's on/loop bits |
+| Ghost channels (≥ voice count) | writes dropped, reads 0; D155 still echoes channels 0–63 |
+| Rate generator | 9-bit accumulator: `acc += INC`; if `acc ≥ MOD`: `acc −= MOD`, one step (at most one per 9900 ns tick) |
+| End / loop | after a step, if `pos + PSWL ≥ 0`: loop bit and PSLL ≠ 0 → `pos += PSLL` (not below 0), else on bit clears. Comparing `pos` makes a PSWL rewrite take effect at once |
+| PSON | bit 0 rising: `pos = 0`, `acc = 0` |
+| Envelope / volume clocks | step every 40 000 ns only while EVAL ≠ ELIM or a volume ≠ its destination; settled counters (ECNT, EACU) hold |
+| Stereo slave | odd voice of an FC-59 master: plays `mem[master base + master pos + 1]`, does not step itself |
+| Output | per voice `mem[base + pos]` (0 when off) × EVAL × volume >> 24 per side, summed, added to the FM output (48 kHz instants), clipped to 16 bits |
+| Poly memory at power-on | zero; the HDL writes all 4M words to 0 after reset (SYN-5.3 reads the bin header, the size probe's saved words and sectors 22–25 before writing them) |

@@ -191,6 +191,132 @@ def test_dev_scsi():
     _testbench("dev_scsi", "hdl/dev/dev_scsi.sv")
 
 
+def poly_stimulus(path, seed=1, ops=6000):
+    """Stimulus for hdl/sim/dev_poly_tb.sv from sim/devices/poly.py: POLY.CHECK-
+    style init, poly memory writes/reads, voices (loops, stereo master,
+    PSWL rewrites, restarts), envelopes and volume ramps, random time steps,
+    register reads and mixes, each with the model's answer."""
+    import math
+    import random
+    from sim.devices.poly import PolySynth
+    rng = random.Random(seed)
+    p = PolySynth(32, 16384)
+    out = []
+
+    def t(ns):
+        p.tick(ns)
+        out.append("T %d 0" % ns)
+
+    def w(r, v):
+        p.write(0o154 + r, v & 0xFFFF)
+        out.append("W %d %d" % (r, v & 0xFFFF))
+
+    def rd(r):
+        out.append("R %d %d" % (r, p.read(0o154 + r)))
+
+    def mix():
+        p.advance()
+        l, r = p._mix()
+        sat = lambda x: max(-32768, min(32767, x))
+        out.append("X %d %d" % (sat(l), sat(r)))
+
+    def fc(ch, f, *words):
+        w(1, ch)
+        w(2, f)
+        for x in words:
+            w(3, x)
+
+    def two(v):
+        v &= 0xFFFFFFF
+        return [v >> 8 & 0xFFFF, (v >> 24) << 8 | v & 0xFF]
+
+    # detection and init
+    for ch in (1, 65, 129, 193):
+        w(1, ch); w(1, ch); rd(1)
+    fc(0, 12); rd(3); rd(3); rd(2)
+    for ch in range(64):
+        fc(ch, 0, 0xFFFF, 0xFFFF, 0, 255, 0xFFFF, 0xFFFF, 0, 0, 255, 0, 0)
+        if ch < 32:
+            fc(ch, 33, 4095, 4095, 1, 4095, 4095, 0, 0)
+            fc(ch, 40, 0, 0, 0, 0)
+    # poly memory: tables at word 1000 (mono) and 9000 (stereo frames)
+    fc(0, 16, *two(1000))
+    for i in range(3000):
+        w(3, int(20000 * math.sin(i / 7.0)))
+    fc(0, 16, *two(9000))
+    for i in range(2000):
+        w(3, (i * 37) & 0xFFFF)
+    fc(0, 20, *two(995))
+    for _ in range(12):
+        rd(3)
+    fc(0, 16, *two((1 << 22) - 2), 1, 2, 3)         # crosses the end
+    fc(0, 20, *two((1 << 22) - 2))
+    for _ in range(3):
+        rd(3)
+    fc(0, 20, *two(1 << 24))                        # page 1: no memory
+    rd(3)
+    t(1000)
+    for n in range(ops):
+        op = rng.random()
+        ch = rng.randrange(32) if rng.random() < 0.9 else rng.randrange(32, 70)
+        if op < 0.05:                               # start a voice
+            length = rng.choice([50, 300, 2900, 1999])
+            loop = rng.choice([0, 0, 40, 250])
+            base = rng.choice([1000, 9000, 1500])
+            inc, mod = rng.randrange(1, 257), rng.randrange(1, 257)
+            if inc > mod:
+                inc, mod = mod, inc
+            pi = rng.choice([1, 1, 2, 4])
+            fc(ch, 10, 0)
+            fc(ch, 0, *(two(-length) + two(base) + two(-loop) + two(pi)), inc - 1, 256 - mod,
+               rng.choice([1, 3, 3]))
+        elif op < 0.08:                             # envelope
+            fc(ch, 33, rng.choice([4095, 4000, 3000]), rng.randrange(4096), rng.randrange(1, 300),
+               rng.randrange(4096), rng.randrange(4096), rng.randrange(4096), rng.randrange(4096))
+        elif op < 0.10:
+            fc(ch, 35, rng.randrange(4096), rng.randrange(1, 100))
+            fc(ch, 36, rng.randrange(4096))
+        elif op < 0.13:                             # volumes
+            fc(ch, 40, rng.randrange(4096), rng.randrange(4096), rng.randrange(4096), rng.randrange(4096))
+        elif op < 0.14:
+            fc(ch, 41, rng.randrange(4096), rng.randrange(4096))
+        elif op < 0.15:                             # stereo master on/off
+            fc(ch & ~1, 59, rng.randrange(2))
+        elif op < 0.16:                             # PSWL rewrite on a sounding voice
+            fc(ch, 0, *two(-rng.randrange(1, 3000)))
+        elif op < 0.17:
+            fc(ch, 10, rng.randrange(4))
+        elif op < 0.19:
+            fc(ch, rng.choice([8, 9]), rng.randrange(256))
+        elif op < 0.45:                             # reads
+            f = rng.choice([11, 11, 37, 36, 40, 41, 42, 43, 32, 34, 0, 3, 7, 8, 9, 10, 12, 50])
+            w(1, ch); w(2, f); rd(3); rd(2)
+        elif op < 0.55:
+            mix()
+        else:
+            t(rng.choice([1, 50, 333, 999, 3000, 9900, 20000, 40000, 123456]))
+    with open(path, "w") as f:
+        f.write("\n".join(out) + "\n")
+    return len(out)
+
+
+def test_dev_poly():
+    """The poly synth (hdl/dev/dev_poly.sv) against sim/devices/poly.py:
+    every register read and mix of a random register stream."""
+    if not HAVE_VERILATOR:
+        print("  skip test_dev_poly (needs verilator)")
+        return
+    import tempfile
+    with tempfile.NamedTemporaryFile(suffix=".stim", delete=False) as f:
+        path = f.name
+    try:
+        poly_stimulus(path)
+        out = _testbench("dev_poly", "hdl/dev/dev_poly.sv", args=["+stim=" + path])
+        print("  " + out.strip().splitlines()[-1])
+    finally:
+        os.unlink(path)
+
+
 def test_ps2_ascii():
     if not HAVE_VERILATOR:
         print("  skip test_ps2_ascii (needs verilator)")

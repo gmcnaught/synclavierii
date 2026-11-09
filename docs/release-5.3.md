@@ -157,6 +157,28 @@ lockstep check against the simulator, as for Release L.
     stream, 3 s). The throttle's catch-up is now 200 us (was 10 us) so a
     burst of misses is made up instead of lost (the "lag" counter).
 
+* **M7.7 poly sampling:** register-level spec from the NED source in
+  [`poly-synth.md`](poly-synth.md) (section 8: the model's choices where
+  the source is silent).
+  * Simulator (`sim/devices/poly.py`, `boot_from_w0(poly=PolySynth())`):
+    SYN-5.3 finds 32 voices and 16384 sectors; BANK 2 + ENTRY 1 loads
+    W0:CLARA3 into poly memory over SCSI (all 30 208 sample words match the
+    file, at the voice's base address) and key 45 plays it at INC/MOD
+    99/200 = 50 kHz, the file's rate (key 57: 198/200, key 33: 50/202).
+  * HDL `dev_poly.sv`: voice rows in block RAM, a rate pass every 9900 ns
+    and an envelope pass every 40 us of simulated time (one voice per
+    clock); a D157 access waits until the passes have caught up, so reads
+    match the model exactly. Poly memory is 4M words of DDR3 (words
+    0x800000 up, shared with D60-D63 and the code cache through an
+    arbiter in `synclavier_core.sv`), cleared after reset. Audio: at each
+    48 kHz FM sample the sounding voices' words are fetched and mixed in.
+    On only when D51 has the poly bit (state images from
+    `tools/w0_image.py`; `--no-poly` for none).
+  * Checks: `test_dev_poly` (random register streams from the model: every
+    read and mix equal, ~3000 reads and ~600 mixes per seed); board-top
+    lockstep of power-on, MONITOR, SYN-5.3, CLARA3 recall and a held note
+    (20M instructions, 17.4 s simulated, 204M clocks = 12.8 s at 16 MHz).
+
 ## 5. NED/Able era check
 
 Release 5.3 must stay a program for NED's own hardware, not for the
@@ -185,8 +207,7 @@ Synclavier³ Mac interpreter:
   from internal memory); what an interrupt does to D11; external page size
   (64K words [INF]).
 * External memory size SYN-5.3 expects; D164; other D57 bits.
-* Whether SYN-5.3 runs without poly hardware (it is compiled with
-  `inc.poly`; "Poly Sampling Required" is the per-timbre error in Release
-  L).
+* Poly: the open questions of [`poly-synth.md`](poly-synth.md) section 7
+  (envelope timing factor, stereo slave timing, output mix and DAC).
 * Real-time load: Model D cycle timing (the throttle keeps simulated time;
   the FPGA must run SYN-5.3 faster than real time).

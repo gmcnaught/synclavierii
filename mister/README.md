@@ -58,6 +58,11 @@ python3 tools/ned_disk.py Release_L.simg --floppy 14-RTPO1 14-RTPO1.IMG
 python3 tools/ned_disk.py Release_L.simg --floppy 06-TIMBD 06-TIMBD.IMG
 ```
 
+The state image enables the poly sampling voices (32 voices, 8 MB of poly
+memory in DDR3; `--no-poly` for an FM-only system): sound files such as
+W0:CLARA3 / CLARA4 (Timbre Directory bank 2) load into poly memory and play
+from the keyboard. The core clears poly memory at start (about 1.3 s).
+
 Mount `ORK-LM.SST` as the State image (S2), `03-SYSTD.IMG` as F0 and
 `14-RTPO1.IMG` as F1, then Reset: the core loads the state and ORK-LM runs.
 For timbres, mount `06-TIMBD.IMG` as F0 and press a bank button, then a

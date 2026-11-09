@@ -25,6 +25,7 @@
 // Usage: V<top> TRACE [max_instructions]
 // Exit 0 on full agreement, 1 on the first mismatch (with context).
 
+#include <algorithm>
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
@@ -206,7 +207,9 @@ void board_start(Trace& t, bool& audio_trace) {
             if (sectors > 8192) { std::fprintf(stderr, "board: external memory over 8192 sectors\n"); std::exit(2); }
             want_xm.resize(sectors * 256);
             for (auto& w : want_xm) w = t.u16();
-            ddr.mem.assign(sectors * 256 / 4, 0x5A5A5A5A5A5A5A5Aull);   // not zero: the loader clears it
+            // not zero: the loader clears external memory, dev_poly poly sector 0;
+            // the poly memory (words 0x800000 up) is covered too
+            ddr.mem.assign(std::max<size_t>(sectors * 256 / 4, 0xC00000 / 4), 0x5A5A5A5A5A5A5A5Aull);
         } else if (k == 'F') {
             uint8_t drive = t.u8(); uint16_t sectors = t.u16();
             uint8_t spt = t.u8(), sides = t.u8(), prot = t.u8();

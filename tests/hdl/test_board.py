@@ -182,6 +182,15 @@ def test_term_display_panel():
     assert all(px[104 * w + 600 + i] for i in range(5)) and not px[104 * w + 605]
 
 
+def test_dev_scsi():
+    """The SCSI host and disk (hdl/dev/dev_scsi.sv): the sequences of
+    tests/sim/test_scsi.py, including MONITOR 5.3's manual last byte."""
+    if not HAVE_VERILATOR:
+        print("  skip test_dev_scsi (needs verilator)")
+        return
+    _testbench("dev_scsi", "hdl/dev/dev_scsi.sv")
+
+
 def test_ps2_ascii():
     if not HAVE_VERILATOR:
         print("  skip test_ps2_ascii (needs verilator)")

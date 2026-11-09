@@ -31,15 +31,16 @@ module synclavier_core #(
     input  logic [24:0] ps2_mouse,
     input  logic [1:0]  color,
 
-    input  logic [2:0]  img_mounted,
+    input  logic [3:0]  img_mounted,
     input  logic        img_readonly,
     input  logic [63:0] img_size,
     output logic [31:0] sd_lba0,
     output logic [31:0] sd_lba1,
     output logic [31:0] sd_lba2,
-    output logic [2:0]  sd_rd,
-    output logic [2:0]  sd_wr,
-    input  logic [2:0]  sd_ack,
+    output logic [31:0] sd_lba3,
+    output logic [3:0]  sd_rd,
+    output logic [3:0]  sd_wr,
+    input  logic [3:0]  sd_ack,
     input  logic [8:0]  sd_buff_addr,
     input  logic [7:0]  sd_buff_dout,
     output logic [7:0]  sd_buff_din,
@@ -107,21 +108,24 @@ module synclavier_core #(
     output logic signed [39:0] audio_sum_r
 );
     // ------------------------------------------------------------ floppies
-    logic [21:0] m_addr;
+    logic [25:0] m_addr;
     logic        m_rd, m_wr, m_ack;
     logic [15:0] m_wdata, m_rdata;
-    logic [2:0]  sd_present;
+    logic [3:0]  sd_present;
     logic [1:0]  fd_protect;
+    logic        w0_protect;
     logic [12:0] state_blocks;
+    logic [16:0] w0_blocks;
     wire  [1:0]  fd_present = sd_present[1:0];
     logic [10:0] fd_sectors0, fd_sectors1;
     sd_floppy media (
         .clk, .rst(rst_hard),
         .addr(m_addr), .rd(m_rd), .wr(m_wr), .wdata(m_wdata), .rdata(m_rdata), .ack(m_ack),
         .present(sd_present), .protect(fd_protect), .sectors0(fd_sectors0), .sectors1(fd_sectors1),
-        .blocks2(state_blocks),
+        .blocks2(state_blocks), .protect3(w0_protect), .blocks3(w0_blocks),
         .active(led_disk),
-        .img_mounted, .img_readonly, .img_size, .sd_lba0, .sd_lba1, .sd_lba2, .sd_rd, .sd_wr, .sd_ack,
+        .img_mounted, .img_readonly, .img_size, .sd_lba0, .sd_lba1, .sd_lba2, .sd_lba3,
+        .sd_rd, .sd_wr, .sd_ack,
         .sd_buff_addr, .sd_buff_dout, .sd_buff_din, .sd_buff_wr
     );
 
@@ -135,7 +139,9 @@ module synclavier_core #(
     logic [63:0] ld_voice_data;
     logic [4:0]  dbg_addr;
     logic [15:0] dbg_wdata, ld_mem_addr, ld_mem_data;
-    logic [21:0] b_fd_addr;
+    logic [25:0] b_fd_addr;
+    logic [1:0]  cpu_model;
+    logic [15:0] cpu_d57, term_bits;
     logic [16:0] ext_sectors;
     logic        b_fd_rd, b_xm_wr, msg_valid;
     logic [23:0] b_xm_addr;
@@ -143,7 +149,7 @@ module synclavier_core #(
     logic [7:0]  msg_data;
     boot_loader boot (
         .clk, .rst, .f0_present(fd_present[0]), .state_present(sd_present[2]),
-        .floppy_ext_sectors(EXT_SECTORS), .ext_sectors,
+        .floppy_ext_sectors(EXT_SECTORS), .ext_sectors, .cpu_model, .cpu_d57, .term_bits,
         .cpu_rst, .error(boot_error),
         .ld_dev_we, .ld_dev_sel, .ld_dev_addr, .ld_dev_data,
         .ld_voice_we, .ld_voice_addr, .ld_voice_data,
@@ -172,9 +178,9 @@ module synclavier_core #(
 
     able_system #(.CLK_HZ(CLK_HZ)) sys (
         .clk, .rst(cpu_rst), .rt_enable, .lag_us,
-        .cpu_model(2'd1), .cpu_d57(16'd0), .term_bits(16'o001000),
+        .cpu_model, .cpu_d57, .term_bits,
         .dev_rd, .dev_wr, .dev_num, .dev_wdata,
-        .dev_rdata(16'd0), .dev_ack(1'b0), .dev_nosyn(dev_rd || dev_wr), .dev_hold(1'b0),
+        .dev_rdata, .dev_ack, .dev_nosyn, .dev_hold(1'b0),
         .dev_irq(12'd0),
         .ext_sectors,
         .xm_addr(s_xm_addr), .xm_rd(s_xm_rd), .xm_wr(s_xm_wr), .xm_wdata(s_xm_wdata),
@@ -182,7 +188,7 @@ module synclavier_core #(
         .fd_present, .fd_protect, .fd_sectors0, .fd_sectors1,
         .fd_spt0(FD_SPT), .fd_spt1(FD_SPT), .fd_sides0(FD_SIDES), .fd_sides1(FD_SIDES),
         .fd_addr(s_fd_addr), .fd_rd(s_fd_rd), .fd_wr(s_fd_wr), .fd_wdata(s_fd_wdata),
-        .fd_rdata(m_rdata), .fd_ack(m_ack),
+        .fd_rdata(m_rdata), .fd_ack(m_ack && !scsi_m),
         .kb_host_we(kb_host_we || h_we),
         .kb_host_panel(kb_host_we ? kb_host_panel : h_panel),
         .kb_host_index(kb_host_we ? kb_host_index : h_index),
@@ -201,12 +207,42 @@ module synclavier_core #(
         .irq_all, .io_held, .tick, .tick_ns, .mon_valid, .mon_wr, .mon_dev, .mon_data
     );
 
-    // the boot loader owns the floppy and external memory ports in reset
-    // dev_floppy: {drive, sector[9:0], word} -> {drive[1:0], block[11:0], word}
-    assign m_addr   = cpu_rst ? b_fd_addr : {1'b0, s_fd_addr[18], 2'b00, s_fd_addr[17:0]};
-    assign m_rd     = cpu_rst ? b_fd_rd   : s_fd_rd;
-    assign m_wr     = cpu_rst ? 1'b0      : s_fd_wr;
-    assign m_wdata  = s_fd_wdata;
+    // ------------------------------------------- devices outside able_system
+    //   D24-D27 SCSI host with the W0 disk on SD drive 3 (dev_scsi.sv)
+    //   D154-D157 poly interface with no voices: writes accepted, reads 0
+    //     ([HYP] SYN-5.3 writes D155 without checking D51's poly bit;
+    //     sim/devices/stubs.py PolyNoVoices)
+    // Any other device: no SYN (the CPU halts, as the real machine hangs).
+    logic [15:0] dev_rdata, scsi_rdata;
+    logic        dev_ack, dev_nosyn, scsi_ack;
+    logic [23:0] scsi_addr;
+    logic        scsi_rd, scsi_wr;
+    logic [15:0] scsi_wdata;
+    wire  sel_scsi = (dev_rd || dev_wr) && dev_num[6:2] == 5'b00101;        // 024-027
+    wire  sel_poly = (dev_rd || dev_wr) && dev_num[6:2] == 5'b11011;        // 154-157
+    dev_scsi #(.TARGET(4'd5)) scsi (
+        .clk, .rst(cpu_rst), .sel(sel_scsi), .rd(dev_rd), .wr(dev_wr), .reg_sel(dev_num[1:0]),
+        .wdata(dev_wdata), .rdata(scsi_rdata), .ack(scsi_ack),
+        .present(sd_present[3]), .protect(w0_protect), .blocks(w0_blocks),
+        .d_addr(scsi_addr), .d_rd(scsi_rd), .d_wr(scsi_wr), .d_wdata(scsi_wdata),
+        .d_rdata(m_rdata), .d_ack(m_ack && (scsi_rd || scsi_wr))
+    );
+    always_comb begin
+        dev_rdata = 16'd0; dev_ack = 1'b0; dev_nosyn = 1'b0;
+        if (sel_scsi)      begin dev_rdata = scsi_rdata; dev_ack = scsi_ack; end
+        else if (sel_poly) dev_ack = 1'b1;
+        else               dev_nosyn = dev_rd || dev_wr;
+    end
+
+    // the boot loader owns the floppy and external memory ports in reset;
+    // then the SCSI disk (drive 3) or the floppies:
+    // dev_floppy: {drive, sector[9:0], word} -> {drive[1:0], block[15:0], word}
+    wire scsi_m = scsi_rd || scsi_wr;
+    assign m_addr   = cpu_rst ? b_fd_addr : scsi_m ? {2'd3, scsi_addr}
+                                          : {1'b0, s_fd_addr[18], 6'd0, s_fd_addr[17:0]};
+    assign m_rd     = cpu_rst ? b_fd_rd   : (scsi_m ? scsi_rd : s_fd_rd);
+    assign m_wr     = cpu_rst ? 1'b0      : (scsi_m ? scsi_wr : s_fd_wr);
+    assign m_wdata  = scsi_m ? scsi_wdata : s_fd_wdata;
     assign xr_addr  = cpu_rst ? b_xm_addr : s_xm_addr;
     assign xr_rd    = cpu_rst ? 1'b0      : s_xm_rd;
     assign xr_wr    = cpu_rst ? b_xm_wr   : s_xm_wr;

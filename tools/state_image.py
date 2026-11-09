@@ -13,9 +13,15 @@ how the core starts it. Mount F0 = 03-SYSTD and F1 = the RTP's first floppy
 state is in the image, the media are the mounted files.
 
 Format (512-byte blocks, 16-bit words big-endian, as the floppy images):
-  block 0      header: words 0-3 "SYNCSTAT", 4 version (1), 5 external
-               memory sectors, 6 number of entries N, 8-23 R0-R17,
-               24 flags {pcs, ion, m, c, z}
+  block 0      header: words 0-3 "SYNCSTAT", 4 version (2), 5 external
+               memory sectors installed, 6 number of entries N, 7 external
+               memory sectors stored S (the rest is zero), 8-23 R0-R17,
+               24 flags {pcs, ion, m, c, z}, 25 CPU model (1 B, 2 C, 3 D),
+               26 D57, 27 D51 device bits, 28 D11 page, 29 D10 link,
+               30 {repeat armed, repeat left}, 31 repeat word, 32 repeat pc,
+               33 D2, 34 interrupt shadow (sim/cpu.py; version 1 images
+               have none of 25-34 and S = installed: a Model B, D51 bits
+               1000)
   blocks 1..   N entries of 8 words, padded to a block: kind (0 device,
                1 voice engine), device select, address, 0, data (64 bits,
                high word first). Device entries are the 'V' values of
@@ -34,7 +40,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 MAGIC = b"SYNCSTAT"
-VERSION = 1
+VERSION = 2
 BLOCK = 512
 
 
@@ -75,10 +81,16 @@ def state_bytes(cpu):
     from sim.lockstep import _flags
     es = entries(cpu)
     xm = cpu.extmem
-    if xm.sectors > 4096:
-        raise ValueError("external memory over 4096 sectors")
-    hdr = MAGIC + struct.pack(">HHHH", VERSION, xm.sectors, len(es), 0)
+    if xm.sectors > 8192:
+        raise ValueError("external memory over 8192 sectors")
+    nz = [i for i in range(len(xm.data)) if xm.data[i]]
+    stored = (nz[-1] // 256 + 1) if nz else 0
+    hdr = MAGIC + struct.pack(">HHHH", VERSION, xm.sectors, len(es), stored)
     hdr += struct.pack(">16HH", *cpu.r, _flags(cpu))
+    hdr += struct.pack(">HHHHHHHHHH", "ABCD".index(cpu.model), cpu.d57,
+                       cpu.terminal.device_bits, cpu.page, cpu.ppc,
+                       cpu.rpt_next << 8 | cpu.rpt_left, cpu.rpt_word, cpu.rpt_pc,
+                       cpu.d2, cpu.int_shadow)
     out = bytearray(hdr.ljust(BLOCK, b"\0"))
     ent = bytearray()
     for kind, sel, addr, data in es:
@@ -87,7 +99,7 @@ def state_bytes(cpu):
     for mem in cpu.fm.wave:
         out += bytes(mem)
     out += struct.pack(">65536H", *cpu.mem)
-    out += struct.pack(">%dH" % (xm.sectors * 256), *xm.data)
+    out += struct.pack(">%dH" % (stored * 256), *xm.data[:stored * 256])
     return bytes(out)
 
 

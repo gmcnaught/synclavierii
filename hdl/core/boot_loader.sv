@@ -24,7 +24,10 @@
 // defaults: its device and voice entries to the load ports, wave memory,
 // internal memory, its external memory (whose size it gives) and the
 // registers. This starts the real-time program (ORK-LM) from the state the
-// simulator reaches with sim/rtp.py start_rtp().
+// simulator reaches with sim/rtp.py start_rtp(). A version 2 image also
+// gives the CPU model (cpu_model, Model C/D state through the debug port),
+// D57, the D51 device bits, and stores only the first S sectors of
+// external memory: the rest is cleared (Release 5.3: tools/w0_image.py).
 //
 // Progress and errors are written to the terminal display (msg_*).
 module boot_loader (
@@ -34,6 +37,9 @@ module boot_loader (
     input  logic        state_present,      // a state image is mounted (drive 2)
     input  logic [16:0] floppy_ext_sectors, // external memory for a floppy boot
     output logic [16:0] ext_sectors,        // external memory now (state image: its own)
+    output logic [1:0]  cpu_model,          // 1 B (floppy boot, version 1), else the image's
+    output logic [15:0] cpu_d57,
+    output logic [15:0] term_bits,          // D51 device bits
     output logic        cpu_rst,            // the system's reset (load ports live)
     output logic        error,
 
@@ -51,7 +57,7 @@ module boot_loader (
     output logic [15:0] ld_mem_addr,
     output logic [15:0] ld_mem_data,
 
-    output logic [21:0] fd_addr,            // SD image words (sd_floppy): {drive, block, word}
+    output logic [25:0] fd_addr,            // SD image words (sd_floppy): {drive, block, word}
     output logic        fd_rd,
     input  logic [15:0] fd_rdata,
     input  logic        fd_ack,
@@ -120,7 +126,8 @@ module boot_loader (
     // state mode
     logic        smode;
     logic [19:0] wp;                // next word of the image
-    logic [15:0] hw [25];           // header words 0-24
+    logic [15:0] hw [35];           // header words 0-34
+    logic [16:0] stored;            // external memory sectors in the image
     logic [15:0] n_ent;
     logic        pend_lo;           // second byte of a wave-memory word
     logic [7:0]  lo_byte;
@@ -166,6 +173,9 @@ module boot_loader (
             smode <= 1'b0;
             pend_lo <= 1'b0;
             ext_sectors <= floppy_ext_sectors;
+            cpu_model <= 2'd1;
+            cpu_d57 <= 16'd0;
+            term_bits <= 16'o001000;
         end else begin
             if (m_busy) begin
                 if (m_c == 8'd0) m_busy <= 1'b0;
@@ -267,7 +277,7 @@ module boot_loader (
                             state <= B_FAIL;
                         end
                     end else begin
-                        fd_addr <= {2'd0, 12'd0, n[7:0]};
+                        fd_addr <= {2'd0, 16'd0, n[7:0]};
                         fd_rd <= 1'b1;
                     end
                 end
@@ -297,7 +307,7 @@ module boot_loader (
                             state <= B_LD;
                         end
                     end else begin
-                        fd_addr <= {2'd0, 12'(mon_start + 16'(n[16:8])), n[7:0]};
+                        fd_addr <= {2'd0, 16'(mon_start + 16'(n[16:8])), n[7:0]};
                         fd_rd <= 1'b1;
                     end
                 end
@@ -315,7 +325,7 @@ module boot_loader (
                         n <= '0;
                         state <= B_REGS;
                     end else begin
-                        fd_addr <= {2'd0, 12'(ld_start + 16'(n[16:8])), n[7:0]};
+                        fd_addr <= {2'd0, 16'(ld_start + 16'(n[16:8])), n[7:0]};
                         fd_rd <= 1'b1;
                     end
                 end
@@ -324,8 +334,8 @@ module boot_loader (
             B_REGS: if (smode) begin              // R0-R17 and the flags from the header
                 dbg_we <= 1'b1;
                 dbg_addr <= n[4:0];
-                dbg_wdata <= hw[5'd8 + n[4:0]];
-                if (n == 17'd16) state <= B_RUN;
+                dbg_wdata <= n < 17'd17 ? hw[6'd8 + 6'(n[4:0])] : hw[6'd11 + 6'(n[4:0])];
+                if (n == (hw[4] == 16'd2 ? 17'd23 : 17'd16)) state <= B_RUN;
                 n <= n + 17'd1;
             end else begin
                 dbg_we <= 1'b1;
@@ -346,23 +356,30 @@ module boot_loader (
             B_SHDR: begin                         // block 0: the header
                 if (fd_rd && fd_ack) begin
                     fd_rd <= 1'b0;
-                    if (wp < 20'd25) hw[wp[4:0]] <= fd_rdata;
+                    if (wp < 20'd35) hw[wp[5:0]] <= fd_rdata;
                     wp <= wp + 20'd1;
                 end else if (!fd_rd && !fd_ack) begin
                     if (wp == 20'd256) begin
                         if (hw[0] != 16'h5359 || hw[1] != 16'h4e43 || hw[2] != 16'h5354 ||
-                            hw[3] != 16'h4154 || hw[4] != 16'd1 || hw[5] == 16'd0 ||
-                            hw[5] > 16'd4096) begin
+                            hw[3] != 16'h4154 || (hw[4] != 16'd1 && hw[4] != 16'd2) ||
+                            hw[5] == 16'd0 || hw[5] > 16'd8192 ||
+                            (hw[4] == 16'd2 && hw[7] > hw[5])) begin
                             m_sel <= 3'd5; m_pos <= 7'd0; m_busy <= 1'b1;
                             state <= B_FAIL;
                         end else begin
                             ext_sectors <= {1'b0, hw[5]};
+                            stored <= {1'b0, hw[4] == 16'd2 ? hw[7] : hw[5]};
+                            if (hw[4] == 16'd2) begin
+                                cpu_model <= hw[25][1:0];
+                                cpu_d57 <= hw[26];
+                                term_bits <= hw[27];
+                            end
                             n_ent <= hw[6];
                             n <= '0;
                             state <= B_SENT;
                         end
                     end else begin
-                        fd_addr <= {2'd2, wp};
+                        fd_addr <= {2'd2, 4'd0, wp};
                         fd_rd <= 1'b1;
                     end
                 end
@@ -390,7 +407,7 @@ module boot_loader (
                         n <= '0;
                         state <= B_SWAVE;
                     end else begin
-                        fd_addr <= {2'd2, wp};
+                        fd_addr <= {2'd2, 4'd0, wp};
                         fd_rd <= 1'b1;
                     end
                 end
@@ -414,7 +431,7 @@ module boot_loader (
                         n <= '0;
                         state <= B_SMEM;
                     end else begin
-                        fd_addr <= {2'd2, wp};
+                        fd_addr <= {2'd2, 4'd0, wp};
                         fd_rd <= 1'b1;
                     end
                 end
@@ -431,13 +448,13 @@ module boot_loader (
                         xn <= '0;
                         state <= B_SXM;
                     end else begin
-                        fd_addr <= {2'd2, wp};
+                        fd_addr <= {2'd2, 4'd0, wp};
                         fd_rd <= 1'b1;
                     end
                 end
             end
 
-            B_SXM: begin                          // external memory
+            B_SXM: begin                          // external memory: stored, then zeros
                 if (fd_rd && fd_ack) begin
                     fd_rd <= 1'b0;
                     xm_addr <= xn; xm_wdata <= fd_rdata; xm_wr <= 1'b1;
@@ -449,8 +466,10 @@ module boot_loader (
                     if ({1'b0, xn} == {ext_sectors, 8'd0}) begin
                         n <= '0;
                         state <= B_REGS;
+                    end else if ({1'b0, xn} >= {stored, 8'd0}) begin
+                        xm_addr <= xn; xm_wdata <= '0; xm_wr <= 1'b1;
                     end else begin
-                        fd_addr <= {2'd2, wp};
+                        fd_addr <= {2'd2, 4'd0, wp};
                         fd_rd <= 1'b1;
                     end
                 end

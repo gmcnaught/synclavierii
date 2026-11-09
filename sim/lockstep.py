@@ -55,6 +55,9 @@ Usage:
   python3 -m sim.lockstep monitor IMAGE OUT.trace [--instructions N]
   python3 -m sim.lockstep ork-lm IMAGE OUT.trace [--instructions N]
   python3 -m sim.lockstep ork-lm-note IMAGE OUT.trace   (timbre recall + C4 held)
+  python3 -m sim.lockstep w0boot W0-53.IMG OUT.trace   (Release 5.3 from the
+                                    state tools/w0_image.py stores: MONITOR,
+                                    PROFILE, PLAY SYN-5.3 over SCSI)
   python3 -m sim.lockstep syn53 W0IMAGE OUT.trace [--skip N]
                                     (Release 5.3: boot W0, CREATE USER, PLAY
                                      SYN-5.3, skip N instructions, record)
@@ -403,7 +406,7 @@ SYSTEM_RTL = ["hdl/able_cpu.sv", "hdl/dev/dev_rtc.sv", "hdl/dev/dev_muldiv.sv",
               "hdl/dev/dev_floppy.sv", "hdl/dev/dev_keyboard.sv",
               "hdl/dev/dev_fm.sv", "hdl/dev/fm_voices.sv",
               "hdl/dev/pcm_out.sv", "hdl/throttle.sv", "hdl/able_system.sv"]
-CORE_RTL = ["hdl/core/sd_floppy.sv", "hdl/core/boot_loader.sv", "hdl/core/term_display.sv",
+CORE_RTL = ["hdl/core/sd_floppy.sv", "hdl/dev/dev_scsi.sv", "hdl/core/boot_loader.sv", "hdl/core/term_display.sv",
             "hdl/core/ps2_ascii.sv", "hdl/core/midi_in.sv", "hdl/core/panel_mouse.sv", "hdl/core/audio_fifo.sv",
             "hdl/core/synclavier_core.sv",
             "hdl/board/ddram_word.sv"]
@@ -439,7 +442,7 @@ def build(top="cpu", force=False):
 
 
 def check(path, max_instructions=None, top="cpu", wav=None, realtime=False, frame=None,
-          state=None):
+          state=None, w0=None):
     """Run a trace on the HDL. Returns (ok, output text). wav: write the
     system's 48 kHz PCM output (pcm_out.sv) to this WAV file. realtime:
     run the system with the throttle on (50 MHz); behaviour must not change
@@ -452,6 +455,8 @@ def check(path, max_instructions=None, top="cpu", wav=None, realtime=False, fram
         env["LOCKSTEP_FRAME"] = frame
     if state:
         env["LOCKSTEP_STATE"] = state
+    if w0:
+        env["LOCKSTEP_W0"] = w0
     if wav:
         env["LOCKSTEP_WAV"] = wav
     if realtime:
@@ -557,7 +562,7 @@ def main(argv=None):
     import sys
     import time
     ap = argparse.ArgumentParser(description="Record / check HDL lockstep traces (M4.3)")
-    ap.add_argument("mode", choices=("random", "monitor", "ork-lm", "ork-lm-note", "syn53", "check"))
+    ap.add_argument("mode", choices=("random", "monitor", "ork-lm", "ork-lm-note", "syn53", "w0boot", "check"))
     ap.add_argument("--skip", type=int, default=0, help="syn53: instructions to run before recording")
     ap.add_argument("args", nargs="+", help="[IMAGE] TRACE")
     ap.add_argument("--instructions", type=int, default=1_000_000)
@@ -567,9 +572,12 @@ def main(argv=None):
     ap.add_argument("--audio", action="store_true", help="also record voice engine samples")
     ap.add_argument("--wav", help="check --top system: write the HDL's 48 kHz PCM to this WAV")
     ap.add_argument("--realtime", action="store_true", help="check --top system with the throttle on")
+    ap.add_argument("--state", help="check --top board: state image (S2)")
+    ap.add_argument("--w0", help="check --top board: SCSI disk image (S3)")
     a = ap.parse_args(argv)
     if a.mode == "check":
-        ok, text = check(a.args[0], top=a.top, wav=a.wav, realtime=a.realtime)
+        ok, text = check(a.args[0], top=a.top, wav=a.wav, realtime=a.realtime, state=a.state,
+                         w0=a.w0)
         print(text, end="")
         return 0 if ok else 1
     t = time.time()
@@ -577,6 +585,10 @@ def main(argv=None):
         cpu, path = random_cpu(a.seed, a.model), a.args[0]
     elif a.mode == "syn53":
         cpu = syn53_cpu(a.args[0], a.skip)
+        path = a.args[1]
+    elif a.mode == "w0boot":
+        from .boot import boot_from_w0
+        cpu, _ = boot_from_w0(a.args[0])
         path = a.args[1]
     elif a.mode == "monitor":
         from .boot import boot_from_image
@@ -589,7 +601,7 @@ def main(argv=None):
                 return True
             return False
         path = a.args[1]
-    elif a.mode != "syn53":
+    elif a.mode not in ("syn53", "w0boot"):
         from .rtp import start_rtp
         cpu, dbg, _ = start_rtp(a.args[0], "ORK-LM")
         path = a.args[1]

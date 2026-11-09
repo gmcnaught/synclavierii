@@ -98,11 +98,13 @@ uint16_t reg(int i) { return (top->regs_flat[i / 2] >> ((i & 1) * 16)) & 0xFFFF;
 #ifdef BOARD
 // ---------------------------------------------------------------- board
 // HPS side of hps_io's SD block interface: one 512-byte block per request.
-uint32_t lba_of(Top* top, int d) { return d == 0 ? top->sd_lba0 : d == 1 ? top->sd_lba1 : top->sd_lba2; }
+uint32_t lba_of(Top* top, int d) {
+    return d == 0 ? top->sd_lba0 : d == 1 ? top->sd_lba1 : d == 2 ? top->sd_lba2 : top->sd_lba3;
+}
 
 struct SdModel {
-    std::vector<uint8_t> img[3];                 // F0, F1, state image
-    bool present[3] = {false, false, false}, prot[3] = {false, false, true};
+    std::vector<uint8_t> img[4];                 // F0, F1, state image, W0 (SCSI)
+    bool present[4] = {false, false, false, false}, prot[4] = {false, false, true, false};
     int drive = -1, phase = 0, wait = 0, i = 0;
     bool writing = false;
     uint64_t reads = 0, writes = 0;
@@ -111,7 +113,7 @@ struct SdModel {
         if (wait > 0) { wait--; return; }
         switch (phase) {
         case 0:                                    // idle: pick a request
-            for (int d = 0; d < 3; d++)
+            for (int d = 0; d < 4; d++)
                 if ((top->sd_rd | top->sd_wr) >> d & 1) {
                     drive = d; writing = top->sd_wr >> d & 1;
                     phase = 1; wait = 40; return;
@@ -201,7 +203,7 @@ void board_start(Trace& t, bool& audio_trace) {
         if (k == 'B') break;
         if (k == 'X') {
             uint32_t sectors = t.u32();
-            if (sectors > 4096) { std::fprintf(stderr, "board: external memory over 4096 sectors\n"); std::exit(2); }
+            if (sectors > 8192) { std::fprintf(stderr, "board: external memory over 8192 sectors\n"); std::exit(2); }
             want_xm.resize(sectors * 256);
             for (auto& w : want_xm) w = t.u16();
             ddr.mem.assign(sectors * 256 / 4, 0x5A5A5A5A5A5A5A5Aull);   // not zero: the loader clears it
@@ -238,8 +240,16 @@ void board_start(Trace& t, bool& audio_trace) {
         std::fclose(f);
         sd.present[2] = true;
     }
+    // LOCKSTEP_W0=path: a SCSI disk image (W0, tools/w0_image.py) in S3
+    if (const char* w0 = std::getenv("LOCKSTEP_W0")) {
+        FILE* f = std::fopen(w0, "rb");
+        if (!f) { std::perror(w0); std::exit(2); }
+        for (int ch; (ch = std::fgetc(f)) != EOF;) sd.img[3].push_back((uint8_t)ch);
+        std::fclose(f);
+        sd.present[3] = true;
+    }
     top->rst_hard = 0;
-    for (int d = 0; d < 3; d++) if (sd.present[d]) {    // the HPS mounts the images
+    for (int d = 0; d < 4; d++) if (sd.present[d]) {    // the HPS mounts the images
         top->img_mounted = 1 << d; top->img_size = sd.img[d].size(); top->img_readonly = sd.prot[d];
         board_tick();
         top->img_mounted = 0;

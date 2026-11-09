@@ -4,7 +4,12 @@
 // external page waits for DDR3, and SYN-5.3 runs slower than real time.
 //
 // 2^INDEX_BITS words; a line is one word with its tag (address bits above
-// the index) and a valid bit. Every write through the shared port (D62/D63,
+// bit INDEX_BITS) and a valid bit. The index folds the tag into the low
+// address bits (a[13:0] ^ a[23:14] << 4 for 14 bits): every external page
+// starts with the same page-switch stub and SYN-5.3's idle loop runs on five
+// pages, so the plain low bits made the pages evict each other (idle: 1717
+// distinct words, 300 misses per ms with plain low bits, 6 with the fold;
+// recorded with the simulator). The tag and the index give back the address. Every write through the shared port (D62/D63,
 // x_wr) also writes the cache line it maps to (write-through, allocate), so
 // the cache never holds a stale word. After reset the valid bits are
 // cleared, one line per clock (a fetch waits for that, 2^INDEX_BITS clocks). A hit answers
@@ -44,8 +49,12 @@ module code_cache #(
     logic [TAG_BITS:0]     q_tag;
     logic [23:0]           a;                   // address being looked up
 
-    wire [INDEX_BITS-1:0] idx_w = wr_addr[INDEX_BITS-1:0];
-    wire [INDEX_BITS-1:0] idx_r = cm_addr[INDEX_BITS-1:0];
+    function automatic logic [INDEX_BITS-1:0] index_of(input logic [23:0] x);
+        index_of = x[INDEX_BITS-1:0] ^ INDEX_BITS'({x[23:INDEX_BITS], 4'd0});
+    endfunction
+    wire [INDEX_BITS-1:0] idx_w = index_of(wr_addr);
+    wire [INDEX_BITS-1:0] idx_r = index_of(cm_addr);
+    wire [INDEX_BITS-1:0] idx_a = index_of(a);
 
     // one write port (clear, fill or snooped write), one read port
     logic                  we;
@@ -59,7 +68,7 @@ module code_cache #(
         end else if (wr_en) begin
             we = 1'b1;
         end else if (state == C_MISS && m_ack) begin
-            we = 1'b1; w_idx = a[INDEX_BITS-1:0]; w_data = m_rdata;
+            we = 1'b1; w_idx = idx_a; w_data = m_rdata;
             w_tag = {1'b1, a[23:INDEX_BITS]};
         end
     end
@@ -91,7 +100,7 @@ module code_cache #(
             end
             C_LOOK: begin
                 // a write to the same line in between leaves q stale: miss then
-                if (q_tag == {1'b1, a[23:INDEX_BITS]} && !(wr_en && idx_w == a[INDEX_BITS-1:0])) begin
+                if (q_tag == {1'b1, a[23:INDEX_BITS]} && !(wr_en && idx_w == idx_a)) begin
                     cm_rdata <= q_data;
                     cm_ack <= 1'b1;
                     state <= C_IDLE;

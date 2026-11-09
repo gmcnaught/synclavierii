@@ -35,6 +35,11 @@ def test_panel_labels_up_to_date():
     assert open(PATH).read() == text(), "run python3 tools/gen_panel_labels.py"
 
 
+def test_midi_tables_up_to_date():
+    from tools.gen_midi_tables import PATH, text
+    assert open(PATH).read() == text(), "run python3 tools/gen_midi_tables.py"
+
+
 def test_font_up_to_date():
     from tools.gen_font import PATH, text
     assert open(PATH).read() == text(), "run python3 tools/gen_font.py"

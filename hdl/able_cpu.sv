@@ -89,7 +89,7 @@ module able_cpu (
 );
 
     typedef enum logic [3:0] {S_FETCH, S_DECODE, S_SRCMEM, S_SRCIO, S_EXEC, S_TICK, S_END, S_HALT,
-                              S_CFETCH, S_CSRC} state_t;
+                              S_CFETCH, S_CSRC, S_FWAIT} state_t;
 
     state_t      state;
     logic [15:0] r [16];
@@ -112,8 +112,11 @@ module able_cpu (
 
     // ---------------------------------------------------------------- decode
     wire [3:0]  pcr  = pcs ? 4'o17 : 4'o16;
-    // the instruction word in DECODE: repeated, fetched from a page, or from BRAM
-    wire [15:0] fword = rep ? ir : (paged_f ? fbuf : mem_rdata);
+    // the instruction word in DECODE: repeated, or fetched (from BRAM via
+    // S_FWAIT, or from a page) into fbuf. The internal memory is 100+ block
+    // RAMs behind an output multiplexer: its data is only ever registered
+    // (fbuf, val), never decoded in the same clock (timing).
+    wire [15:0] fword = rep ? ir : fbuf;
     wire [7:0]  sbyte = (state == S_DECODE) ? fword[7:0] : ir[7:0];
     wire [7:0]  dbyte = ir[15:8];
     wire [3:0]  sreg = sbyte[3:0];
@@ -187,7 +190,7 @@ module able_cpu (
         mem_wdata = val;
         io_rd     = 1'b0;
         io_wr     = 1'b0;
-        io_dev    = sbyte[6:0];
+        io_dev    = ir[6:0];
         io_wdata  = val;
         irq_sample = 1'b0;
         irq_psw    = 1'b0;
@@ -268,8 +271,13 @@ module able_cpu (
                     state <= S_DECODE;
                 end else begin
                     pc_at <= r[pcr];
-                    state <= paged_now ? S_CFETCH : S_DECODE;
+                    state <= paged_now ? S_CFETCH : S_FWAIT;
                 end
+            end
+
+            S_FWAIT: begin                                        // BRAM word -> fbuf
+                fbuf <= mem_rdata;
+                state <= S_DECODE;
             end
 
             S_CFETCH: if (cm_ack) begin                           // Model D page fetch

@@ -2,7 +2,7 @@
 """Make the MiSTer files for Release 5.3 (docs/release-5.3.md) from a W0
 image (Synclavier3's "W0 Disk Image.simg", not redistributable):
 
-    w0_image.py W0IMAGE OUTDIR [--mb 30] [--newdata FILE] [--midi]
+    w0_image.py W0IMAGE OUTDIR [--mb 30] [--newdata FILE] [--midi] [--fm-voices N]
 
   OUTDIR/W0-53.IMG   the W0 disk padded to --mb megabytes, with a USER
                      subcatalog made by MONITOR's own CREATE USER (MONITOR
@@ -24,6 +24,8 @@ image (Synclavier3's "W0 Disk Image.simg", not redistributable):
                      MIDI subsystem card (D51 bit 8; D70-D73): MIDI in goes
                      to SYN-5.3's own MIDI input, and MIDI out works
                      (hdl/dev/dev_midi.sv, hdl/core/midi_card_feed.sv).
+  --fm-voices N      FM voices installed (default 8; 32 = a 9600): the name
+                     gets -FM<N>, e.g. W0-53-FM32.SST, W0-53-MIDI-FM32.SST.
 
 Both are made by the simulator, so the core starts exactly where the
 lockstep traces do (sim/lockstep.py w0boot).
@@ -71,6 +73,8 @@ def main(argv=None):
                     help="state image without poly voices (D51 poly bit clear)")
     ap.add_argument("--midi", action="store_true",
                     help="state image with the MIDI subsystem card (W0-53-MIDI.SST)")
+    ap.add_argument("--fm-voices", type=int, default=8, choices=(8, 16, 24, 32),
+                    help="FM voices installed (32: a 9600)")
     ap.add_argument("--ork", action="store_true",
                     help="state image with the original keyboard instead of the velocity keyboard")
     a = ap.parse_args(argv)
@@ -94,8 +98,10 @@ def main(argv=None):
     if a.midi:
         from sim.devices.midi import MidiSubsystem
         midi = MidiSubsystem()
-    cpu, _ = boot_from_w0(w0, poly=poly, keyboard="ork" if a.ork else "vpk", midi=midi)
-    sst = os.path.join(a.outdir, "W0-53-MIDI.SST" if a.midi else "W0-53.SST")
+    cpu, _ = boot_from_w0(w0, poly=poly, keyboard="ork" if a.ork else "vpk", midi=midi,
+                          fm_voices=a.fm_voices)
+    name = "W0-53" + ("-MIDI" if a.midi else "") + ("-FM%d" % a.fm_voices if a.fm_voices != 8 else "")
+    sst = os.path.join(a.outdir, name + ".SST")
     data = state_bytes(cpu)
     open(sst, "wb").write(data)
     print("%s: %d MB; %s: %d blocks" % (w0, len(disk) >> 20, sst, len(data) // 512))

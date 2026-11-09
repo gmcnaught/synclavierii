@@ -154,26 +154,37 @@ system top, and MONITOR's boot on both tops when
 `SYNCLAVIER_RELEASE_L` is set; it is skipped without Verilator. CI
 installs Verilator.
 
-## Voice engine (`hdl/dev/fm_voices.sv`, M5)
+## Voice engine (in `hdl/dev/dev_fm.sv`, M5; serial since M9)
 
 The integer voice model of `sim/voice.py` ([`fm-voice.md`](fm-voice.md#voice-model-m32)),
-driven by the D160 registers, interpolators and wave memory of `dev_fm.sv`:
+for up to 32 voices (64 channels). The number present (`nvoices`, D160
+bit 0) is 8 unless the state image says otherwise (device 5 index 16;
+`tools/w0_image.py --fm-voices 32`, `make_system(fm_voices=32)`).
 
-* 16 oscillators at 656015360/123 Hz (5.3335 MHz) of simulated time,
-  advanced in closed form at every system tick (≤ 6 oscillator ticks per
-  instruction), so they are always at the current time. A pitch write
-  takes effect from the write's time; the accumulator is reduced modulo
-  the new divisor at its next use (Python: `acc %= divisor` on a write).
-* Samples at Python's render instants, start + ⌊k × 10⁹ / 192000⌋ ns.
-  When one falls inside an instruction's tick, the oscillators are
-  advanced to it first, a snapshot is taken, then they go on. Envelope and
-  index are the interpolators' values before or after their clock in that
-  tick, by whether the clock falls at or before the sample instant.
-* The 8 voices are summed from the snapshot, one wave-memory read per
-  clock: s = (w − 128) × envelope × `VOL`; left += s × (256 − pan),
+* Channel state is in small RAMs, even and odd channels apart, so a voice
+  is one address; the engine works one voice per clock. One pass per
+  sample instant (Python's render instants, start + ⌊k × 10⁹ / 192000⌋
+  ns) brings every oscillator and interpolator up to the instant and
+  mixes: about 40 clocks for 32 voices, of the 83 a 16 MHz MiSTer clock
+  has per 5.2 µs. A pitch or interpolator write, or a D160 read with
+  function 12, first brings that voice up to now (a one-voice pass).
+* Interpolators: their 192 kHz clocks are counted (mod 4); each channel
+  keeps the count it has had and is given the difference with the closed
+  form of `Interpolator.advance_to` (none due: unchanged). A clock at the
+  sample instant counts as before it.
+* Oscillators at 656015360/123 Hz (5.3335 MHz) of simulated time. A
+  counter holds the ticks since the last sample instant; each channel
+  holds how many of them it has had already. A pitch write first advances
+  that voice to now with the old pitch (`FMSynth.write` does the same),
+  then takes effect; the accumulator is reduced modulo the new divisor at
+  its next use (Python: `acc %= divisor` on a write). The closed form is
+  the same however the ticks are split, so this equals Python's lazy
+  advance.
+* Mix: s = (w − 128) × envelope × `VOL`; left += s × (256 − pan),
   right += s × pan. Output: two 40-bit sums per sample
-  (`FMSynth.sample_int`). FM interface accesses wait while it mixes, so a
-  wave-memory write cannot land mid-sample.
+  (`FMSynth.sample_int`). FM interface accesses wait while the engine has
+  work; the CPU waits before its next fetch only when an event arrives
+  while another is still being done.
 * The sine ROM is generated from `voice.SINE_ROM` (`tools/gen_sine_rom.py`
   → `hdl/dev/sine_rom.svh`), a choice until the SS2 ROMs are dumped.
 
@@ -191,6 +202,7 @@ the bench compares every HDL sample with them.
 |---|---:|---|
 | ORK-LM `ork-lm-note` (timbre 0, C4 for 0.5 s: 96,238 nonzero samples) | 804,572 | identical |
 | Voice test program (FM index ramp with shift 2, pan, `VOL`, loaded wave memory, pitch and octave change while sounding, release) | 21,032 (20,954 nonzero) | identical |
+| The same on channels 48–63 of a 32-voice engine (`test_system_voice_engine_32_voices`) | > 5,000 nonzero | identical |
 | 48 kHz WAV from `pcm_out.sv` vs `render()` + `write_wav()`: ORK-LM C4 (201,143 frames), voice test program | — | byte-identical |
 
 Each of these engine faults is caught: no reduction after a pitch write,

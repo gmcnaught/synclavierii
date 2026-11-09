@@ -220,7 +220,9 @@ void board_start(Trace& t, bool& audio_trace) {
                 sd.img[drive].push_back(w >> 8); sd.img[drive].push_back(w & 0xFF);
             }
         } else if (k == 'O') {
-            t.p += 8 + 2 + 1 + 16 * 4;
+            t.p += 8 + 2 + 1;
+            uint8_t nch = t.u8();
+            t.p += 4 * nch;
             audio_trace = true;
         } else if (k == 'C') {                     // Model C/D CPU state: not on the board yet
             t.p += 18;
@@ -445,21 +447,23 @@ int main(int argc, char** argv) {
 #endif
         } else if (k == 'O') {                     // voice engine state
             uint64_t rr = t.u64(); uint16_t to_next = t.u16(); uint8_t phase = t.u8();
+            uint8_t nch = t.u8();
             audio_trace = true;
 #ifdef SYSTEM
             top->ld_voice_we = 1;
             top->ld_voice_addr = 32; top->ld_voice_data = rr; tick();
             top->ld_voice_addr = 33; top->ld_voice_data = ((uint64_t)phase << 14) | to_next; tick();
-            for (int c = 0; c < 16; c++) {
+            top->ld_voice_we = 0;
+            for (int c = 0; c < nch; c++) {             // device 5, index 32 + 16c + 9
                 uint16_t acc = t.u16(); uint8_t pre = t.u8(), point = t.u8();
-                top->ld_voice_addr = c;
-                top->ld_voice_data = ((uint64_t)acc << 15) | ((uint64_t)pre << 8) | point;
+                top->ld_dev_we = 1; top->ld_dev_sel = 5; top->ld_dev_addr = 32 + 16 * c + 9;
+                top->ld_dev_data = ((uint32_t)acc << 15) | ((uint32_t)pre << 8) | point;
                 tick();
             }
-            top->ld_voice_we = 0;
+            top->ld_dev_we = 0;
 #else
             (void)rr; (void)to_next; (void)phase;
-            t.p += 16 * 4;
+            t.p += (size_t)nch * 4;
 #endif
         } else if (k == 'V') {                     // device state
             uint8_t sel = t.u8(); uint16_t addr = t.u16(); uint32_t v = t.u32();

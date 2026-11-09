@@ -1,6 +1,6 @@
 # Tuning references for M3.3 (software emulators)
 
-M3.3 tunes the voice model (`sim/voice.py`, `hdl/dev/fm_voices.sv`)
+M3.3 tunes the voice model (`sim/voice.py`, `hdl/dev/dev_fm.sv`)
 against reference audio. Recordings of a real Synclavier II are still the
 final acceptance (risk R1). Until they exist, two emulators by the
 original programmer can serve as secondary references.

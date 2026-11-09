@@ -6,7 +6,7 @@
 //   D130/D131 original keyboard and panel (key/button state from the host),
 //   D160-D163 FM interface (registers, interpolators, wave memory),
 //   D164/D165 control voltages (write-only),
-// and the FM voice engine (hdl/dev/fm_voices.sv) producing audio.
+// and the FM voice engine (in hdl/dev/dev_fm.sv) producing audio.
 // Every other device number goes out on the dev_* port.
 //
 // Device time is the CPU's simulated time (333 ns per bus transfer, see
@@ -142,7 +142,9 @@ module able_system #(
     logic [15:4] irq;
     logic        stall;
 
-    throttle #(.CLK_HZ(CLK_HZ)) pace (.clk, .rst, .enable(rt_enable), .tick, .tick_ns, .stall, .lag_us);
+    logic        rt_stall, fm_stall;
+    throttle #(.CLK_HZ(CLK_HZ)) pace (.clk, .rst, .enable(rt_enable), .tick, .tick_ns, .stall(rt_stall), .lag_us);
+    assign stall = rt_stall || fm_stall;
 
     // Model D code fetches go through a cache (code_cache.sv) whose misses
     // share the external memory port with D60-D63 (the CPU does one or the
@@ -227,21 +229,15 @@ module able_system #(
         .ld_addr(ld_dev_addr[4:0]), .ld_data(ld_dev_data)
     );
 
-    // FM interface and voice engine
-    logic [7:0]  ch_inc [16], ch_nnu [16], ch_onu [16], ch_tim [16], ch_f13 [16], ch_env [16];
-    logic [7:0]  ch_env_next [16];
-    logic [17:0] fm_rem;
-    logic [12:0] wave_addr;
-    logic [7:0]  wave_q;
-    logic        interp_clock, voices_busy;
+    // FM interface and voice engine (up to 32 voices; the number from the state image)
     dev_fm fm (
         .clk, .rst, .sel(sel_fm), .rd(io_rd), .wr(io_wr), .reg_sel(io_dev[1:0]),
         .wdata(io_wdata), .rdata(fm_rdata), .ack(fm_ack), .nosyn(fm_nosyn), .strict(synth_strict),
-        .tick, .tick_ns,
-        .ch_inc, .ch_nnu, .ch_onu, .ch_tim, .ch_f13, .ch_env, .ch_env_next, .fm_rem,
-        .hold(voices_busy), .wave_addr, .wave_q, .interp_clock,
+        .tick, .tick_ns, .stall(fm_stall),
+        .audio_valid, .audio_l, .audio_r,
         .ld_we(ld_dev_we && (ld_dev_sel == 3'd5 || ld_dev_sel == 3'd6)),
-        .ld_wave(ld_dev_sel == 3'd6), .ld_addr(ld_dev_addr), .ld_data(ld_dev_data)
+        .ld_wave(ld_dev_sel == 3'd6), .ld_addr(ld_dev_addr), .ld_data(ld_dev_data),
+        .ld_voice_we, .ld_voice_addr, .ld_voice_data
     );
 
     dev_rtc rtc (
@@ -278,14 +274,6 @@ module able_system #(
         .sides1(fd_sides1),
         .fd_addr, .fd_rd, .fd_wr, .fd_wdata, .fd_rdata, .fd_ack,
         .ld_we(ld_dev_we && ld_dev_sel == 3'd4), .ld_addr(ld_dev_addr[4:0]), .ld_data(ld_dev_data)
-    );
-
-    fm_voices voices (
-        .clk, .rst, .tick, .tick_ns,
-        .ch_inc, .ch_nnu, .ch_onu, .ch_tim, .ch_f13, .ch_env, .ch_env_next, .fm_rem,
-        .wave_addr, .wave_q, .busy(voices_busy),
-        .audio_valid, .audio_l, .audio_r,
-        .ld_we(ld_voice_we), .ld_addr(ld_voice_addr), .ld_data(ld_voice_data)
     );
 
     pcm_out pcm (

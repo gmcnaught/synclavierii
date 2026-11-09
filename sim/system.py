@@ -8,7 +8,7 @@ from .devices.terminal import D24_EXISTS, D57_EXISTS, D60_EXISTS, D70_EXISTS, PO
 
 
 def make_system(ext_sectors=1024, baud=9600, rtc_hz=200, output=None, floppy=False,
-                synth=False, strict=True, scsi=None, model="B", poly=None, keyboard="ork", midi=None):
+                synth=False, strict=True, scsi=None, model="B", poly=None, keyboard="ork", midi=None, fm_voices=8):
     """Return a CPU with D3, D4567, D50/D51 and (if ext_sectors) D60-D63.
 
     The devices are reachable as cpu.rtc, cpu.muldiv, cpu.terminal and
@@ -24,6 +24,7 @@ def make_system(ext_sectors=1024, baud=9600, rtc_hz=200, output=None, floppy=Fal
     keyboard: "ork" (original keyboard) or "vpk" (velocity/pressure keyboard,
     SYN-5.3 only) on D130/D131 with synth=True.
     midi: a devices.midi.MidiSubsystem for D70-D73 (cpu.midi; D51 bit 8 set).
+    fm_voices: FM voices installed (8 on a Synclavier II; up to 32 on a 9600).
     """
     bus = Bus()
     cpu = CPU(bus)
@@ -37,7 +38,7 @@ def make_system(ext_sectors=1024, baud=9600, rtc_hz=200, output=None, floppy=Fal
             | (D70_EXISTS if midi is not None else 0))
     cpu.terminal = bus.attach(Terminal(baud, device_bits=bits, output=output))
     cpu.floppy = bus.attach(FloppyController()) if floppy else None
-    cpu.fm = bus.attach(FMInterface(strict=strict)) if synth else None
+    cpu.fm = bus.attach(FMInterface(voices=fm_voices, strict=strict)) if synth else None
     kb = {"ork": OriginalKeyboard, "vpk": VelocityKeyboard}[keyboard]
     cpu.keyboard = bus.attach(kb(strict=strict)) if synth else None
     cpu.cv = bus.attach(ControlVoltages()) if synth else None

@@ -66,12 +66,13 @@ def entries(cpu):
             raise ValueError("unexpected header section %r" % k)
     if cpu.fm is not None:
         o = _Audio(cpu.fm).header()
-        rr, to_next, phase = struct.unpack_from("<QHB", o, 1)
+        rr, to_next, phase, n = struct.unpack_from("<QHBB", o, 1)
         out.append((1, 0, 32, rr))
         out.append((1, 0, 33, phase << 14 | to_next))
-        for c in range(16):
-            acc, pre, point = struct.unpack_from("<HBB", o, 12 + 4 * c)
-            out.append((1, 0, c, acc << 15 | pre << 8 | point))
+        for c in range(n):                      # channels 16 up: device 5, index 32 + 16c + 9
+            acc, pre, point = struct.unpack_from("<HBB", o, 13 + 4 * c)
+            v = acc << 15 | pre << 8 | point
+            out.append((1, 0, c, v) if c < 16 else (0, 5, 32 + 16 * c + 9, v))
     return out
 
 

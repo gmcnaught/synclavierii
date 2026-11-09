@@ -13,13 +13,28 @@ R12 (pops are R12I TO ATNV then MR12I/MR12: NED SREG/LREG, MONITOR 5.3
 epilogues).
 
 Model D (docs/release-5.3.md; NED RTP/INTRO page switch code): device 011
-(D11) is the instruction page pointer, page = D11 bits 15-8. While R17 is
+(D11) is the instruction page pointer, page = D11 bits 15-8; only those
+bits exist (a read gives the low byte 0). The page-switch stub A.PGX adds
+a byte-swapped negative delta (low byte 377) to D11 and relies on no
+carry out of the low byte. While R17 is
 the PC, instruction fetches and memory reads through R17 (PCI literals)
 come from that page: page 0 = internal memory, page n = external memory
 words n * 65536 ... (the 64K-word block of external sectors n*256 ...);
 everything else (data, and fetches while R16 is the PC, i.e. at interrupt
 level) uses internal memory. Device 057 (D57) reads the options bits
 (bit 0: Model D).
+
+Models C and D: device 002 (D2) is the interrupt priority encoder (NED
+RTP/INTRO: "D1 TO D2  READ STATUS WORD, WRITE TO PRIORITY ENCODER" then
+"D2 TO RTRA  BRANCH ON WHICH BIT IS SET" into a table of two-word jumps,
+bit 0 first): a read returns 2 x the number of the highest bit set in the
+last word written (0 if none), as the Model B software scan finds it.
+
+Models C and D: no interrupt is taken at the end of an instruction that
+writes the PCW (D1), only after the next one. [INF] NED RTP/INTRO SREG:
+"R14 to D1 restore interrupts ... D10 to ATRA and return to our caller
+(this two instruction enable/transfer sequence will NOT be interrupted)";
+the Model D interrupt exit (C.PGSW: R14 to D1, MR12I to ATRA) relies on it.
 """
 from collections import namedtuple
 
@@ -96,6 +111,8 @@ class CPU:
         self.rpt_word = 0
         self.rpt_pc = 0
         self.page = 0        # Model D: D11
+        self.d2 = 0          # Model C/D: priority encoder input
+        self.int_shadow = False  # Model C/D: PCW written by this instruction
 
     @property
     def pc_reg(self):
@@ -265,6 +282,8 @@ class CPU:
                     val = self.read_psw()
                 elif self.model != "B" and sv == 0o10:
                     val = self.ppc
+                elif self.model != "B" and sv == 0o2:
+                    val = 2 * (self.d2.bit_length() - 1) if self.d2 else 0
                 elif self.model == "D" and sv == 0o11:
                     val = self.page
                 elif self.model == "D" and sv == 0o57:
@@ -322,10 +341,13 @@ class CPU:
         elif dk == D_IO:
             if da == PSW_DEVICE:
                 self.write_pcw(val)
+                self.int_shadow = self.model != "B"
             elif self.model != "B" and da == 0o10:
                 self.rpt_next = val & 0o377
+            elif self.model != "B" and da == 0o2:
+                self.d2 = val
             elif self.model == "D" and da == 0o11:
-                self.page = val
+                self.page = val & 0o177400
             elif self.model == "D" and da == 0o57:
                 pass
             elif not self.bus.write(da, val):
@@ -364,6 +386,9 @@ class CPU:
             return self._stop(HALT_REQUEST, self.pc, mem[self.pc])
         if self.rpt_left or self.rpt_next:
             return True                       # no interrupt inside a repeat
+        if self.int_shadow:
+            self.int_shadow = False           # Model C/D: not right after a PCW write
+            return True
         if self.ion and self.pcs and self.bus.irq_bits():
             # Interrupt entry (§8): disable interrupts, fetch from R16
             self.ion = False

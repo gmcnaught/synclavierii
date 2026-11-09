@@ -276,6 +276,37 @@ def test_model_c_link_register_and_r12_stack():
     assert cpu.r[1] == 5
 
 
+def test_model_c_no_interrupt_right_after_pcw_write():
+    # SREG's "R14 to D1; D10 to ATRA" must not be split by an interrupt
+    dev = FakeDevice([0o120])
+    dev.irq = 1 << 10
+    cpu = make("""
+        R14 TO D1
+        IM(5) TO R1
+        IM(6) TO R2
+    """, regs={0o14: 0o177770}, devices=[dev])     # PCS=1, ICS=1, ION=1
+    cpu.model = "C"
+    cpu.step()
+    assert cpu.pcs and cpu.ion                    # not taken yet
+    cpu.step()
+    assert cpu.r[1] == 5 and not cpu.pcs          # taken after the next one
+    cpu = make("R14 TO D1\nIM(5) TO R1", regs={0o14: 0o177770}, devices=[dev])
+    cpu.step()                                     # Model B: taken at once
+    assert not cpu.pcs
+
+
+def test_model_c_priority_encoder():
+    cpu = make("""
+        R0 TO D2
+        D2 TO R1
+        R3 TO D2
+        D2 TO R2
+    """, regs={0: 0o4101, 3: 0})
+    cpu.model = "C"
+    cpu.run(4)
+    assert cpu.r[1] == 2 * 11 and cpu.r[2] == 0
+
+
 def test_model_d_paging_fetches_code_and_literals_from_the_page():
     from sim.devices.extmem import ExternalMemory
     # after a D11 write the very next fetch comes from the new page (NED
@@ -309,6 +340,23 @@ def test_model_d_paging_fetches_code_and_literals_from_the_page():
     assert cpu.page == 0 and cpu.pc == 7
     cpu.step()
     assert cpu.r[5] == 1
+
+
+def test_model_d_page_register_holds_the_page_byte_only():
+    # RTP/INTRO A.PGX with a negative delta: IM(0) TO BSOR3 (-5 -> 175777),
+    # D11 TO ADD3, R3 TO D11: page 25 - 5 = 20 only if D11 reads low byte 0
+    cpu = make("""
+        PCI TO D11
+        DATA 12517
+    """)
+    cpu.model = "D"
+    cpu.step()
+    assert cpu.page == 0o12400
+    cpu = make("D11 TO ADD3\nR3 TO D11", regs={3: 0o175777})
+    cpu.model, cpu.page = "D", 0o12400
+    cpu.pcs, cpu.r[0o16] = False, 0            # run it from internal memory (R16)
+    cpu.step()
+    assert (cpu.r[3] >> 8) == 0o20
 
 
 def test_model_d_interrupt_level_fetches_from_internal_memory():

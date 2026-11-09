@@ -84,6 +84,27 @@ lockstep check against the simulator, as for Release L.
   `Ready >`. SCSI commands used: INQUIRY, TEST UNIT READY, READ
   CAPACITY, READ(10).
 
+* **M7.5 (simulator, in progress):** `PLAY` needs a `:USER` subcatalog
+  (MONITOR keeps `.CURRENT`, DO files and history there; Synclavier³
+  mounts a separate `USER.simg`); `CREATE USER` on a W0 padded to 30 MB
+  (`disk_mb=30`) makes it, through the SCSI write path. Findings on the
+  way, all in `sim/cpu.py` with tests:
+  * **External memory ≥ 8192 sectors.** SCSILOAD puts a Model D swap file
+    at `(EMSIZE − length) AND 174000` (an M512K card boundary); with 4096
+    sectors SYN-5.3's 3126 sectors land at sector 0 = page 0 = internal
+    memory. A 9600 had several M512K cards; `boot_from_w0` uses 8192.
+  * **D2 priority encoder** (Model C/D): read = 2 × highest bit written.
+  * **No interrupt right after a PCW write** (Model C/D): RTP/INTRO's
+    SREG "this two instruction enable/transfer sequence will NOT be
+    interrupted".
+  * **D11 holds the page byte only** (low byte reads 0): A.PGX adds a
+    byte-swapped negative page delta (low byte 377) and needs no carry.
+  * **Poly interface D154–D157**: SYN-5.3 writes D155 without checking
+    D51's poly bit; a no-voices stub (`stubs.PolyNoVoices`, [HYP]) accepts
+    writes, reads 0.
+  With these, SYN-5.3 runs from its external pages (16–28) with no unknown
+  device access for 60M instructions and starts sending its screen.
+
 ## 5. NED/Able era check
 
 Release 5.3 must stay a program for NED's own hardware, not for the

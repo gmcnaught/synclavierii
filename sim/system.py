@@ -4,11 +4,11 @@ from .cpu import CPU
 from .devices import (ControlVoltages, ExternalMemory, FloppyController, FMInterface,
                       MulDiv, OriginalKeyboard, RealTimeClock, Terminal)
 from .devices.scsi import ScsiHost
-from .devices.terminal import D24_EXISTS, D57_EXISTS, D60_EXISTS
+from .devices.terminal import D24_EXISTS, D57_EXISTS, D60_EXISTS, POLY_EXISTS
 
 
 def make_system(ext_sectors=1024, baud=9600, rtc_hz=200, output=None, floppy=False,
-                synth=False, strict=True, scsi=None, model="B"):
+                synth=False, strict=True, scsi=None, model="B", poly=None):
     """Return a CPU with D3, D4567, D50/D51 and (if ext_sectors) D60-D63.
 
     The devices are reachable as cpu.rtc, cpu.muldiv, cpu.terminal and
@@ -20,6 +20,7 @@ def make_system(ext_sectors=1024, baud=9600, rtc_hz=200, output=None, floppy=Fal
     reads return 0 instead of halting (M2 probing). scsi={id: ScsiDisk}
     adds a D24 host adaptor (D24-D27) as cpu.scsi. model: the CPU model
     ("B", "C" or "D"; Model D pages map onto the external memory).
+    poly: a devices.poly.PolySynth for D154-D157 (cpu.poly; D51 poly bit set).
     """
     bus = Bus()
     cpu = CPU(bus)
@@ -29,10 +30,11 @@ def make_system(ext_sectors=1024, baud=9600, rtc_hz=200, output=None, floppy=Fal
     cpu.extmem = bus.attach(ExternalMemory(ext_sectors)) if ext_sectors else None
     cpu.scsi = bus.attach(ScsiHost(scsi)) if scsi is not None else None
     bits = ((D60_EXISTS if ext_sectors else 0) | (D24_EXISTS if scsi is not None else 0)
-            | (D57_EXISTS if model == "D" else 0))
+            | (D57_EXISTS if model == "D" else 0) | (POLY_EXISTS if poly is not None else 0))
     cpu.terminal = bus.attach(Terminal(baud, device_bits=bits, output=output))
     cpu.floppy = bus.attach(FloppyController()) if floppy else None
     cpu.fm = bus.attach(FMInterface(strict=strict)) if synth else None
     cpu.keyboard = bus.attach(OriginalKeyboard(strict=strict)) if synth else None
     cpu.cv = bus.attach(ControlVoltages()) if synth else None
+    cpu.poly = bus.attach(poly) if poly is not None else None
     return cpu

@@ -383,6 +383,9 @@ int main(int argc, char** argv) {
         top->dbg_we = 1; top->dbg_addr = i; top->dbg_wdata = t.u16(); tick();
     }
     top->dbg_addr = 16; top->dbg_wdata = t.u8(); tick();
+    for (int i = 17; i <= 23; i++) {               // Model C/D state: zero unless 'C' says
+        top->dbg_addr = i; top->dbg_wdata = 0; tick();
+    }
     top->dbg_we = 0;
     for (int a = 0; a < 65536; a++) {
         top->ld_mem_we = 1; top->ld_mem_addr = a; top->ld_mem_data = t.u16(); tick();

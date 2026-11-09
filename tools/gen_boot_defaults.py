@@ -56,6 +56,11 @@ def entries():
     for i, r in enumerate(cpu.r):
         out.append((DBG, 0, i, r))
     out.append((DBG, 0, 16, _flags(cpu)))
+    # Model C/D state (able_cpu.sv debug addresses 17-23): page, link,
+    # repeat counters, repeat word/pc, D2, interrupt shadow
+    for i, v in enumerate((cpu.page, cpu.ppc, cpu.rpt_next << 8 | cpu.rpt_left, cpu.rpt_word,
+                           cpu.rpt_pc, cpu.d2, cpu.int_shadow)):
+        out.append((DBG, 0, 17 + i, int(v)))
     return out
 
 

@@ -21,9 +21,9 @@ module dev_poly_tb;
     int          errors = 0, lines = 0, reads = 0, mixes = 0;
 
     dev_poly dut (
-        .clk, .rst, .enable(1'b1), .tick, .tick_ns,
+        .clk, .rst, .enable(1'b1), .size_units(11'd256), .tick, .tick_ns,
         .sel, .rd, .wr, .reg_sel, .wdata, .rdata, .ack,
-        .m_addr, .m_rd, .m_wr, .m_wide, .m_wdata, .m_rdata, .m_ack,
+        .m_addr, .m_rd, .m_wr, .m_wide, .m_wdata, .m_rdata, .m_ack, .clearing(),
         .mix_in_valid, .mix_in_l(16'sd0), .mix_in_r(16'sd0),
         .mix_out_valid, .mix_out_l, .mix_out_r
     );
@@ -38,7 +38,7 @@ module dev_poly_tb;
         if ((m_rd || m_wr) && !m_ack) begin
             if (dly == 3) begin
                 dly <= 0;
-                if (m_wr && m_wide) for (int j = 0; j < 4; j++) mem[{m_addr[23:2], 2'(j)}] <= m_wdata;
+                if (m_wr && m_wide) for (int j = 0; j < 512; j++) mem[{m_addr[23:9], 9'(j)}] <= m_wdata;
                 else if (m_wr) mem[m_addr] <= m_wdata;
                 m_rdata <= mem[m_addr];
                 m_ack <= 1'b1;

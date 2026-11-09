@@ -99,7 +99,7 @@ MiSTer.
 | # | Milestone | What it takes | Done when |
 |---|---|---|---|
 | **M9** | **32 FM voices** (9600) | Done in HDL (PR pending hardware): `dev_fm.sv` keeps channel state in RAMs and works one voice per clock (interpolator clock pass, sample pass, pitch-write catch-up); voice count from the state image (`--fm-voices 32`). SYN-5.3 with 32 voices plays 20 held keys on 40 channels (sim) | Board lockstep with audio: 19.6M instructions, 3,275,518 samples identical; MiSTer: fit, timing, no new underruns |
-| M10 | **Poly memory above 32 MB** | OSD size choice; `xr_addr` 26 → 27 bits for more than 96 MB. Core DDR3 window `0x30000000`–`0x3FFFFFFF` (256 MB) → poly at most ~224 MB; check SYN-5.3's size probe with sizes that are not a power of two | SYN-5.3 reports the chosen size; a sound file loads above 32 MB |
+| **M10** | **Poly memory above 32 MB** | Done in HDL (PR pending hardware): size from the state image (device 3 index 8, 128 KB units; `w0_image.py --poly-mb 32..224`), `xr_addr` 27 bits (the core's 256 MB at `0x30000000`, poly from 32 MB), clear after reset in 128-beat DDR3 bursts | SYN-5.3 reports the size (sim: 224 MB → "228M"); board lockstep through the size probe of all 224 MB; MiSTer test |
 | M11 | **SCSI load timing** | SD reads currently cost no simulated time, so audio stalls while sound files load | no underruns while CLARA3 loads |
 | M12 | **Second SCSI disk** (target 4, listed by MONITOR 5.3) | second target in `dev_scsi`, second SD image | `CATALOG W1:` |
 | M13 | **Graphics terminal + mouse** (VT640 graphics, D44/D45 mouse port) | bitmap plane in `term_display`; mouse protocol | music notation and timbre display screens draw |

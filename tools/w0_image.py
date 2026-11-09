@@ -2,7 +2,7 @@
 """Make the MiSTer files for Release 5.3 (docs/release-5.3.md) from a W0
 image (Synclavier3's "W0 Disk Image.simg", not redistributable):
 
-    w0_image.py W0IMAGE OUTDIR [--mb 30] [--newdata FILE] [--midi] [--fm-voices N]
+    w0_image.py W0IMAGE OUTDIR [--mb 30] [--newdata FILE] [--midi] [--fm-voices N] [--poly-mb N]
 
   OUTDIR/W0-53.IMG   the W0 disk padded to --mb megabytes, with a USER
                      subcatalog made by MONITOR's own CREATE USER (MONITOR
@@ -26,6 +26,9 @@ image (Synclavier3's "W0 Disk Image.simg", not redistributable):
                      (hdl/dev/dev_midi.sv, hdl/core/midi_card_feed.sv).
   --fm-voices N      FM voices installed (default 8; 32 = a 9600): the name
                      gets -FM<N>, e.g. W0-53-FM32.SST, W0-53-MIDI-FM32.SST.
+  --poly-mb N        poly memory (default 32, a 3200; up to 224 in the core's
+                     256 MB of DDR3): the name gets -P<N>, e.g. W0-53-P224.SST.
+                     The core clears it after reset (about 0.9 s per 32 MB).
 
 Both are made by the simulator, so the core starts exactly where the
 lockstep traces do (sim/lockstep.py w0boot).
@@ -75,6 +78,8 @@ def main(argv=None):
                     help="state image with the MIDI subsystem card (W0-53-MIDI.SST)")
     ap.add_argument("--fm-voices", type=int, default=8, choices=(8, 16, 24, 32),
                     help="FM voices installed (32: a 9600)")
+    ap.add_argument("--poly-mb", type=int, default=32, choices=range(32, 225, 32),
+                    metavar="{32,64,...,224}", help="poly memory in MB")
     ap.add_argument("--ork", action="store_true",
                     help="state image with the original keyboard instead of the velocity keyboard")
     a = ap.parse_args(argv)
@@ -93,14 +98,15 @@ def main(argv=None):
     poly = None
     if not a.no_poly:
         from sim.devices.poly import PolySynth
-        poly = PolySynth()
+        poly = PolySynth(sectors=a.poly_mb * 2048)
     midi = None
     if a.midi:
         from sim.devices.midi import MidiSubsystem
         midi = MidiSubsystem()
     cpu, _ = boot_from_w0(w0, poly=poly, keyboard="ork" if a.ork else "vpk", midi=midi,
                           fm_voices=a.fm_voices)
-    name = "W0-53" + ("-MIDI" if a.midi else "") + ("-FM%d" % a.fm_voices if a.fm_voices != 8 else "")
+    name = ("W0-53" + ("-MIDI" if a.midi else "") + ("-FM%d" % a.fm_voices if a.fm_voices != 8 else "")
+            + ("-P%d" % a.poly_mb if a.poly_mb != 32 else ""))
     sst = os.path.join(a.outdir, name + ".SST")
     data = state_bytes(cpu)
     open(sst, "wb").write(data)

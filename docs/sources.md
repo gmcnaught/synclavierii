@@ -65,6 +65,13 @@ Audio System", © 2017 Synclavier Digital, MIT licence) @
 was imported from a SCSI drive used at NED. Files are CR-terminated and have
 no extension.
 
+Provenance of the licence grant (checked 2026-11-09 via the GitHub API):
+`LICENSE` reads "MIT License, Copyright (c) 2017 Synclavier Digital". All 18
+commits (2017-10-25 … 2018-07-21) are authored by **Cameron W Jones,
+`cjones@synclavier.com`**, i.e. committed from a Synclavier Digital address.
+The hosting account `jbemond` has no public profile, and the repository is not
+under the `Synclavier` GitHub organisation.
+
 | File (blob) | Used for |
 |---|---|
 | `Able/ASM/ASM-2` (`39079b02…`): NED ABLE Series Assembler v2.07, 1 Apr 1989, `configuration modelC` | **Official mnemonics** (`LOA`, `RTL`, `LCM`, `TLOA`, `BSOR`, `SHRA`, **`ADC` 270**, **`SBB` 274**, `ATRA`…`RTPL`, `PCI`, `Rn`, `RnI`, `MRn`, `MRnI`, **`MR12D` = 372**, `Dn`, `IM`, `RE`) |

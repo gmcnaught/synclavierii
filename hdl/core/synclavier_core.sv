@@ -51,7 +51,7 @@ module synclavier_core #(
     output logic [7:0]  sd_buff_din,
     input  logic        sd_buff_wr,
 
-    output logic [25:0] xr_addr,         // words; poly memory from 0x1000000
+    output logic [26:0] xr_addr,         // words; poly memory from 0x1000000 (up to 224 MB)
     output logic        xr_rd,
     output logic        xr_wr,
     output logic        xr_wide,         // with xr_wr: all 4 words of the 64-bit word
@@ -88,6 +88,7 @@ module synclavier_core #(
     output logic        booting,
     output logic        boot_error,
     output logic        halted,
+    output logic        poly_clearing,  // poly memory clear after reset (simulation: not stuck)
 
     // simulation: terminal input beside the keyboard, observation
     input  logic        sim_rx_valid,
@@ -195,10 +196,11 @@ module synclavier_core #(
     logic        kb_rx_valid;
     logic [7:0]  kb_rx_data;
     logic [31:0] lag_us;
+    logic [10:0] poly_units;
 
     able_system #(.CLK_HZ(CLK_HZ)) sys (
         .clk, .rst(cpu_rst), .rt_enable, .lag_us,
-        .cpu_model, .cpu_d57, .term_bits,
+        .cpu_model, .cpu_d57, .term_bits, .poly_units,
         .dev_rd, .dev_wr, .dev_num, .dev_wdata,
         .dev_rdata, .dev_ack, .dev_nosyn, .dev_hold(1'b0),
         .dev_irq(12'd0),
@@ -255,15 +257,16 @@ module synclavier_core #(
     // state image made with poly voices); otherwise it answers as a stub
     logic [15:0] poly_rdata, p_wdata;
     logic        poly_ack, p_rd, p_wr, p_ack;
-    logic [23:0] p_addr;
+    logic [26:0] p_addr;
     logic        p_wide;
     logic        mix_valid;
     logic signed [15:0] mix_l, mix_r;
-    dev_poly poly (
-        .clk, .rst(cpu_rst), .enable(term_bits[10]), .tick, .tick_ns,
+    dev_poly #(.MEM_BITS(27)) poly (
+        .clk, .rst(cpu_rst), .enable(term_bits[10]), .size_units(poly_units), .tick, .tick_ns,
         .sel(sel_poly), .rd(dev_rd), .wr(dev_wr), .reg_sel(dev_num[1:0]), .wdata(dev_wdata),
         .rdata(poly_rdata), .ack(poly_ack),
         .m_addr(p_addr), .m_rd(p_rd), .m_wr(p_wr), .m_wide(p_wide), .m_wdata(p_wdata), .m_rdata(xr_rdata),
+        .clearing(poly_clearing),
         .m_ack(p_ack),
         .mix_in_valid(pcm_valid), .mix_in_l(pcm_l), .mix_in_r(pcm_r),
         .mix_out_valid(mix_valid), .mix_out_l(mix_l), .mix_out_r(mix_r)
@@ -299,7 +302,7 @@ module synclavier_core #(
     end
     assign s_xm_ack = xr_ack && xb && !xo;
     assign p_ack    = xr_ack && xb && xo;
-    assign xr_addr  = cpu_rst ? {2'b00, b_xm_addr} : xo ? {2'b01, p_addr} : {2'b00, s_xm_addr};
+    assign xr_addr  = cpu_rst ? {3'b000, b_xm_addr} : xo ? 27'h1000000 + p_addr : {3'b000, s_xm_addr};
     assign xr_wide  = !cpu_rst && xb && xo && p_wide;
     assign xr_rd    = cpu_rst ? 1'b0      : xb && (xo ? p_rd : s_xm_rd);
     assign xr_wr    = cpu_rst ? b_xm_wr   : xb && (xo ? p_wr : s_xm_wr);

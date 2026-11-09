@@ -123,6 +123,7 @@ module able_sys_top (
     logic [1:0]  vpk_lights [160];
     logic [7:0]  vpk_chars [32];
     logic [7:0]  vpk_dp [4];
+    logic [10:0] poly_units;           // poly memory size (not used here)
 
     able_system sys (.*);
 endmodule

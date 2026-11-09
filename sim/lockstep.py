@@ -20,9 +20,10 @@ Trace format v2 (little-endian):
     'V' u8 device u16 index u32 value      HDL device state (system top):
           device 0 D3 (0 elapsed ns, 1 pending), 1 D4567 (0 D4, 1 D5),
           2 D60 (0 sector, 1 word), 3 D50 (0 baud index, 1 rx char,
-          2 char_rdy, 3 rx_wait ns, 4 tx_busy ns, 5 xmit_irq), 4 D100
+          2 char_rdy, 3 rx_wait ns, 4 tx_busy ns, 5 xmit_irq; 8 poly
+          memory size in 128 KB units, to able_system), 4 D100
           (fields as hdl/dev/dev_floppy.sv's state load), 5 D160 (as
-          dev_fm.sv), 6 wave memory byte (index = memory x 256 + point),
+          dev_fm.sv; 16 FM voices present), 6 wave memory byte (index = memory x 256 + point),
           7 D130 (as dev_keyboard.sv; index 30 = velocity keyboard
             (dev_vpk.sv) instead, 31 = strict)
     'F' u8 drive u16 sectors u8 spt u8 sides u8 protected, words
@@ -182,6 +183,9 @@ def _device_header(cpu):
     card = getattr(cpu, "midi", None)
     if card is not None and (card.sel or card.mcha or card.fifo):
         raise ValueError("MIDI card state is not the power-on state (dev_midi.sv has no load port)")
+    from .devices.poly import PolySynth
+    if isinstance(getattr(cpu, "poly", None), PolySynth):   # poly memory size, 128 KB units
+        out += struct.pack("<cBHI", b"V", 3, 8, cpu.poly.sectors // 256)
     for dev, idx, v in ((0, 0, rtc.elapsed), (0, 1, rtc.pending),
                         (1, 0, md.d4), (1, 1, md.d5),
                         (2, 0, xm.sector), (2, 1, xm.word),
@@ -720,6 +724,7 @@ def main(argv=None):
     ap.add_argument("--midi", action="store_true",
                     help="w0boot: with the MIDI card (sim/devices/midi.py; with --poly --vpk: "
                          "w0_midi_actions)")
+    ap.add_argument("--poly-mb", type=int, default=32, help="w0boot --poly: poly memory in MB")
     ap.add_argument("--fm-voices", type=int, default=8,
                     help="w0boot: FM voices installed (32: a 9600; with --vpk and no --midi: "
                          "w0_chord_actions)")
@@ -743,7 +748,7 @@ def main(argv=None):
         poly = None
         if a.poly:
             from .devices.poly import PolySynth
-            poly = PolySynth()
+            poly = PolySynth(sectors=a.poly_mb * 2048)
         midi = None
         if a.midi:
             from .devices.midi import MidiSubsystem

@@ -139,6 +139,12 @@ Velocity, pressure and the wheels act on a timbre once they are patched to
 it, as on the real instrument (hold a VK button such as VK VEL and press
 the destination, e.g. PARTIAL VOLUME).
 
+**More voices and poly memory.** `tools/w0_image.py --fm-voices 32` gives
+SYN-5.3 32 FM voices (a 9600; default 8) and `--poly-mb N` (32–224, in
+steps of 32) N MB of poly memory (default 32, a 3200); the state image's
+name says which, e.g. `W0-53-FM32-P224.SST`. The poly memory is cleared
+after reset in DDR3 bursts (estimated 0.6 s for 224 MB; not yet measured).
+
 **Release 5.3 with the MIDI subsystem card.** `tools/w0_image.py --midi`
 writes `W0-53-MIDI.SST`: the same machine with a MIDI card on D70–D73
 (`docs/devices/d70-midi-subsystem.md`). SYN-5.3 then reads MIDI itself, as

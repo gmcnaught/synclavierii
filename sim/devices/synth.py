@@ -146,9 +146,9 @@ class OriginalKeyboard(Device):
         if dev == 0o131:
             old, self.creg = self.creg, value
             i = value & 7
-            # display latch: strobe bit set on address 0..2 (EXW pulse)
-            if value & STROBE_BIT and not old & STROBE_BIT and i < 3 \
-                    and not value & (PANEL_BIT | READ_BIT):
+            # display latch: CREG = 40 + I exactly (LOAD.ORK.DISPLAY's EXW
+            # pulse); 260 (start A/D, external write) is not one
+            if value & 0o177770 == STROBE_BIT and not old & STROBE_BIT and i < 3:
                 self.display[i] = self.dreg
             return True
         self.dreg = value

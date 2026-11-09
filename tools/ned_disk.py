@@ -105,6 +105,47 @@ def put_bank(W, floppy, base, fw, n, path):
     print("bank %d <- %s (%d words)" % (n, path, len(bw)))
 
 
+ROOT_CATALOG_SECTORS = 4
+
+
+def add_root_file(disk, name, data, typ=3, capacity=None):
+    """Append file `name` (bytes `data`, big-endian words) to the root
+    catalog of hard-disk image bytes `disk` (a bytearray, changed in place):
+    the next catalog entry, the sectors after the last file (as MONITOR's
+    CREATE places USER). capacity: the disk's sectors (default its length).
+    Returns the start sector."""
+    if len(name) > 8 or len(data) % 2:
+        raise ValueError("name up to 8 characters, whole words")
+    W = load_bytes(disk)
+    end, slot = 0, None
+    for i in range(0, ROOT_CATALOG_SECTORS * SECTOR_WORDS, 8):
+        e = W[i:i + 8]
+        if not any(e):
+            slot = i
+            break
+        if name_of(e[0:4]) == name:
+            raise ValueError("%s is already in the catalog" % name)
+        if name_of(e[0:4]):
+            end = max(end, e[4] + e[5])
+    if slot is None:
+        raise ValueError("root catalog full")
+    nwords = len(data) // 2
+    length = (nwords + SECTOR_WORDS - 1) // SECTOR_WORDS
+    capacity = capacity if capacity is not None else len(disk) // (2 * SECTOR_WORDS)
+    if end + length > min(capacity, 0x10000):
+        raise ValueError("%s: %d sectors do not fit after sector %d" % (name, length, end))
+    nb = (name.encode("latin-1") + bytes(8))[:8]
+    entry = [nb[k] | nb[k + 1] << 8 for k in range(0, 8, 2)] + [end, length, nwords & 0xFFFF, typ]
+    disk[slot * 2:slot * 2 + 16] = struct.pack(">8H", *entry)
+    at = end * SECTOR_WORDS * 2
+    disk[at:at + length * SECTOR_WORDS * 2] = data + bytes(length * SECTOR_WORDS * 2 - len(data))
+    return end
+
+
+def load_bytes(d):
+    return struct.unpack(">%dH" % (len(d) // 2), bytes(d[: len(d) // 2 * 2]))
+
+
 def safe(component):
     c = re.sub(r"[^A-Za-z0-9._#+-]", "_", component)
     return c if c not in ("", ".", "..") else "_" + c

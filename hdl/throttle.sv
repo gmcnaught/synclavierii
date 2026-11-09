@@ -4,14 +4,16 @@
 //   each clock subtracts 1e9 / CLK_HZ. `stall` while debt > 0: the CPU
 //   waits before its next fetch (and before retrying a held read). When the
 //   CPU falls behind (debt < 0) it runs free; the credit is capped at
-//   CATCHUP_NS so it never races ahead in a burst.
+//   CATCHUP_NS so it never races ahead in a long burst. 200 us: a burst of
+//   code-cache misses (DDR3 reads) is made up instead of lost; the audio
+//   FIFO starts half full (32 samples, 667 us) and covers it.
 // `enable` = 0 (simulation, lockstep): never stall.
 // `lag_us` counts the real time given up at that cap (the CPU could not keep
 // up, e.g. waiting on an SD block): simulated time is that far behind
 // real time for good. Shown on the screen for the hardware test.
 module throttle #(
     parameter longint CLK_HZ = 50_000_000,
-    parameter int CATCHUP_NS = 10_000
+    parameter int CATCHUP_NS = 200_000
 ) (
     input  logic clk,
     input  logic rst,

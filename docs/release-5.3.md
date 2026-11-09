@@ -128,6 +128,35 @@ lockstep check against the simulator, as for Release L.
     instructions match the simulator. With the code cache the core runs
     them in 76M clocks (4.75 s at 16 MHz) for 6.24 s simulated time.
 
+* **After M7.6 (simulator and HDL):**
+  * **Keyboard:** SYN-5.3 needs no velocity keyboard. `KEYBOARD.CHECK`
+    (`08-INIT:610-INI1`) writes CREG 105 and takes `READ(DREG) = 1` as the
+    original keyboard (`NEW.ORK = 1`); the ORK model answers 1 (octave 5's
+    single key, up). Keys go through `SCAN.ORK.FOR.NOTES`
+    (`05-BUTT:076-OLDI`): key = 12 × octave + bit + 12 + `KBD_TRANSPOSE`,
+    middle C = key 36 (`SYNC.MIDDLE.C`), so MIDI 60 (midi_in.sv) is middle
+    C. Simulator: a key down gives FM voice writes and a note.
+  * **Timbres:** SYN-5.3 looks for `.NEWDATA` on the current catalog, then
+    the system catalog (`11-TIMB:162-TMB2`), and reports error 4 when none
+    is found. `tools/w0_image.py` adds Synclavier³'s `*NEWDATA.stmb` (2000
+    sectors, the `.simg` word format) as `W0:.NEWDATA`
+    (`ned_disk.add_root_file`, after USER as MONITOR's CREATE places
+    files): 8 banks of 250 sectors. Simulator: the Timbre Directory lists
+    SIMPLE FM SINE, FM HARMONICS, SIMPLE BELL, … (banks 1, 2, 5); panel
+    BANK 1 + ENTRY 2 recalls "SIMPLE FM SINE" over SCSI (3 commands); key
+    48 (C5) plays FM HARMONICS / SIMPLE BELL with the carrier at 523.3 Hz.
+  * **Panel display "Er":** SYN-5.3 showed "Err4" (above), but the ORK
+    model latched display word 0 again on CREG 260 (start the A/D, also bit
+    40) right after `LOAD.ORK.DISPLAY`, blanking "r4". The latch is now CREG
+    = 40 + I exactly (sim and `dev_keyboard.sv`).
+  * **Real time at idle:** SYN-5.3's idle loop makes no SCSI accesses; it
+    runs 1717 distinct code words on 5 external pages. The direct-mapped
+    code cache indexed with the low address bits missed 300 times per ms
+    (pages evict each other: every page starts with the same page-switch
+    stub); indexed with `a[13:0] ^ a[23:14] << 4`, 6 per ms (recorded fetch
+    stream, 3 s). The throttle's catch-up is now 200 us (was 10 us) so a
+    burst of misses is made up instead of lost (the "lag" counter).
+
 ## 5. NED/Able era check
 
 Release 5.3 must stay a program for NED's own hardware, not for the
@@ -155,8 +184,6 @@ Synclavier³ Mac interpreter:
   `imem` and `memory` apart: [INF] instruction stream from the page, data
   from internal memory); what an interrupt does to D11; external page size
   (64K words [INF]).
-* Velocity keyboard protocol on D130/D131 (from `610-INI1` and the
-  keyboard scan code).
 * External memory size SYN-5.3 expects; D164; other D57 bits.
 * Whether SYN-5.3 runs without poly hardware (it is compiled with
   `inc.poly`; "Poly Sampling Required" is the per-timbre error in Release

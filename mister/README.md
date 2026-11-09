@@ -84,8 +84,13 @@ Synclavier³ (`Synclavier³.app/Contents/Resources/W0 Disk Image.simg`, not
 included here). Make the two files and copy them to `games/Synclavier/`:
 
 ```bash
-python3 tools/w0_image.py "W0 Disk Image.simg" out/w53
+R="Synclavier³.app/Contents/Resources"
+python3 tools/w0_image.py "$R/W0 Disk Image.simg" out/w53     # also takes "$R/*NEWDATA.stmb"
 ```
+
+`W0-53.IMG` gets Synclavier³'s timbre banks (`*NEWDATA.stmb`, found next to
+the W0 image or given with `--newdata`) as `W0:.NEWDATA`; without them
+SYN-5.3 shows error 4 ("Err4") on the panel and an empty Timbre Directory.
 
 Mount `W0-53.IMG` as the SCSI disk W0 (S3), then `W0-53.SST` as the state
 image (S2): MONITOR 5.3 boots from W0, runs its PROFILE and starts SYN-5.3
@@ -102,4 +107,6 @@ image (S2): MONITOR 5.3 boots from W0, runs its PROFILE and starts SYN-5.3
 MIDI: set the UART to MidiLink (USB MIDI) in the MiSTer menu. Channels
 1–15 play the keyboard (MIDI notes 36–96 = the ORK's 61 keys); channel 16
 note n presses panel button n; program change p recalls timbre p (bank
-p/8, timbre p%8) with the timbre floppy in F0.
+p/8, timbre p%8) with the timbre floppy in F0 (Release L) or from
+`W0:.NEWDATA` (Release 5.3). SYN-5.3 detects the original keyboard (ORK)
+and plays it as Release L does; MIDI 60 is its middle C (key 36).

@@ -2,12 +2,15 @@
 """Make the MiSTer files for Release 5.3 (docs/release-5.3.md) from a W0
 image (Synclavier3's "W0 Disk Image.simg", not redistributable):
 
-    w0_image.py W0IMAGE OUTDIR [--mb 30]
+    w0_image.py W0IMAGE OUTDIR [--mb 30] [--newdata FILE]
 
   OUTDIR/W0-53.IMG   the W0 disk padded to --mb megabytes, with a USER
                      subcatalog made by MONITOR's own CREATE USER (MONITOR
                      keeps .CURRENT, DO files and history there; Synclavier3
-                     supplies it as a separate USER.simg). Mount as W0 (S3).
+                     supplies it as a separate USER.simg), and .NEWDATA,
+                     the timbre banks (--newdata; default: "*NEWDATA.stmb"
+                     next to W0IMAGE, as in Synclavier3's Resources; SYN-5.3
+                     shows error 4 on the panel without one). Mount as W0 (S3).
   OUTDIR/W0-53.SST   a state image (tools/state_image.py, version 2): the
                      machine just before MONITOR starts, as sim.boot.
                      boot_from_w0 sets it up (Model D, 8192 sectors of
@@ -26,8 +29,10 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 
-def prepared_disk(image, mb=30):
-    """The W0 image bytes, padded to `mb` MB, with a USER subcatalog."""
+def prepared_disk(image, mb=30, newdata=None):
+    """The W0 image bytes, padded to `mb` MB, with a USER subcatalog and,
+    given `newdata` (a .stmb file: 8 timbre banks, big-endian words), a
+    .NEWDATA after it."""
     from sim.boot import boot_from_w0
     cpu, _ = boot_from_w0(image, disk_mb=mb)
 
@@ -42,7 +47,11 @@ def prepared_disk(image, mb=30):
     text = bytes(b & 0o177 for b in cpu.terminal.out).decode("latin-1")
     if cpu.halted or "Ready >" not in text.split("create user")[-1]:
         raise RuntimeError("CREATE USER failed:\n" + text[-400:])
-    return bytes(cpu.w0.data)
+    disk = bytearray(cpu.w0.data)
+    if newdata:
+        from tools.ned_disk import add_root_file
+        add_root_file(disk, ".NEWDATA", open(newdata, "rb").read())
+    return bytes(disk)
 
 
 def main(argv=None):
@@ -51,9 +60,16 @@ def main(argv=None):
     ap.add_argument("image")
     ap.add_argument("outdir")
     ap.add_argument("--mb", type=int, default=30)
+    ap.add_argument("--newdata", help="timbre bank file (.stmb) for W0:.NEWDATA")
     a = ap.parse_args(argv)
     os.makedirs(a.outdir, exist_ok=True)
-    disk = prepared_disk(a.image, a.mb)
+    newdata = a.newdata
+    if newdata is None:
+        guess = os.path.join(os.path.dirname(os.path.abspath(a.image)), "*NEWDATA.stmb")
+        newdata = guess if os.path.exists(guess) else None
+    if newdata is None:
+        print("no timbre bank (--newdata): W0 without .NEWDATA")
+    disk = prepared_disk(a.image, a.mb, newdata)
     w0 = os.path.join(a.outdir, "W0-53.IMG")
     open(w0, "wb").write(disk)
     from sim.boot import boot_from_w0

@@ -5,8 +5,11 @@
 //     buttons, 1 = pressed). Other D130/D131 reads: no SYN when `strict`,
 //     else 0 (the RTP runs non-strict, as sim.rtp).
 //   D130 write: data register; with CREG = 10 + I (no read bit, no 20) it
-//     sets panel I's lights. CREG 0-2 with the strobe bit (40) rising
-//     latches the data register into display word I.
+//     sets panel I's lights. CREG = 40 + I (I 0-2, no other bits) after a
+//     CREG without 40 latches the data register into display word I
+//     (LOAD.ORK.DISPLAY's EXW pulse). CREG = 260 (start the A/D conversion
+//     and external write, also bit 40) latches nothing: SYN-5.3 writes it
+//     right after the display and the old rule blanked word 0 ("Err4" -> "Er").
 // Key and button state come from the host side.
 module dev_keyboard (
     input  logic        clk,
@@ -61,8 +64,8 @@ module dev_keyboard (
             if (ack && wr) begin
                 if (reg_sel) begin
                     creg <= wdata;
-                    if ((wdata & STROBE_BIT) != 0 && (creg & STROBE_BIT) == 0 && wdata[2:0] < 3'd3
-                            && (wdata & (PANEL_BIT | READ_BIT)) == 0)
+                    if ((wdata & 16'o177770) == STROBE_BIT && (creg & STROBE_BIT) == 0
+                            && wdata[2:0] < 3'd3)
                         display[wdata[1:0]] <= dreg;
                 end else begin
                     dreg <= wdata;

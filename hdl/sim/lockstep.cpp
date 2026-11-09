@@ -698,7 +698,7 @@ int main(int argc, char** argv) {
     if (realtime) {
         double real = cycles * 20.0, drift = (double)time_ns - real;
         std::printf("real time %.0f ns, simulated - real = %.0f ns\n", real, drift);
-        if (drift > 2000 || drift < -20000) fail(n, "throttle drift %.0f ns", drift);
+        if (drift > 2000 || drift < -210000) fail(n, "throttle drift %.0f ns", drift);   // CATCHUP_NS + 10 us
     }
 #endif
 #ifdef BOARD

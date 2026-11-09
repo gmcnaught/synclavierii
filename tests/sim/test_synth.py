@@ -60,6 +60,9 @@ def test_panel_buttons_lights_and_display():
         kb.write(0o131, i | 0o40)            # EXW strobe
         kb.write(0o131, i)
     assert kb.display == [0o100001, 0o34000, 0]
+    kb.write(0o131, 0o20)                    # LOAD.ORK.DISPLAY's end: 20, then
+    kb.write(0o131, 0o260)                   # 260 (start A/D): no latch
+    assert kb.display == [0o100001, 0o34000, 0]
     assert kb.d130_writes == []
 
 

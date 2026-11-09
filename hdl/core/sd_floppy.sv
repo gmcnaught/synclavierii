@@ -10,20 +10,22 @@
 // Word port (dev_floppy's fd_*, dev_scsi or the boot loader): {drive[1:0],
 // block[15:0], word[7:0]}; hold rd/wr until ack, a one-clock pulse; the clock after an
 // ack is ignored (the same handshake as the simulation RAM models). One
-// block is buffered. A miss reads the block from the SD card first; the
-// write of a block's last word (255) writes it back at once. Waiting costs
-// no simulated time (dev_floppy holds floppy accesses while it copies).
+// line is buffered: for the SCSI disk (drive 3) 32 blocks (16 KB, aligned,
+// cut at the end of the image) read with one SD request (hps_io
+// sd_blk_cnt), since each request costs about 0.5 ms on the MiSTer whatever
+// its size; for the other drives one block. A miss reads the line from the
+// SD card first; the write of a block's last word (255) writes that block
+// back at once. Waiting costs no simulated time (dev_floppy holds floppy
+// accesses while it copies; dev_scsi waits for its ack).
 module sd_floppy (
     input  logic        clk,
     input  logic        rst,
-
     input  logic [25:0] addr,
     input  logic        rd,
     input  logic        wr,
     input  logic [15:0] wdata,
     output logic [15:0] rdata,
     output logic        ack,
-
     output logic [3:0]  present,
     output logic [1:0]  protect,
     output logic        protect3,
@@ -32,7 +34,6 @@ module sd_floppy (
     output logic [12:0] blocks2,        // state image size (at most 4096)
     output logic [16:0] blocks3,        // SCSI disk size (at most 65536)
     output logic        active,         // an SD transfer is in progress (LED)
-
     input  logic [3:0]  img_mounted,
     input  logic        img_readonly,
     input  logic [63:0] img_size,
@@ -42,38 +43,42 @@ module sd_floppy (
     output logic [31:0] sd_lba3,
     output logic [3:0]  sd_rd,
     output logic [3:0]  sd_wr,
+    output logic [5:0]  sd_blk_cnt3,    // blocks - 1 of drive 3's request
     input  logic [3:0]  sd_ack,
-    input  logic [8:0]  sd_buff_addr,
+    input  logic [13:0] sd_buff_addr,
     input  logic [7:0]  sd_buff_dout,
     output logic [7:0]  sd_buff_din,
     input  logic        sd_buff_wr
 );
-    typedef enum logic [2:0] {S_IDLE, S_RD, S_RDING, S_WR, S_WRING} state_t;
-    state_t state;
-
+    localparam logic [2:0] S_IDLE = 3'd0, S_RD = 3'd1, S_RDING = 3'd2, S_WR = 3'd3, S_WRING = 3'd4;
+    logic [2:0]  state;
     logic        t_valid, t_dirty;
     logic [1:0]  t_drive;
-    logic [15:0] t_blk;
-
+    logic [15:0] t_blk;                 // the line's first block
+    logic [15:0] t_dblk;                // the block to write back
     wire [1:0]  drive = addr[25:24];
     wire [15:0] blk   = addr[23:8];
     wire [7:0]  w     = addr[7:0];
-    wire        hit   = t_valid && t_drive == drive && t_blk == blk;
+    wire        line  = drive == 2'd3;  // 32-block lines
+    wire [15:0] lbase = line ? {blk[15:5], 5'd0} : blk;
+    wire        hit   = t_valid && t_drive == drive && t_blk == lbase;
     wire        req   = (rd || wr) && !ack;
-
-    // block buffer: high and low bytes of each word, one address for both
-    // (the CPU side and the SD side never use it in the same state)
-    logic [7:0] buf_hi [256];
-    logic [7:0] buf_lo [256];
+    // line buffer: high and low bytes of each word; the CPU side uses
+    // {block in line, word}, the SD side the request's byte address
+    // (the two never use it in the same state)
+    logic [7:0] buf_hi [8192];
+    logic [7:0] buf_lo [8192];
     logic [7:0] q_hi, q_lo;
     logic       sd_side, sd_odd;
-    wire [7:0]  b_addr = sd_side ? sd_buff_addr[8:1] : w;
+    wire [4:0]  cpu_slot = line ? blk[4:0] : 5'd0;
+    wire [4:0]  wb_slot  = t_drive == 2'd3 ? t_dblk[4:0] : 5'd0;
+    wire [12:0] b_addr = state == S_RDING ? sd_buff_addr[13:1]
+                       : sd_side ? {wb_slot, sd_buff_addr[8:1]} : {cpu_slot, w};
     wire        we_hi = state == S_IDLE ? (req && hit && wr) : (state == S_RDING && sd_buff_wr && !sd_buff_addr[0]);
     wire        we_lo = state == S_IDLE ? (req && hit && wr) : (state == S_RDING && sd_buff_wr && sd_buff_addr[0]);
     wire [7:0]  d_hi  = state == S_IDLE ? wdata[15:8] : sd_buff_dout;
     wire [7:0]  d_lo  = state == S_IDLE ? wdata[7:0]  : sd_buff_dout;
     assign sd_side = state != S_IDLE;
-
     always_ff @(posedge clk) begin
         if (we_hi) buf_hi[b_addr] <= d_hi;
         if (we_lo) buf_lo[b_addr] <= d_lo;
@@ -85,7 +90,18 @@ module sd_floppy (
     assign sd_buff_din = sd_odd ? q_lo : q_hi;
     assign active      = state != S_IDLE;
 
-    wire [31:0] lba = {16'd0, state == S_IDLE ? blk : t_blk};
+    // blocks in drive 3's line at lbase: 32, cut at the end of the image
+    wire [16:0] left = blocks3 > {1'b0, lbase} ? blocks3 - {1'b0, lbase} : 17'd1;
+    wire [5:0]  cnt3 = left >= 17'd32 ? 6'd31 : 6'(left - 17'd1);
+
+    task automatic set_lba(input logic [1:0] d, input logic [15:0] b);
+        case (d)
+            2'd0: sd_lba0 <= {16'd0, b};
+            2'd1: sd_lba1 <= {16'd0, b};
+            2'd2: sd_lba2 <= {16'd0, b};
+            default: sd_lba3 <= {16'd0, b};
+        endcase
+    endtask
 
     always_ff @(posedge clk) begin
         ack <= 1'b0;
@@ -95,6 +111,7 @@ module sd_floppy (
             t_dirty <= 1'b0;
             sd_rd <= 4'b0000;
             sd_wr <= 4'b0000;
+            sd_blk_cnt3 <= 6'd0;
             present <= 4'b0000;
             protect <= 2'b00;
             protect3 <= 1'b0;
@@ -114,7 +131,6 @@ module sd_floppy (
                     if (d == 3) protect3 <= img_readonly;
                     if (t_drive == 2'(d) && !t_dirty) t_valid <= 1'b0;
                 end
-
             case (state)
             S_IDLE:
                 if (req) begin
@@ -122,6 +138,7 @@ module sd_floppy (
                         ack <= 1'b1;                     // read data: q next clock
                         if (wr) begin
                             t_dirty <= 1'b1;
+                            t_dblk <= blk;
                             if (w == 8'd255) state <= S_WR;
                         end
                     end else if (t_valid && t_dirty) begin
@@ -129,13 +146,9 @@ module sd_floppy (
                     end else begin
                         t_valid <= 1'b0;
                         t_drive <= drive;
-                        t_blk <= blk;
-                        case (drive)
-                            2'd0: sd_lba0 <= lba;
-                            2'd1: sd_lba1 <= lba;
-                            2'd2: sd_lba2 <= lba;
-                            default: sd_lba3 <= lba;
-                        endcase
+                        t_blk <= lbase;
+                        set_lba(drive, lbase);
+                        sd_blk_cnt3 <= line ? cnt3 : 6'd0;
                         sd_rd[drive] <= 1'b1;
                         state <= S_RD;
                     end
@@ -151,12 +164,8 @@ module sd_floppy (
                     state <= S_IDLE;
                 end
             S_WR: begin
-                case (t_drive)
-                    2'd0: sd_lba0 <= lba;
-                    2'd1: sd_lba1 <= lba;
-                    2'd2: sd_lba2 <= lba;
-                    default: sd_lba3 <= lba;
-                endcase
+                set_lba(t_drive, t_dblk);
+                sd_blk_cnt3 <= 6'd0;
                 sd_wr[t_drive] <= 1'b1;
                 if (sd_ack[t_drive]) begin
                     sd_wr <= 4'b0000;

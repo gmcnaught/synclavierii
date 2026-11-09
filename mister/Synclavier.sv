@@ -69,7 +69,8 @@ wire        img_readonly;
 wire [63:0] img_size;
 wire [31:0] sd_lba0, sd_lba1, sd_lba2, sd_lba3;
 wire  [3:0] sd_rd, sd_wr, sd_ack;
-wire  [8:0] sd_buff_addr;
+wire [13:0] sd_buff_addr;
+wire  [5:0] sd_blk_cnt3;
 wire  [7:0] sd_buff_dout, sd_buff_din;
 wire        sd_buff_wr;
 
@@ -91,7 +92,7 @@ hps_io #(.CONF_STR(CONF_STR), .VDNUM(4)) hps_io
 	.img_readonly(img_readonly),
 	.img_size(img_size),
 	.sd_lba('{sd_lba0, sd_lba1, sd_lba2, sd_lba3}),
-	.sd_blk_cnt('{6'd0, 6'd0, 6'd0, 6'd0}),
+	.sd_blk_cnt('{6'd0, 6'd0, 6'd0, sd_blk_cnt3}),   // drive 3: 32-block reads
 	.sd_rd(sd_rd),
 	.sd_wr(sd_wr),
 	.sd_ack(sd_ack),
@@ -151,6 +152,7 @@ synclavier_core #(.CLK_HZ(16_000_000), .VID_CE_DIV(1)) core
 	.sd_lba3(sd_lba3),
 	.sd_rd(sd_rd),
 	.sd_wr(sd_wr),
+	.sd_blk_cnt3(sd_blk_cnt3),
 	.sd_ack(sd_ack),
 	.sd_buff_addr(sd_buff_addr),
 	.sd_buff_dout(sd_buff_dout),

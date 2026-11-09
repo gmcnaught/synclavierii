@@ -2,7 +2,7 @@
 """Make the MiSTer files for Release 5.3 (docs/release-5.3.md) from a W0
 image (Synclavier3's "W0 Disk Image.simg", not redistributable):
 
-    w0_image.py W0IMAGE OUTDIR [--mb 30] [--newdata FILE]
+    w0_image.py W0IMAGE OUTDIR [--mb 30] [--newdata FILE] [--midi]
 
   OUTDIR/W0-53.IMG   the W0 disk padded to --mb megabytes, with a USER
                      subcatalog made by MONITOR's own CREATE USER (MONITOR
@@ -20,6 +20,10 @@ image (Synclavier3's "W0 Disk Image.simg", not redistributable):
                      unless --no-poly; the velocity/pressure keyboard on
                      D130/D131, unless --ork). Mount as the state image (S2). The core then boots MONITOR, which
                      runs W0's PROFILE ("set rtp syn-5.3 ... play") over SCSI.
+  OUTDIR/W0-53-MIDI.SST  with --midi instead of W0-53.SST: the same with the
+                     MIDI subsystem card (D51 bit 8; D70-D73): MIDI in goes
+                     to SYN-5.3's own MIDI input, and MIDI out works
+                     (hdl/dev/dev_midi.sv, hdl/core/midi_card_feed.sv).
 
 Both are made by the simulator, so the core starts exactly where the
 lockstep traces do (sim/lockstep.py w0boot).
@@ -65,6 +69,8 @@ def main(argv=None):
     ap.add_argument("--newdata", help="timbre bank file (.stmb) for W0:.NEWDATA")
     ap.add_argument("--no-poly", action="store_true",
                     help="state image without poly voices (D51 poly bit clear)")
+    ap.add_argument("--midi", action="store_true",
+                    help="state image with the MIDI subsystem card (W0-53-MIDI.SST)")
     ap.add_argument("--ork", action="store_true",
                     help="state image with the original keyboard instead of the velocity keyboard")
     a = ap.parse_args(argv)
@@ -84,8 +90,12 @@ def main(argv=None):
     if not a.no_poly:
         from sim.devices.poly import PolySynth
         poly = PolySynth()
-    cpu, _ = boot_from_w0(w0, poly=poly, keyboard="ork" if a.ork else "vpk")
-    sst = os.path.join(a.outdir, "W0-53.SST")
+    midi = None
+    if a.midi:
+        from sim.devices.midi import MidiSubsystem
+        midi = MidiSubsystem()
+    cpu, _ = boot_from_w0(w0, poly=poly, keyboard="ork" if a.ork else "vpk", midi=midi)
+    sst = os.path.join(a.outdir, "W0-53-MIDI.SST" if a.midi else "W0-53.SST")
     data = state_bytes(cpu)
     open(sst, "wb").write(data)
     print("%s: %d MB; %s: %d blocks" % (w0, len(disk) >> 20, sst, len(data) // 512))

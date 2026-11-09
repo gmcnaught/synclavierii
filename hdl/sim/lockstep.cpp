@@ -563,6 +563,9 @@ int main(int argc, char** argv) {
 #ifdef SYSTEM_DEVICES
         top->kb_host_we = 0;
         top->vpk_host_we = 0;
+#ifdef BOARD
+        top->midi_card_we = 0;
+#endif
         if (t.peek() == 'K') {                   // host key/button change
             t.u8();
             uint8_t kind = t.u8(), index = t.u8();
@@ -570,6 +573,12 @@ int main(int argc, char** argv) {
             if (kind < 2) {                      // ORK: 0 clavier octave, 1 panel word
                 top->kb_host_panel = kind; top->kb_host_index = index; top->kb_host_value = value;
                 top->kb_host_we = 1;
+            } else if (kind == 8) {              // a byte into the MIDI card's input FIFO
+#ifdef BOARD
+                top->midi_card_byte = value; top->midi_card_we = 1;
+#else
+                std::fprintf(stderr, "MIDI card bytes need the board top\n"); std::exit(2);
+#endif
             } else {                             // VPK: op kind - 2 (dev_vpk.sv)
                 top->vpk_host_op = kind - 2; top->vpk_host_addr = index; top->vpk_host_data = value;
                 top->vpk_host_we = 1;

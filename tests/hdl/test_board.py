@@ -41,13 +41,15 @@ def test_font_up_to_date():
 
 
 def _testbench(name, rtl, args=()):
-    """Build and run a self-checking SystemVerilog testbench hdl/sim/NAME_tb.sv."""
+    """Build and run a self-checking SystemVerilog testbench hdl/sim/NAME_tb.sv
+    with the RTL file(s) `rtl` (a path or a tuple of paths)."""
     mdir = os.path.join(BUILD_DIR, name)
     os.makedirs(mdir, exist_ok=True)
     b = subprocess.run(["verilator", "--binary", "-Wno-fatal", "-Wno-WIDTH", "-Wno-UNUSED",
                         "-I" + os.path.join(ROOT, "hdl/core"),
-                        "--top-module", name + "_tb", "-Mdir", mdir,
-                        os.path.join(ROOT, rtl), os.path.join(ROOT, "hdl/sim/%s_tb.sv" % name)],
+                        "--top-module", name + "_tb", "-Mdir", mdir]
+                       + [os.path.join(ROOT, r) for r in ((rtl,) if isinstance(rtl, str) else rtl)]
+                       + [os.path.join(ROOT, "hdl/sim/%s_tb.sv" % name)],
                        capture_output=True, text=True)
     assert b.returncode == 0, "building %s_tb failed:\n%s" % (
         name, "\n".join(ln for ln in (b.stdout + b.stderr).splitlines()
@@ -439,6 +441,74 @@ def test_dev_vpk():
             os.unlink(path)
 
 
+def midi_stimulus(path, seed=1, ops=6000):
+    """Stimulus for hdl/sim/dev_midi_tb.sv from sim/devices/midi.py
+    MidiSubsystem: SYN-5.3's detection and FIFO reset sequence, then random
+    selects (16, 17, 8, 32, others), port/reset writes, register reads,
+    output bytes and input bursts (some past the 64-byte FIFO)."""
+    import random
+    from sim.devices.midi import MidiSubsystem
+    rng = random.Random(seed)
+    card = MidiSubsystem()
+    out = []
+
+    def w(r, v):
+        card.write(0o70 + r, v & 0xFFFF)
+        out.append("W %d %d" % (r, v & 0xFFFF))
+
+    def rd(r):
+        out.append("R %d %d" % (r, card.read(0o70 + r)))
+
+    def rx(b):
+        card.receive(b)
+        out.append("B %d" % b)
+
+    w(0, 16); rd(0); rd(1)                          # INIT.MIDI.SUBSYSTEMS
+    for j in range(8, 13):
+        w(1, j); rd(2); w(2, 0)
+    w(1, 0); w(0, 17); rd(0)
+    for _ in range(ops):
+        x = rng.random()
+        if x < 0.1:
+            w(0, rng.choice((16, 16, 16, 17, 8, 32, rng.randrange(1 << 16))))
+        elif x < 0.2:
+            w(1, rng.choice((0, 1, 2, 3, 4, 4, 4, 12, rng.randrange(1 << 16))))
+        elif x < 0.45:
+            rd(rng.randrange(4))
+        elif x < 0.6:
+            w(2, rng.randrange(1 << 16))
+        elif x < 0.65:
+            w(3, rng.randrange(1 << 16))
+        elif x < 0.75:
+            for _ in range(rng.choice((1, 3, 3, 20, 70))):
+                rx(rng.randrange(256))
+        else:                                      # SCAN.MIDI: drain the input
+            w(0, 16)
+            while card.fifo and rng.random() < 0.95:
+                rd(1); w(1, 4); rd(2)
+            rd(1)
+    out += ["O %d" % b for _, b in card.out]
+    open(path, "w").write("\n".join(out) + "\n")
+    assert card.dropped and len(card.out) > 100, (card.dropped, len(card.out))
+
+
+def test_dev_midi():
+    """The MIDI subsystem card (hdl/dev/dev_midi.sv) against sim/devices/midi.py."""
+    if not HAVE_VERILATOR:
+        print("  skip test_dev_midi (needs verilator)")
+        return
+    import tempfile
+    for seed in (1, 2, 3):
+        with tempfile.NamedTemporaryFile(suffix=".stim", delete=False) as f:
+            path = f.name
+        try:
+            midi_stimulus(path, seed)
+            out = _testbench("dev_midi", "hdl/dev/dev_midi.sv", args=["+stim=" + path])
+            print("  " + [ln for ln in out.splitlines() if "dev_midi OK" in ln][0])
+        finally:
+            os.unlink(path)
+
+
 def test_ps2_ascii():
     if not HAVE_VERILATOR:
         print("  skip test_ps2_ascii (needs verilator)")
@@ -460,6 +530,17 @@ def test_midi_in():
         print("  skip test_midi_in (needs verilator)")
         return
     _testbench("midi_in", "hdl/core/midi_in.sv")
+
+
+def test_midi_card():
+    """MIDI bytes -> midi_in -> midi_card_feed: the bytes the MIDI card
+    receives (panel controls kept back); MIDI out (midi_uart_tx) at 31250
+    and 9600 baud."""
+    if not HAVE_VERILATOR:
+        print("  skip test_midi_card (needs verilator)")
+        return
+    _testbench("midi_card", ("hdl/core/midi_in.sv", "hdl/core/midi_card_feed.sv",
+                             "hdl/dev/dev_midi.sv"))
 
 
 def read_frame(path):

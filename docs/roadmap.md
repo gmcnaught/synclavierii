@@ -17,15 +17,14 @@ FPRM/FPSM boards is not required.
 | Release 5.3 | Boots from a SCSI W0 image; SYN-5.3 Main Menu, timbre banks (`.NEWDATA`), FM notes from MIDI on a MiSTer | [`release-5.3.md`](release-5.3.md) |
 | FM voices | 8 voices; register semantics decoded, pitch verified; HDL = Python sample for sample | [`fm-voice.md`](fm-voice.md) |
 | Poly sampling | 32 stereo voices, 32 MB poly memory in DDR3 (a 3200); sound files load over SCSI and play | [`poly-synth.md`](poly-synth.md) |
-| Keyboard and panel | ORK model; MIDI notes → keys, channel 16 → panel buttons, program change → timbre recall; on-screen panel with mouse | `hdl/core/midi_in.sv`, [`devices/`](devices/) |
+| Keyboard and panel | ORK (Release L) and velocity/pressure keyboard (Release 5.3); MIDI notes → keys with velocity, Launchkey pads/pots → panel buttons and knob, program change → timbre recall; on-screen panel with mouse | `hdl/core/midi_in.sv`, `hdl/core/midi_vpk.sv`, [`devices/`](devices/) |
+| MIDI card | D70–D73 MIDI subsystem card: SYN-5.3 reads MIDI itself (routing, recording, sync) and sends MIDI out on the UART (state image `W0-53-MIDI.SST`) | [`devices/d70-midi-subsystem.md`](devices/d70-midi-subsystem.md) |
 | Terminal | VT100 subset on the video output, PS/2 keyboard, PF keys | `hdl/core/term_display.sv` |
 
 ## What's next
 
 | # | Item | Value |
 |---|---|---|
-| M8a | **Velocity/pressure keyboard** (VPK) for Release 5.3, played from MIDI; Launchkey pads and pots mapped to panel buttons and the control knob | velocity, pressure, wheels; the full 160-button panel |
-| M8b | **MIDI subsystem card** (D70–D72): SYN-5.3's own MIDI in/out and routing | MIDI out, multi-channel MIDI |
 | M9 | **32 FM voices** (9600): voice state in block RAM, one voice per clock | full 9600 FM polyphony |
 | M10 | **Poly memory up to ~224 MB** (of the core's 256 MB DDR3 window) | larger sample libraries |
 | M11 | **SCSI load timing**: SD reads take simulated time | no audio stall while sound files load |

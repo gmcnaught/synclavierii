@@ -88,6 +88,8 @@ shows lag, audio underruns and MIDI activity. Details: [`hdl.md`](hdl.md),
 | M5 | FPGA FM voices, MIDI → keyboard and panel, audio, panel display and mouse; ORK-LM plays on MiSTer | passes on hardware (PR #20–#28) | `hdl/dev/fm_voices.sv`, `hdl/core/midi_in.sv` |
 | M6 | Model C extensions (D10, R12 stack, ADC/SBB) | merged into M7.1 | [`model-c-runtime-analysis.md`](model-c-runtime-analysis.md) |
 | M7 | Release 5.3: Model D, SCSI W0 boot, SYN-5.3 Main Menu, timbre banks, FM notes from MIDI; poly sampling (M7.7) | passes on hardware (.204, PR #30–#33) | [`release-5.3.md`](release-5.3.md), [`poly-synth.md`](poly-synth.md) |
+| M8a | Velocity/pressure keyboard (VPK, D130/D131) for Release 5.3, MIDI-mapped (Launchkey keys, pads, pots, wheels); on-screen VPK panel | board lockstep; on hardware: boot, program change, pitch bend (PR #34). Open: Launchkey pad/pot numbers are assumed until a MIDI capture | [`devices/d130-velocity-keyboard.md`](devices/d130-velocity-keyboard.md), `hdl/dev/dev_vpk.sv`, `hdl/core/midi_vpk.sv` |
+| M8b | MIDI subsystem card (D70–D73, one card at subsystem 16): SYN-5.3's own MIDI in, MIDI out on the UART | SYN-5.3 detects it and plays MIDI notes through it (sim); `dev_midi.sv` = model (3 random seeds); board lockstep 19.6M instructions (detection, note in, All Notes Off out). Hardware test pending | [`devices/d70-midi-subsystem.md`](devices/d70-midi-subsystem.md), `sim/devices/midi.py`, `hdl/dev/dev_midi.sv`, `hdl/core/midi_card_feed.sv` |
 
 ### Next
 
@@ -96,9 +98,7 @@ MiSTer.
 
 | # | Milestone | What it takes | Done when |
 |---|---|---|---|
-| **M8a** | **Velocity/pressure keyboard** (VPK, D130/D131) for Release 5.3 | Spec [`devices/d130-velocity-keyboard.md`](devices/d130-velocity-keyboard.md); `VelocityKeyboard` in `sim/`; `dev_vpk.sv`; `midi_vpk.sv` maps MIDI (Launchkey keys, pads, pots, wheels) to it; on-screen VPK panel | SYN-5.3 detects the VPK; keys play with velocity; pads and pots change settings; board lockstep and MiSTer test |
-| M8b | **MIDI subsystem card** (D70–D72, subsystem select 16–23) | Register spec ([`devices/d70-midi-subsystem.md`](devices/d70-midi-subsystem.md)); card model; `dev_midi.sv` on the MiSTer UART; MIDI out | SYN-5.3 detects the card; MIDI in/out through SYN-5.3's own MIDI routing |
-| M9 | **32 FM voices** (9600) | `fm_voices.sv` keeps every channel in registers and advances all in parallel; 32 voices need voice state in block RAM, one voice per clock (the last fit used 62 % of ALMs, 50 % of RAM blocks) | SYN-5.3 counts 32 FM voices; audio matches `sim/voice.py` |
+| **M9** | **32 FM voices** (9600) | `fm_voices.sv` keeps every channel in registers and advances all in parallel; 32 voices need voice state in block RAM, one voice per clock (the last fit used 62 % of ALMs, 50 % of RAM blocks). In the simulator SYN-5.3 with 32 voices plays 20 held keys on 40 channels (with 8 voices: 16) | SYN-5.3 counts 32 FM voices; audio matches `sim/voice.py` |
 | M10 | **Poly memory above 32 MB** | OSD size choice; `xr_addr` 26 → 27 bits for more than 96 MB. Core DDR3 window `0x30000000`–`0x3FFFFFFF` (256 MB) → poly at most ~224 MB; check SYN-5.3's size probe with sizes that are not a power of two | SYN-5.3 reports the chosen size; a sound file loads above 32 MB |
 | M11 | **SCSI load timing** | SD reads currently cost no simulated time, so audio stalls while sound files load | no underruns while CLARA3 loads |
 | M12 | **Second SCSI disk** (target 4, listed by MONITOR 5.3) | second target in `dev_scsi`, second SD image | `CATALOG W1:` |

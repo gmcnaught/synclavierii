@@ -218,16 +218,22 @@ module able_cpu (
     end
 
     localparam logic [9:0] NS_PER_TRANSFER = 10'd333;
+    // the instruction's transfers x 333 ns, set when EXEC ends (a register:
+    // tick_ns feeds every device's time logic)
+    logic [9:0] tick_exec;
     always_comb begin
         tick = 1'b0;
         tick_ns = NS_PER_TRANSFER;
         if (state == S_TICK) begin
             tick = 1'b1;
-            tick_ns = NS_PER_TRANSFER * ({9'd0, !rep} + {9'd0, src_xfer} + {9'd0, dst_xfer});
+            tick_ns = tick_exec;
         end else if (io_held) begin
             tick = 1'b1;
         end
     end
+    // the destination transfer as EXEC leaves it (an untaken jump has none)
+    wire dst_now = dst_xfer && !(dbyte >= 8'o320 && dbyte < 8'o340 && !cond(dbyte[2:0]));
+    wire [1:0] xfers = 2'(!rep) + 2'(src_xfer) + 2'(dst_now);
     // a held read is retried (333 ns) only when the throttle allows
     assign io_held = state == S_SRCIO && io_rd && io_hold && !io_ack && !io_nosyn && !stall;
 
@@ -348,6 +354,8 @@ module able_cpu (
 
             S_EXEC: begin
                 state <= S_TICK;
+                tick_exec <= xfers == 2'd0 ? 10'd0 : xfers == 2'd1 ? 10'd333 :
+                             xfers == 2'd2 ? 10'd666 : 10'd999;
                 if (!dbyte[7]) begin                              // I/O destination
                     if (dbyte[6:0] == PSW_DEV) begin
                         z <= val[0]; c <= val[1]; m <= val[2];

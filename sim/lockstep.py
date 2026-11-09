@@ -503,7 +503,7 @@ TOPS = {
     "board": ("board_top", SYSTEM_RTL + CORE_RTL + ["hdl/sim/board_top.sv"], ["-DBOARD"]),
 }
 INCLUDES = ["hdl/core/boot_defaults.svh", "hdl/core/font8x8.svh", "hdl/core/midi_tables.svh", "hdl/core/panel_labels.svh",
-            "hdl/dev/sine_rom.svh"]
+            "hdl/dev/sine_rom.svh", "hdl/dev/fm_num_rom.svh"]
 
 
 def build(top="cpu", force=False):

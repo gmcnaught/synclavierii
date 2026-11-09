@@ -153,26 +153,45 @@ module dev_fm #(
         for (int k = 1; k <= 7; k++)
             if (x >= OSC_D * 40'(k)) osc_n = 3'(k);
     endfunction
+    // Ticks are 0, 333, 666 or 999 ns (able_cpu.sv): OSC_NUM x tick_ns is a
+    // constant, and OSC_NUM x d (d = to_next, the instant's offset in a tick)
+    // comes from a ROM read with the next to_next (fm_num_rom.svh), so no
+    // multiplier sits in a tick's clock.
+    `include "fm_num_rom.svh"
     wire        sample_now = tick && to_next < 14'(tick_ns);
     wire [9:0]  d = to_next[9:0];                         // offset in this tick
-    wire [39:0] x_all = rr + OSC_NUM * 40'(tick_ns);
-    wire [39:0] x_a   = rr + OSC_NUM * 40'(d);
+    wire [39:0] num_tick = tick_ns == 10'd333 ? OSC_NUM * 40'd333 :
+                           tick_ns == 10'd666 ? OSC_NUM * 40'd666 :
+                           tick_ns == 10'd999 ? OSC_NUM * 40'd999 : 40'd0;
+    logic [13:0] to_next_nxt;
+    logic [39:0] num_d;                                   // OSC_NUM x to_next[9:0]
+    always_ff @(posedge clk) num_d <= osc_num_x(to_next_nxt[9:0]);
+    // synthesis translate_off
+    always_ff @(posedge clk)
+        if (!rst && tick && tick_ns != 10'd0 && tick_ns != 10'd333 && tick_ns != 10'd666 && tick_ns != 10'd999)
+            $error("dev_fm: tick of %0d ns (only 0/333/666/999 are handled)", tick_ns);
+    // synthesis translate_on
+    wire [39:0] x_all = rr + num_tick;
+    wire [39:0] x_a   = rr + num_d;
     wire [2:0]  n_all = osc_n(x_all);
     wire [2:0]  n_a   = osc_n(x_a);
     wire [39:0] rr_all = x_all - OSC_D * 40'(n_all);
     wire [39:0] rr_a   = x_a - OSC_D * 40'(n_a);
     wire [13:0] period = phase == 2'd2 ? 14'd5209 : 14'd5208;
-    logic        finish;                                  // rest of a sampled tick
-    logic [9:0]  rest_ns;
-    wire  [39:0] x_rest  = rr + OSC_NUM * 40'(rest_ns);
-    wire  [2:0]  n_rest  = osc_n(x_rest);
-    wire  [39:0] rr_rest = x_rest - OSC_D * 40'(n_rest);
+    // to_next as this clock leaves it (the ROM's address)
+    always_comb begin
+        to_next_nxt = to_next;
+        if (rst) begin
+            if (ld_voice_we && ld_voice_addr == 6'd33) to_next_nxt = ld_voice_data[13:0];
+        end else if (sample_now) to_next_nxt = to_next + period - 14'(tick_ns);
+        else if (tick) to_next_nxt = to_next - 14'(tick_ns);
+    end
 
     wire [17:0] rem_next = rem + 18'(tick_ns) * 18'd24;   // up to 148,975: 18 bits
     wire        interp_now = tick && rem_next >= 18'd125000;
     wire        interp_first = 18'(rem) + 18'(d) * 18'd24 >= 18'd125000;   // at or before the instant
 
-    wire   busy = clearing || running || pend_s || finish || settle != 2'd0;
+    wire   busy = clearing || running || pend_s || settle != 2'd0;
     assign stall = running && pend_s;
 
     // ------------------------------------------------------------ CPU side
@@ -403,7 +422,7 @@ module dev_fm #(
                 clr_a <= clr_a + 1'b1;
                 if (clr_a == (VB+1)'(MAXV - 1)) clearing <= 1'b0;
             end
-            running <= 1'b0; pend_s <= 1'b0; finish <= 1'b0; icount <= '0;
+            running <= 1'b0; pend_s <= 1'b0; icount <= '0;
             settle <= '0; caught <= 1'b0; g <= '0;
             vb_ok <= 1'b0; lok <= '0; ve_ok <= 1'b0;
             vf_ok <= 1'b0; vg_ok <= 1'b0; vh_ok <= 1'b0;
@@ -438,7 +457,7 @@ module dev_fm #(
 
             // ---- passes
             vb_ok <= 1'b0;
-            if (!running && !finish && settle == 2'd0) begin
+            if (!running && settle == 2'd0) begin
                 if (pend_s) begin
                     running <= 1'b1; mode <= M_SAMPLE; pend_s <= 1'b0; base <= pend_g; ibase <= pend_ic;
                     issue_v <= '0; n_issue <= (VB+1)'(nvoices);
@@ -472,19 +491,15 @@ module dev_fm #(
                 // interpolator clocks up to the instant (one in this tick counts
                 // if it comes at or before it)
                 pend_ic <= icount + 2'(interp_now && interp_first);
-                rr <= rr_a;
-                rest_ns <= tick_ns - d;
-                finish <= 1'b1;
-                to_next <= to_next + period - 14'(tick_ns);
+                // the rest of the tick: n_all - n_a ticks, ending where the whole tick does
+                rr <= rr_all;
+                g <= 6'(n_all) - 6'(n_a);
+                to_next <= to_next_nxt;
                 phase <= phase == 2'd2 ? 2'd0 : phase + 2'd1;
-            end else if (finish) begin
-                rr <= rr_rest;
-                g <= 6'(n_rest);
-                finish <= 1'b0;
             end else if (tick) begin
                 rr <= rr_all;
                 g <= g + 6'(n_all);
-                to_next <= to_next - 14'(tick_ns);
+                to_next <= to_next_nxt;
             end
             if (interp_now) icount <= icount + 2'd1;
 

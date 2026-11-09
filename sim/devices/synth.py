@@ -162,6 +162,221 @@ class OriginalKeyboard(Device):
         return True
 
 
+# ---------------------------------------------------------------------------
+# Velocity/pressure keyboard (VPK): docs/devices/d130-velocity-keyboard.md
+
+#: VPK physical button number (0-159) -> NED logical parameter name, from
+#: SYNRSOU 05-BUTT:071-NEWL (LPN.LOOKUP). None: no function.
+VPK_BUTTONS = (
+    "psel.0", "psel.1", "ve.del", "ve.atk", "ve.idec", "ve.fdec", "ve.peak", "ve.sust",
+    "psel.2", "psel.3", "he.del", "he.atk", "he.idec", "he.fdec", "he.peak", "he.sust",
+    "ptun", "pvol", "coef.0", "coef.1", "coef.2", "coef.3", "coef.4", "coef.5",
+    "ratio", "hgs", "coef.6", "coef.7", "coef.8", "coef.9", "coef.10", "coef.11",
+    "start", "stop", "record", "punch", "cont", "rew", "ff", "erase",
+    "mark", "sloop", "eloop", "speed", "click", "transp", "smpte", "ext",
+    "chain", "insert", "delete", "smt", "skt", "bounce", "just", "startup",
+    "tbase", "oratio", "scale.a", None, "ttben", "trvol", "trackpan", "trrout",
+    ) + tuple("trak.%d" % n for n in range(32)) + (
+    "dsel", "bankb", "entryb", "slib", "seqb", "split", None, "entrywrt",
+    "timb.0", "timb.1", "timb.2", "timb.3", "timb.4", "timb.5", "timb.6", "timb.7",
+    "kbdlkey", "kbdrkey", "repeat", "arpeg", "rrate", "chorus", "poly", "tname",
+    "dynenvl", "dynenvh", None, "midixpos", "vkxpos", None, "decay", "hadj",
+    "vwave", "vrate", "vdepth", "moddep", "vatk", "invert", "quant", "raise",
+    "stmode", "strate", "stdepth", "stcen", "pchorus", "ponoff", "plogl", "prate",
+    "vkvel", "vkpre", "vkpe1", "vkpe2", "vkmod", "vkrib", "vkkcv", "vkbth",
+    "info", "smin", "scon", "midi", "vkper", "vkrec", "vkove", "vkclr",
+)
+assert len(VPK_BUTTONS) == 160
+
+
+def vpk_button_number(name):
+    """VPK physical button number for a name ("timb.0") or a number."""
+    if str(name).isdigit():
+        return int(name)
+    return VPK_BUTTONS.index(name)
+
+
+def sync_ttime_map(mode=3):
+    """NED COMPUTE.SYNC.TTIME.MAP (05-BUTT:072-NEWI): transit time 0-255 ->
+    volume 0-225 (RTE.MAX), the table SYN-5.3 builds without .SMAP-7.
+    D4567 MUL: READ(4) is the high word of the product."""
+    rte_max, min_vol = 225, 3
+    t = [rte_max] * (5 + 5 * mode)
+    r, j = rte_max << 8, 61770
+    while r > (min_vol << 8) - 1 and len(t) < 256:
+        t.append((r >> 8) + ((r & 128) != 0))
+        r = (r * j) >> 16
+        j = 0x10000 - (((0x10000 - j) * 0xFE00) >> 16)
+    return t + [min_vol] * (256 - len(t))
+
+
+def _velocity_ttimes():
+    """MIDI velocity 0-127 -> the transit time whose mode-3 volume is
+    closest to velocity * 225 / 127; among equals the one nearest 60, so
+    127 -> 20 (TTIME.MIN) and 1 -> about 130. [CHOICE]"""
+    tt = sync_ttime_map(3)
+    out = []
+    for v in range(128):
+        target = (v * 225 + 63) // 127
+        out.append(min(range(256), key=lambda t: (abs(tt[t] - target), abs(t - 60))))
+    return tuple(out)
+
+
+VELOCITY_TTIME = _velocity_ttimes()
+VPK_KEYS = 76                   # key index 0-75 = NED key 9-84 = MIDI 33-108
+VPK_KEY_OFFSET = 9              # NED key number = index + 9 (middle C = 36)
+VPK_ANALOG = ("knob", "ribbon", "pedal 2", "pedal 1", "pitch wheel", "mod wheel",
+              "breath", "unused")
+VPK_ANALOG_REST = (128, 0, 255, 255, 128, 0, 0, 255)
+
+
+class VelocityKeyboard(Device):
+    """D130/D131: velocity/pressure keyboard, 160-button panel, 2 x 16
+    display (docs/devices/d130-velocity-keyboard.md section 8).
+
+    CREG bits 0-1 select a mode; a rising CREG bit 40 (EXW) hands DREG to
+    the keyboard: mode 1 latches a request (answered on the next D130
+    read with CREG bit 100), mode 2 writes a display byte, mode 3 a light.
+    Mode 0 reads the keyboard change register (KCR).
+    """
+    numbers = (0o130, 0o131)
+
+    def __init__(self, strict=True):
+        self.strict = strict
+        self.unknown_reads = 0
+        self.creg = 0
+        self.dreg = 0
+        self.request = 0
+        self.keys = [0] * 5             # superoctave key bits, 1 = down
+        self.reported = [0] * 5         # bits last returned for request 400|a
+        self.velocity = [0] * 80        # transit time latched at key down
+        self.pressure = [0] * 80
+        self.analog = list(VPK_ANALOG_REST)
+        self.switches = 0               # bits 8-15 of the 200|89 answer
+        self.banks = [0] * 11           # index 1-10: bank words, 1 = held
+        self.lights = [0] * 160         # by light address: 0 off, 1 on, 2 blink
+        self.chars = [0o40] * 32
+        self.dp = {32: 0, 36: 0, 40: 0, 44: 0, 48: 0, 52: 0}
+
+    # -- host side -------------------------------------------------------
+    def press_key(self, key, down=True, velocity=100):
+        """key: NED key number 9..84 (middle C = 36); velocity: MIDI 1-127."""
+        k = key - VPK_KEY_OFFSET
+        if not 0 <= k < VPK_KEYS:
+            raise ValueError("key %d outside 9..84" % key)
+        so, bit = divmod(k, 16)
+        if down:
+            if not self.keys[so] >> bit & 1:
+                self.velocity[k] = VELOCITY_TTIME[max(1, min(127, velocity))]
+            self.keys[so] |= 1 << bit
+        else:
+            self.keys[so] &= ~(1 << bit)
+            self.pressure[k] = 0
+
+    def press_midi_note(self, note, down=True, velocity=100):
+        """MIDI note 33..108 (middle C = 60), folded by octaves into range."""
+        while note < 33:
+            note += 12
+        while note > 108:
+            note -= 12
+        self.press_key(note - 60 + 36, down, velocity)
+
+    def set_pressure(self, key, value):
+        self.pressure[key - VPK_KEY_OFFSET] = value & 0o377
+
+    def set_analog(self, name, value):
+        self.analog[VPK_ANALOG.index(name) if isinstance(name, str) else name] = value & 0o377
+
+    @staticmethod
+    def _bank(pbn):
+        return 10 - (pbn >> 4), pbn & 15
+
+    def press_button(self, pbn, down=True):
+        """pbn: VPK physical button number 0..159."""
+        bank, bit = self._bank(pbn)
+        if down:
+            self.banks[bank] |= 1 << bit
+        else:
+            self.banks[bank] &= ~(1 << bit)
+
+    @staticmethod
+    def light_address(pbn):
+        return (pbn & 15) + 144 - (pbn & ~15)
+
+    def light(self, pbn):
+        """0 off, 1 on, 2 blink."""
+        return self.lights[self.light_address(pbn)]
+
+    def display_text(self):
+        """The two 16-character lines."""
+        s = "".join(chr(c & 0o177) if 32 <= (c & 0o177) < 127 else " " for c in self.chars)
+        return s[:16], s[16:]
+
+    # -- registers --------------------------------------------------------
+    def kcr(self):
+        v = 0o077777
+        for i in range(5):
+            if self.keys[i] != self.reported[i]:
+                v &= ~(1 << i)
+        return v
+
+    def answer(self):
+        r = self.request
+        op, a = r & 0o600, r & 0o177
+        if op == 0o000:
+            return self.velocity[a] if a < 80 else 0
+        if op == 0o200:
+            if 88 <= a <= 95:
+                v = self.analog[a - 88]
+                return v | (self.switches << 8) if a == 89 else v
+            return self.pressure[a] if a < 80 else 0
+        if op == 0o400:
+            so = a >> 4
+            if so >= 5:
+                return 0
+            self.reported[so] = self.keys[so]
+            return self.keys[so]
+        if a == 0:                      # 600: switch activity register
+            return sum(1 << (i - 1) for i in range(1, 11) if self.banks[i])
+        return self.banks[a] if a <= 10 else 0
+
+    def read(self, dev):
+        if dev == 0o130 and self.creg & READ_BIT:
+            if self.creg & 0o77 == 0o05:        # KEYBOARD.CHECK / CLEAR.KEYBOARD
+                return 0                        # not 1: not an original keyboard
+            mode = self.creg & 3
+            if mode == 0:
+                return self.kcr()
+            if mode == 1:
+                return self.answer()
+            return 0
+        if self.strict:
+            return NO_SYN
+        self.unknown_reads += 1
+        return 0
+
+    def write(self, dev, value):
+        if dev == 0o131:
+            old, self.creg = self.creg, value
+            if value & STROBE_BIT and not old & STROBE_BIT and not value & 0o20:
+                mode, d = value & 3, self.dreg
+                if mode == 1:
+                    self.request = d & 0o777
+                elif mode == 2:
+                    a = d >> 8 & 0o377
+                    if a < 32:
+                        self.chars[a] = d & 0o377
+                    elif a in self.dp:
+                        self.dp[a] = d & 0o377
+                elif mode == 3:
+                    a = d >> 8 & 0o377
+                    if a < 160:
+                        self.lights[a] = min(d & 3, 2) if d & 3 != 3 else 1
+            return True
+        self.dreg = value
+        return True
+
+
 class FMInterface(Device):
     """D160-D163: FM voice interface plus the old panel's switch register,
     external clock and A/D converter."""

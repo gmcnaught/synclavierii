@@ -159,6 +159,93 @@ def test_control_voltages():
     assert cv.read(0o164) is None
 
 
+# -- velocity/pressure keyboard (docs/devices/d130-velocity-keyboard.md) ----
+
+def vpk_request(kb, req):
+    """PULSE_EXWR (GLOBLITS:99) in mode 1: CREG 1, DREG = req, 41, 1, 101."""
+    kb.write(0o131, 1)
+    kb.write(0o130, req)
+    for c in (0o41, 1, 0o101):
+        kb.write(0o131, c)
+    v = kb.read(0o130)
+    kb.write(0o131, 1)
+    return v
+
+
+def vpk_kcr(kb):
+    """144-TIM3: DREG 0, CREG 0, 40, 0, 100; read; CREG 0."""
+    kb.write(0o130, 0)
+    for c in (0, 0o40, 0, 0o100):
+        kb.write(0o131, c)
+    v = kb.read(0o130)
+    kb.write(0o131, 0)
+    return v
+
+
+def vpk_write(kb, mode, addr, data):
+    """Mode 2 (display) / 3 (lights): CREG m, DREG addr<<8|data, m+40, m."""
+    kb.write(0o131, mode)
+    kb.write(0o130, addr << 8 | data)
+    kb.write(0o131, mode + 0o40)
+    kb.write(0o131, mode)
+
+
+def test_vpk_detection():
+    from sim.devices.synth import VelocityKeyboard
+    kb = VelocityKeyboard()
+    kb.write(0o131, 0o105)                   # KEYBOARD.CHECK: 1 would be an ORK
+    assert kb.read(0o130) != 1
+    kb.write(0o131, 0o005)
+    assert vpk_kcr(kb) == 0o077777           # powered, nothing changed
+    assert vpk_kcr(kb) == 0o077777
+
+
+def test_vpk_keys_velocity_pressure():
+    from sim.devices.synth import VELOCITY_TTIME, VelocityKeyboard, sync_ttime_map
+    tt = sync_ttime_map(3)
+    assert [tt[t] for t in (20, 21, 30, 60, 100, 130)] == [225, 212, 127, 30, 7, 3]
+    assert VELOCITY_TTIME[127] == 20 and tt[VELOCITY_TTIME[1]] == 3
+    kb = VelocityKeyboard()
+    kb.press_midi_note(60, velocity=127)     # middle C: NED key 36, index 27
+    kcr = vpk_kcr(kb)
+    assert kcr == 0o077777 & ~(1 << 1)       # superoctave 1 changed (negative logic)
+    bits = vpk_request(kb, 0o417 | 1 << 4)   # activity word, 1 = down
+    assert bits == 1 << (27 - 16)
+    assert vpk_kcr(kb) == 0o077777           # reported: no further change
+    assert vpk_request(kb, 0o000 | 27) & 0o1777 == 20      # transit time
+    kb.set_pressure(36, 90)
+    assert vpk_request(kb, 0o200 | 27) == 90
+    kb.press_midi_note(60, down=False)
+    assert vpk_kcr(kb) & 2 == 0
+    assert vpk_request(kb, 0o417 | 1 << 4) == 0
+
+
+def test_vpk_analog_and_switches():
+    from sim.devices.synth import VelocityKeyboard
+    kb = VelocityKeyboard()
+    assert [vpk_request(kb, 0o200 | n) for n in range(88, 96)] == [128, 0, 255, 255, 128, 0, 0, 255]
+    kb.set_analog("mod wheel", 200)
+    kb.switches = 0o4                        # glide
+    assert vpk_request(kb, 0o200 | 93) == 200
+    assert vpk_request(kb, 0o200 | 89) == 0o4 << 8
+
+
+def test_vpk_buttons_lights_display():
+    from sim.devices.synth import VelocityKeyboard, vpk_button_number
+    kb = VelocityKeyboard()
+    assert vpk_button_number("timb.0") == 104 and vpk_button_number("stop") == 33
+    kb.press_button(vpk_button_number("stop"))           # bank 8, bit 1
+    assert vpk_request(kb, 0o600) == 1 << 7              # SAR: bank 8
+    assert vpk_request(kb, 0o600 | 8) == 2
+    vpk_write(kb, 3, kb.light_address(104), 1)
+    vpk_write(kb, 3, kb.light_address(33), 2)
+    assert kb.light(104) == 1 and kb.light(33) == 2 and kb.light(0) == 0
+    for i, ch in enumerate(b" SYNCLAVIER"):
+        vpk_write(kb, 2, 1 + i, ch)
+    vpk_write(kb, 2, 32, 1)
+    assert kb.display_text()[0].startswith("  SYNCLAVIER") and kb.dp[32] == 1
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:

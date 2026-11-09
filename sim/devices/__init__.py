@@ -9,7 +9,7 @@ from .floppy import FloppyController, Media
 from .muldiv import MulDiv
 from .rtc import RealTimeClock
 from .stubs import ProbeDevice
-from .synth import ControlVoltages, FMInterface, OriginalKeyboard
+from .synth import ControlVoltages, FMInterface, OriginalKeyboard, VelocityKeyboard
 from .terminal import Terminal
 
-__all__ = ["ExternalMemory", "FloppyController", "Media", "MulDiv", "ControlVoltages", "OriginalKeyboard", "FMInterface", "ProbeDevice", "RealTimeClock", "Terminal"]
+__all__ = ["ExternalMemory", "FloppyController", "Media", "MulDiv", "ControlVoltages", "OriginalKeyboard", "VelocityKeyboard", "FMInterface", "ProbeDevice", "RealTimeClock", "Terminal"]

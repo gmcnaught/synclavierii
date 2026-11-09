@@ -66,9 +66,15 @@ timbre button (mouse, MIDI channel 16, or MIDI program change).
 Terminal keys (ORK-LM's screens, VT100 conventions): the arrow keys move;
 Enter is the VT100 RETURN; keypad Enter is the VT100 ENTER (`ESC O M`,
 "<ENTER> when done"); Esc twice also works as ENTER; F1–F4 are PF1–PF4.
-In the Timbre Directory (welcome menu A) the timbres on 06-TIMBD are all
-named WORKSPACE: pick one with the arrows, Return recalls it, keypad
-Enter leaves the screen.
+In the Timbre Directory (welcome menu A) pick a timbre with the arrows,
+Return recalls it, keypad Enter leaves the screen.
+
+Release L's 06-TIMBD is a blank library: all 64 timbres are the default
+(WORKSPACE, a sine). A later NED bank (`*NEWDATA.stmb`, see
+[`docs/timbre-libraries.md`](../docs/timbre-libraries.md)) can replace a
+bank: `tools/ned_disk.py Release_L.simg --floppy 06-TIMBD TOMDTA43.IMG
+--bank 1 TOMDTA43/*NEWDATA.stmb`. With TOMDTA43 in bank 1, timbres 4, 5, 6
+and 8 are FM timbres that play (simulator); timbre 1 needs a sound file.
 
 MIDI: set the UART to MidiLink (USB MIDI) in the MiSTer menu. Channels
 1–15 play the keyboard (MIDI notes 36–96 = the ORK's 61 keys); channel 16

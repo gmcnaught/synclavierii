@@ -20,6 +20,11 @@ Usage:
                                         # e.g. 03-SYSTD) as a floppy image for the
                                         # MiSTer core: its sectors from the catalog
                                         # on, 512 bytes each, words big-endian
+      [--bank N FILE]...                # and write timbre bank FILE (raw big-endian
+                                        # words, e.g. a later NED *NEWDATA.stmb) over
+                                        # bank N (1-8) of the floppy's .NEWDATA
+                                        # (Release L: 8 banks of 49 sectors; see
+                                        # docs/timbre-libraries.md)
 
 Treat images as untrusted data: names are sanitised and output is confined
 to OUTDIR.
@@ -77,6 +82,29 @@ def read_file(W, path):
     raise KeyError(path)
 
 
+BANK_SECTORS = 49
+
+
+def put_bank(W, floppy, base, fw, n, path):
+    """Write bank file `path` over bank n (1-8) of the .NEWDATA in floppy
+    words fw (the floppy starting at absolute sector base)."""
+    for p, typ, start, length, words in walk(W):
+        if p == floppy + "/.NEWDATA":
+            break
+    else:
+        raise SystemExit("%s has no .NEWDATA" % floppy)
+    if not 1 <= n <= length // BANK_SECTORS:
+        raise SystemExit("bank %d: .NEWDATA has %d banks" % (n, length // BANK_SECTORS))
+    data = open(path, "rb").read()
+    bw = list(struct.unpack(">%dH" % (len(data) // 2), data[:len(data) // 2 * 2]))
+    size = BANK_SECTORS * SECTOR_WORDS
+    if len(bw) > size:
+        raise SystemExit("%s: %d words, a bank holds %d" % (path, len(bw), size))
+    at = (start - base + (n - 1) * BANK_SECTORS) * SECTOR_WORDS
+    fw[at:at + size] = bw + [0] * (size - len(bw))
+    print("bank %d <- %s (%d words)" % (n, path, len(bw)))
+
+
 def safe(component):
     c = re.sub(r"[^A-Za-z0-9._#+-]", "_", component)
     return c if c not in ("", ".", "..") else "_" + c
@@ -87,13 +115,16 @@ def main():
     ap.add_argument("image")
     ap.add_argument("--extract", metavar="OUTDIR")
     ap.add_argument("--floppy", nargs=2, metavar=("NAME", "OUT"))
+    ap.add_argument("--bank", nargs=2, action="append", default=[], metavar=("N", "FILE"))
     a = ap.parse_args()
     W = load(a.image)
     if a.floppy:
         name, out = a.floppy
         for p, typ, start, length, words in walk(W):
             if p == "/" + name.strip("/") and typ == 7:
-                fw = W[start * SECTOR_WORDS:(start + length) * SECTOR_WORDS]
+                fw = list(W[start * SECTOR_WORDS:(start + length) * SECTOR_WORDS])
+                for n, path in a.bank:
+                    put_bank(W, p, start, fw, int(n), path)
                 open(out, "wb").write(struct.pack(">%dH" % len(fw), *fw))
                 print("%s: %d sectors -> %s" % (name, length, out))
                 return

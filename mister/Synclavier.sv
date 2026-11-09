@@ -122,7 +122,7 @@ end
 
 ///////////////////////   CORE   /////////////////////////////////
 
-wire [25:0] xr_addr;
+wire [26:0] xr_addr;
 wire        xr_rd, xr_wr, xr_wide, xr_ack;
 wire [15:0] xr_wdata, xr_rdata;
 wire        ce_pix, hs, vs, hblank, vblank;
@@ -194,6 +194,7 @@ synclavier_core #(.CLK_HZ(16_000_000), .VID_CE_DIV(1)) core
 	.booting(booting),
 	.boot_error(boot_error),
 	.halted(halted),
+	.poly_clearing(),
 
 	.sim_rx_valid(1'b0),
 	.sim_rx_data(8'd0),

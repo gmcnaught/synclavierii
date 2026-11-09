@@ -20,6 +20,7 @@ module able_system #(
     input  logic [1:0]  cpu_model,         // 1 B, 2 C, 3 D (able_cpu.sv)
     input  logic [15:0] cpu_d57,           // Model D: D57 options
     input  logic [15:0] term_bits,         // D51 device-present bits (15-8)
+    output logic [10:0] poly_units,        // poly memory size, 128 KB units (state load: device 3 index 8)
     input  logic        rt_enable,         // 1: hold the CPU to real time (throttle.sv)
     output logic [31:0] lag_us,            // real time given up by the throttle
 
@@ -202,6 +203,10 @@ module able_system #(
     logic rst_d;                            // ORK unless this reset's state load selects the VPK
     always_ff @(posedge clk) begin
         rst_d <= rst;
+        // poly memory size: 32 MB (a 3200) unless the state load says
+        if (rst && !rst_d) poly_units <= 11'd256;
+        else if (rst && ld_dev_we && ld_dev_sel == 3'd3 && ld_dev_addr == 13'd8)
+            poly_units <= ld_dev_data[10:0];
         if (rst && !rst_d) kb_vpk <= 1'b0;
         else if (rst && ld_dev_we && ld_dev_sel == 3'd7 && ld_dev_addr == 13'd30)
             kb_vpk <= ld_dev_data[0];
@@ -262,7 +267,7 @@ module able_system #(
         .tick, .tick_ns, .irq(term_irq),
         .host_rx_valid(term_rx_valid), .host_rx_data(term_rx_data),
         .host_tx_valid(term_tx_valid), .host_tx_data(term_tx_data),
-        .ld_we(ld_dev_we && ld_dev_sel == 3'd3), .ld_addr(ld_dev_addr[3:0]), .ld_data(ld_dev_data)
+        .ld_we(ld_dev_we && ld_dev_sel == 3'd3 && ld_dev_addr < 13'd8), .ld_addr(ld_dev_addr[3:0]), .ld_data(ld_dev_data)
     );
 
     dev_floppy floppy (

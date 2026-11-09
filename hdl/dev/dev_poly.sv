@@ -1,6 +1,6 @@
-// D154-D157 poly sampling synthesizer (M7.7): one bin of 32 voices and 16M
-// words (32 MB, 65536 sectors: one 32 MB page, a 3200's poly memory) behind
-// a word port. The behaviour is
+// D154-D157 poly sampling synthesizer (M7.7): one bin of 32 voices and
+// size_units x 64K words of poly memory (256 units = 32 MB, 65536 sectors,
+// a 3200's; up to 1792 = 224 MB on the MiSTer, M10) behind a word port. The behaviour is
 // sim/devices/poly.py's, register for register and tick for tick (the
 // evidence and the choices are there and in docs/poly-synth.md).
 //
@@ -30,11 +30,12 @@
 // (Written for Quartus 17: plain constants, no enum-typed function
 // arguments, no variables declared inside procedural blocks.)
 module dev_poly #(
-    parameter int MEM_BITS = 24                  // poly memory: 2^MEM_BITS words
+    parameter int MEM_BITS = 24                  // poly address space: 2^MEM_BITS words
 ) (
     input  logic        clk,
     input  logic        rst,
     input  logic        enable,
+    input  logic [10:0] size_units,   // memory present: size_units x 65536 words (128 KB)
     input  logic        tick,
     input  logic [9:0]  tick_ns,
 
@@ -49,7 +50,8 @@ module dev_poly #(
     output logic [MEM_BITS-1:0] m_addr,
     output logic        m_rd,
     output logic        m_wr,
-    output logic        m_wide,       // with m_wr: the whole 64-bit word (4 words)
+    output logic        m_wide,       // with m_wr: the 512 words from m_addr (a multiple of 512)
+    output logic        clearing,     // the memory clear after reset is running
     output logic [15:0] m_wdata,
     input  logic [15:0] m_rdata,
     input  logic        m_ack,
@@ -162,7 +164,9 @@ module dev_poly #(
     wire       ch_ok = channel[7:5] == 3'd0;
     wire [4:0] cv = channel[4:0];
     wire [3:0] req_env = env_field(req_fc);
-    wire       in_range = addr[27:MEM_BITS] == '0;
+    wire [27:0] limit    = {1'b0, size_units, 16'd0} > 28'(1) << MEM_BITS ? 28'(1) << MEM_BITS
+                                                                       : {1'b0, size_units, 16'd0};
+    wire       in_range = addr < limit;
 
     // ---------------------------------------------------- rate pass step
     wire        r_slave  = pv[0] && master[pv - 5'd1];
@@ -296,6 +300,7 @@ module dev_poly #(
     assign m_wr    = (es == E_MEM && mwr) || es == E_MCLR;
     assign m_wdata = es == E_MCLR ? 16'd0 : req_w;
     assign m_wide  = es == E_MCLR;
+    assign clearing = es == E_CLEAR || es == E_MCLR;
 
     // ------------------------------------------------------------ engine
     always_ff @(posedge clk) begin
@@ -325,11 +330,11 @@ module dev_poly #(
             // all poly memory to zero, as the model starts: SYN-5.3 reads
             // some of it before writing (the bin header, the size probe's
             // saved words, sectors 22-25 at start-up), and DDR3 holds
-            // whatever was there before. 2^MEM_BITS / 4 wide writes (about
-            // 0.9 s at 16 MHz for 32 MB); poly accesses wait for it.
+            // whatever was there before. limit / 512 wide writes, each a
+            // 128-beat DDR3 burst; poly accesses wait for it.
             E_MCLR: if (m_ack) begin
-                maddr <= maddr + 28'd4;
-                if (maddr[MEM_BITS-1:2] == {(MEM_BITS - 2){1'b1}}) es <= E_IDLE;
+                maddr <= maddr + 28'd512;
+                if (maddr + 28'd512 >= limit) es <= E_IDLE;
             end
             E_IDLE:
                 if (rate_due) begin
@@ -433,7 +438,7 @@ module dev_poly #(
                 x_eval <= er_q[60 +: 12]; x_lcur <= er_q[108 +: 12]; x_rcur <= er_q[84 +: 12];
                 if (!pv[0]) begin mbp <= q_bp; mon <= on0[pv]; end
                 if ((x_slave ? mon : on0[pv]) && er_q[60 +: 12] != 12'd0
-                        && (x_slave ? mbp + 30'd1 : q_bp) < (30'd1 << MEM_BITS)) begin
+                        && (x_slave ? mbp + 30'd1 : q_bp) < {2'd0, limit}) begin
                     maddr <= x_slave ? 28'(mbp + 30'd1) : 28'(q_bp);
                     es <= E_MIX_MEM;
                 end else if (pv == 5'd31) es <= E_MIX_OUT;

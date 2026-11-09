@@ -153,6 +153,7 @@ struct DdrModel {
     uint32_t base = 0x30000000u >> 3;
     std::deque<std::pair<int, uint64_t>> reads;    // (cycles left, data)
     uint64_t n = 0;
+    uint32_t burst_left = 0, burst_a = 0;
     void step(Top* top) {
         n++;
         top->DDRAM_DOUT_READY = 0;
@@ -164,6 +165,13 @@ struct DdrModel {
         top->DDRAM_BUSY = (n % 7) == 3;            // accepted on a clock with BUSY low
         if (top->DDRAM_BUSY) return;
         uint32_t a = top->DDRAM_ADDR - base;
+        if (top->DDRAM_WE && burst_left == 0 && top->DDRAM_BURSTCNT > 1) {   // a burst starts
+            burst_left = top->DDRAM_BURSTCNT; burst_a = a;
+        }
+        if (burst_left) {                          // address from the first beat
+            a = burst_a++;
+            burst_left--;
+        }
         if ((top->DDRAM_RD || top->DDRAM_WE) && a >= mem.size()) {
             std::fprintf(stderr, "DDR3 access outside the model: %08x\n", top->DDRAM_ADDR << 3);
             std::exit(1);
@@ -229,6 +237,10 @@ void board_start(Trace& t, bool& audio_trace) {
         } else if (k == 'V') {                     // device state: loaded by the core itself
             uint8_t sel = t.u8(); uint16_t addr = t.u16(); uint32_t v = t.u32();
             if (sel == 6 && addr < 8192) want_wave[addr] = (uint8_t)v;
+            if (sel == 3 && addr == 8) {               // poly memory size (128 KB units)
+                size_t need = (0x1000000u + (size_t)v * 65536) / 4;
+                if (ddr.mem.size() < need) ddr.mem.resize(need, 0x5A5A5A5A5A5A5A5Aull);
+            }
         } else { std::fprintf(stderr, "bad header section '%c'\n", k); std::exit(2); }
     }
     top->rst_hard = 1; top->rst = 1; top->rt_enable = 0;
@@ -490,7 +502,7 @@ int main(int argc, char** argv) {
     cycles = 0;
 #endif
 
-    uint64_t n = 0, time_ns = 0;
+    uint64_t n = 0, time_ns = 0, clear_cycles = 0;
     uint32_t held = 0;                 // held-read clocks in the current read
     bool check_snapshot = false;
     uint16_t snap[16]; uint8_t snap_flags = 0; uint64_t snap_time = 0;
@@ -689,7 +701,10 @@ int main(int argc, char** argv) {
         if (was_tick) time_ns += ns;
         if (was_held) held++;
         if (done) held = 0;
-        if (cycles > 64 * (n + 1000) + 64ull * held + time_ns / 10 || held > 10'000'000)
+#ifdef BOARD
+        if (top->poly_clearing) clear_cycles++;    // the poly memory clear holds poly accesses
+#endif
+        if (cycles > 64 * (n + 1000) + 64ull * held + time_ns / 10 + clear_cycles || held > 10'000'000)
             fail(n, "HDL stuck (state does not advance)");
     }
 #ifdef SYSTEM_DEVICES

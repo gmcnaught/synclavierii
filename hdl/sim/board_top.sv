@@ -52,6 +52,7 @@ module board_top (
     output logic        booting,
     output logic        boot_error,
     output logic        halted,
+    output logic        poly_clearing,
     output logic        led_disk,
 
     // the shared bench loop
@@ -102,7 +103,7 @@ module board_top (
     output logic [15:0] mon_data,
     output logic [1:0]  halt_reason
 );
-    logic [25:0] xr_addr;
+    logic [26:0] xr_addr;
     logic        xr_rd, xr_wr, xr_wide, xr_ack;
     logic [15:0] xr_wdata, xr_rdata;
 
@@ -121,7 +122,7 @@ module board_top (
         .audio_l(), .audio_r(),
         .midi_rxd(1'b1), .midi_txd(), .midi_card_we, .midi_card_byte, .kb_host_we, .kb_host_panel, .kb_host_index, .kb_host_value,
         .vpk_host_we, .vpk_host_op, .vpk_host_addr, .vpk_host_data,
-        .led_disk, .booting, .boot_error, .halted,
+        .led_disk, .booting, .boot_error, .halted, .poly_clearing,
         .sim_rx_valid(term_rx_valid), .sim_rx_data(term_rx_data), .term_tx_valid, .term_tx_data,
         .peek_addr, .peek_data, .top_row,
         .instr_done, .instr_pc, .instr_word, .regs_flat, .flags, .irq_sample, .irq_psw,

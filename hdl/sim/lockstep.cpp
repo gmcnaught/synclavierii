@@ -248,6 +248,7 @@ void board_start(Trace& t, bool& audio_trace) {
     top->rst_hard = 1; top->rst = 1; top->rt_enable = 0;
     top->dev_ack = top->dev_nosyn = top->dev_hold = top->halt_req = 0;
     top->dev_irq = 0; top->ps2_key = 0; top->ps2_mouse = 0; top->img_mounted = 0;
+    top->mouse_host_we = 0; top->midi_card_we = 0; top->vpk_host_we = 0; top->kb_host_we = 0;
     top->sd_ack = 0; top->sd_buff_wr = 0; top->DDRAM_BUSY = 0; top->DDRAM_DOUT_READY = 0;
     for (int i = 0; i < 8; i++) board_tick();
     // LOCKSTEP_STATE=path: a state image (tools/state_image.py) in S2, which
@@ -591,6 +592,7 @@ int main(int argc, char** argv) {
         top->vpk_host_we = 0;
 #ifdef BOARD
         top->midi_card_we = 0;
+        top->mouse_host_we = 0;
 #endif
         if (t.peek() == 'K') {                   // host key/button change
             t.u8();
@@ -599,6 +601,10 @@ int main(int argc, char** argv) {
             if (kind < 2) {                      // ORK: 0 clavier octave, 1 panel word
                 top->kb_host_panel = kind; top->kb_host_index = index; top->kb_host_value = value;
                 top->kb_host_we = 1;
+            } else if (kind == 9) {              // a mouse packet
+#ifdef BOARD
+                top->mouse_host_buttons = index; top->mouse_host_dxy = value; top->mouse_host_we = 1;
+#endif
             } else if (kind == 8) {              // a byte into the MIDI card's input FIFO
 #ifdef BOARD
                 top->midi_card_byte = value; top->midi_card_we = 1;

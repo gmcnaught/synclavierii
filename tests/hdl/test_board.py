@@ -95,7 +95,8 @@ def _vt100_check(data, tag):
         src = os.path.join(tmp, "in.bin")
         frame = os.path.join(tmp, "frame.pgm")
         open(src, "wb").write(data)
-        out = _testbench("term_display", "hdl/core/term_display.sv", ["+frame=" + frame, "+input=" + src])
+        out = _testbench("term_display", ("hdl/core/term_display.sv", "hdl/core/tek_plane.sv"),
+                         ["+frame=" + frame, "+input=" + src])
         w, h, px = read_frame(frame)
     finally:
         shutil.rmtree(tmp)
@@ -143,6 +144,62 @@ def test_term_display_vt100():
     assert t.keypad                                         # ORK-LM sends ESC =
 
 
+# VT640 graphics (docs/devices/vt640-graphics-terminal.md): text, vectors,
+# points, alpha text with BS/CR/LF, data levels (erase, XOR), a clear and
+# redraw, a double-width row, reverse cells, short-form addresses, DEL as
+# LoY, and an ESC sequence inside graphics
+VT640_STREAM = (
+    b"\x1b[H\x1b[2JTitle line\x1b[3;10H\x1b[7mreverse\x1b[0m plain"
+    b"\x1b[5;1H\x1b#6WIDE\x1b[24;70Hbottom"
+    b"\x1d\x1b/0d"
+    b"\x20\x60\x20\x40"                  # (0,0) move
+    b"\x38\x70\x3f\x5f"                  # to (1023, 760) line
+    b"\x20\x60\x3f\x5f"                  # to (1023, 0)
+    b"\x2c\x6c\x30\x50"                  # (528?, 396) short forms follow
+    b"\x7f\x55"                            # DEL as LoY, LoX only
+    b"\x1c\x30\x60\x28\x40\x31\x41"   # points
+    b"\x1d\x30\x60\x28\x40\x1f" b"Alpha\x08\x08AB\r\nNext line"
+    b"\x1d\x1b/2d\x30\x60\x28\x40\x30\x60\x30\x40\x2c\x60\x30\x40"   # XOR box edge
+    b"\x1b/1d\x1d\x20\x60\x20\x40\x38\x70\x3f\x5f"                     # erase the diagonal
+    b"\x1b/0d\x1b1\x1b|ab\x1b\\x\x18"
+    b"\x1b[10;20Hafter graphics"
+)
+
+
+def test_term_display_vt640():
+    """VT640 mode: the picture equals tools/vt100.py Terminal(vt640=True)."""
+    if not HAVE_VERILATOR:
+        print("  skip test_term_display_vt640 (needs verilator)")
+        return
+    _vt640_check(VT640_STREAM, "vt640")
+    # a clear and the same again: identical
+    _vt640_check(VT640_STREAM + b"\x1d\x1b\x0c\x18" + VT640_STREAM, "vt640 twice")
+
+
+def _vt640_check(data, tag):
+    from tools.vt100 import Terminal
+    tmp = tempfile.mkdtemp()
+    try:
+        src = os.path.join(tmp, "in.bin")
+        frame = os.path.join(tmp, "frame.pgm")
+        open(src, "wb").write(data)
+        _testbench("term_display", ("hdl/core/term_display.sv", "hdl/core/tek_plane.sv"),
+                   ["+frame=" + frame, "+input=" + src, "+vt640"])
+        w, h, px = read_frame(frame)
+    finally:
+        shutil.rmtree(tmp)
+    t = Terminal(vt640=True)
+    t.feed(data)
+    want = t.render()
+    c0 = 8 + ((15 * t.col + 1) >> 1)
+    bad = [(x, y) for y in range(480) for x in range(640)
+           if not (20 * t.row <= y < 20 * t.row + 20 and c0 <= x < c0 + 16)   # the cursor
+           and bool(px[y * w + x]) != bool(want[y * 640 + x])]
+    assert sum(t.g) > 1000, sum(t.g)
+    assert not bad, "%s: %d pixels differ from tools/vt100.py, first at %s" % (tag, len(bad), bad[0])
+    return t
+
+
 def test_panel_mouse():
     """Mouse packets -> pointer (clamped) and panel button presses."""
     if not HAVE_VERILATOR:
@@ -162,7 +219,7 @@ def test_term_display_panel():
     tmp = tempfile.mkdtemp()
     try:
         frame = os.path.join(tmp, "frame.pgm")
-        _testbench("term_display", "hdl/core/term_display.sv", ["+frame=" + frame])
+        _testbench("term_display", ("hdl/core/term_display.sv", "hdl/core/tek_plane.sv"), ["+frame=" + frame])
         term, panel, inverted, display = frame_text(frame, skip={(6, 75)})   # (6, 75): under the pointer
         w, h, px = read_frame(frame)
     finally:
@@ -194,7 +251,7 @@ def test_term_display_vpk():
     tmp = tempfile.mkdtemp()
     try:
         frames = [os.path.join(tmp, "frame%d.pgm" % i) for i in (1, 2)]
-        _testbench("term_display", "hdl/core/term_display.sv",
+        _testbench("term_display", ("hdl/core/term_display.sv", "hdl/core/tek_plane.sv"),
                    ["+vpk", "+frame=" + frames[0], "+frame2=" + frames[1]])
         shots = [frame_text(f, skip={(6, 75)}) for f in frames]   # (6, 75): under the pointer
     finally:

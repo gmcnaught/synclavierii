@@ -7,6 +7,7 @@
 //   pointer at (600, 100)
 //   terminal: "HELLO" then CR LF and "WORLD", or the bytes of +input=FILE;
 //   prints the keypad mode at the end ("keypad_app N")
+//   +vt640: VT640 mode (graphics plane; no panel, no pointer)
 //   +vpk: the VPK panel: display " SYNCLAVIER 5.3 " / "40 VOICES 36M  ",
 //         character 31 = 0x01 (shown as a space); PBN 33 (Stop) on, PBN 159
 //         (VClr) state 3, PBN 108 (Tb5) blinking; the frame is one with the
@@ -17,7 +18,7 @@ module term_display_tb;
     logic [7:0]  in_data = '0;
     logic [15:0] lights [8];
     logic [15:0] display [3];
-    logic        vpk = 0;
+    logic        vpk = 0, vt640 = 0;
     logic [1:0]  vpk_lights [160];
     logic [7:0]  vpk_chars [32];
     logic        ce_pix, hs, vs, hblank, vblank;
@@ -30,7 +31,7 @@ module term_display_tb;
         .lights, .display, .ptr_on(1'b1), .ptr_x(10'd600), .ptr_y(9'd100),
         .lag_us(32'h0001_2a3f), .underruns(16'h0002), .overruns(16'h0000),
         .midi_count(16'h0123), .midi_last(8'hf8), .midi_errs(16'h0000), .midi_alt(1'b1),
-        .vpk, .vpk_lights, .vpk_chars,
+        .vpk, .vpk_lights, .vpk_chars, .vt640, .panel_over(1'b0),
         .ce_pix, .r, .g, .b, .hs, .vs, .hblank, .vblank,
         .peek_addr(12'd0), .peek_data, .top_row, .keypad_app
     );
@@ -76,6 +77,7 @@ module term_display_tb;
         display[0] = {8'o117, 8'o146};                 // "3", "4"
         display[2] = 16'h0004;
         vpk = $test$plusargs("vpk");
+        vt640 = $test$plusargs("vt640");
         vtext = " SYNCLAVIER 5.3 40 VOICES 36M  ";
         for (int i = 0; i < 32; i++) vpk_chars[i] = i < 31 ? vtext[i] : 8'h01;
         for (int i = 0; i < 160; i++) vpk_lights[i] = 2'd0;
@@ -86,16 +88,19 @@ module term_display_tb;
         repeat (4) @(negedge clk);
         rst = 0;
         repeat (2100) @(negedge clk);                   // screen clear
+        while (!dut.tek.ready) @(negedge clk);          // graphics plane clear
         if ($value$plusargs("input=%s", inpath)) begin
             fin = $fopen(inpath, "rb");
             while ((ch = $fgetc(fin)) != -1) begin
                 @(negedge clk); in_valid = 1; in_data = 8'(ch);
                 @(negedge clk); in_valid = 0;
                 repeat (100) @(negedge clk);              // erases take up to 1920 clocks:
-                while (dut.wstate != 0) @(negedge clk);   // keep the 64-byte FIFO from filling
+                while (dut.wstate != 0 || !dut.tek.ready)   // keep the 64-byte FIFO from filling
+                    @(negedge clk);
             end
             $fclose(fin);
             repeat (2100) @(negedge clk);
+            while (dut.f_head != dut.f_tail || !dut.tek.ready || dut.wstate != 0) @(negedge clk);
         end else put("HELLO\r\nWORLD");
         // to the start of a frame, then 640 x 480 visible pixels
         if (vpk) begin

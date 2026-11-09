@@ -211,6 +211,21 @@ shifter off by one, pan without masking the shift bits, points added
 without pulses, sample period 5208 ns throughout, envelope always before
 the clock.
 
+## VT640 graphics terminal (`hdl/core/tek_plane.sv`, M13)
+
+With a state image configured for a VT640 (`tools/w0_image.py --vt640`;
+[`devices/vt640-graphics-terminal.md`](devices/vt640-graphics-terminal.md))
+`term_display` passes GS/FS and every byte in a graphics mode to
+`tek_plane`: a Tektronix 4010 subset (vector, point and alpha modes; data
+levels set/clear/XOR; ESC FF clear) drawn into a 640 × 480 × 1 bitmap of
+16-bit words (2 clocks a pixel, read-modify-write; a clear is 19,200
+writes), read by the video on its own port. Text then uses the VT640's
+geometry (20-line rows, 8/7-pixel columns from x = 8), ORed with the
+bitmap. The reference is `tools/vt100.py Terminal(vt640=True)`; the
+board's frame of SYN-5.3's graphic timbre display equals it pixel for
+pixel. The mouse is D44/D45/D54 (`hdl/dev/dev_mouse.sv`, PSW bit 10) fed by
+the MiSTer PS/2 mouse.
+
 ## MiSTer core (`hdl/core/`, `hdl/board/`, `mister/`)
 
 Framework: **Template_MiSTer** (decision D4). JTFRAME was considered and

@@ -53,6 +53,7 @@ localparam CONF_STR = {
 	"O[2:1],Text color,Green,Amber,White;",
 	"O[122:121],Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 	"O[3],Real-time pacing,On,Off;",
+	"O[4],VT640: panel strip,Hidden,Over bottom;",
 	"-;",
 	"T[0],Reset;",
 	"R[0],Reset and close OSD;",
@@ -143,6 +144,7 @@ synclavier_core #(.CLK_HZ(16_000_000), .VID_CE_DIV(1)) core
 	.ps2_key(ps2_key),
 	.ps2_mouse(ps2_mouse),
 	.color(status[2:1]),
+	.panel_over(status[4]),
 
 	.img_mounted(img_mounted),
 	.img_readonly(img_readonly),
@@ -184,6 +186,9 @@ synclavier_core #(.CLK_HZ(16_000_000), .VID_CE_DIV(1)) core
 
 	.midi_rxd(UART_RXD),
 	.midi_txd(midi_txd),
+	.mouse_host_we(1'b0),
+	.mouse_host_buttons(3'd0),
+	.mouse_host_dxy(16'd0),
 	.midi_card_we(1'b0),
 	.midi_card_byte(8'd0),
 	.kb_host_we(1'b0),

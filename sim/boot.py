@@ -128,6 +128,8 @@ def boot_from_image(image, floppy="03-SYSTD", f1=None, processor="B", **system_k
     return cpu, boot(cpu, program, loader)
 
 
+C_CMOPT = 17                # configuration table: options (bit 100: D44 mouse present)
+C_PTYPE = 18                # ... terminal type: 021400 VT640, 101400 Macintosh (Synclavier3's)
 C_STRDEV = 0o30             # configuration table: storage device table (4-word entries)
 C_STREND = 0o100            # ... up to here; an entry of 177777 ends it
 
@@ -148,8 +150,21 @@ LD7_SLOT_WORDS = 768        # .LD-7: three 768-word loaders (LOADER:MRGLOAD)
 LD7_SCSI_SLOT = 2           # FLPLOAD., WINLOAD., SCSILOA. in that order
 
 
+def set_terminal(program, terminal, mouse=False):
+    """Copy of an XPL program with configuration words 17/18 set for the
+    terminal (docs/devices/vt640-graphics-terminal.md section 2): "vt640"
+    (021400) or "vt100" (001400); mouse sets the D44 mouse bit. The loader
+    copies MONITOR's table into every program it starts."""
+    program = list(program)
+    c = config_pointer(program)
+    program[c + C_PTYPE] = {"vt640": 0o21400, "vt100": 0o1400}[terminal]
+    if mouse:
+        program[c + C_CMOPT] |= 0o100
+    return program
+
+
 def boot_from_w0(image, ext_sectors=8192, target=5, devices=2, disk_mb=None, poly=None,
-                 w1=None, **system_kw):
+                 w1=None, terminal=None, mouse=False, **system_kw):
     """Return (cpu, layout) ready to boot MONITOR from a Release 5.3-style W0:
     image (a hard-disk .simg, e.g. Synclavier3's "W0 Disk Image.simg").
 
@@ -161,7 +176,12 @@ def boot_from_w0(image, ext_sectors=8192, target=5, devices=2, disk_mb=None, pol
     READ CAPACITY reports it). poly: a devices.poly.PolySynth (D51 poly bit
     set); default the no-voices stub (stubs.PolyNoVoices). w1: a second
     disk image at SCSI target 4 (W1:; the device table then keeps 3 entries:
-    W0, F0, W1), as cpu.w1. Writes go to the in-memory copies of the
+    W0, F0, W1), as cpu.w1. terminal: None keeps the image's terminal type
+    (Synclavier3's: Macintosh); "vt640" configures a VT640 graphics terminal
+    (cpu.terminal.vt640 set: the core draws Tektronix graphics). mouse: a
+    D44/D45/D54 mouse (devices.mouse.Mouse, cpu.mouse) and the configuration
+    bit that tells SYN-5.3 it is there. Writes go
+    to the in-memory copies of the
     images (cpu.w0, cpu.w1), never the files.
     """
     from tools.ned_disk import load, read_file
@@ -170,6 +190,11 @@ def boot_from_w0(image, ext_sectors=8192, target=5, devices=2, disk_mb=None, pol
     if w1 is not None:
         devices = max(devices, 3)
     program = keep_devices(read_file(W, "MONITOR"), devices)
+    if terminal or mouse:
+        program = set_terminal(program, terminal or "vt640", mouse)
+    if mouse:
+        from .devices.mouse import Mouse
+        system_kw["mouse"] = Mouse()
     ld7 = read_file(W, ".SYSTEM/.LD-7")
     slot = ld7[LD7_SCSI_SLOT * LD7_SLOT_WORDS:(LD7_SCSI_SLOT + 1) * LD7_SLOT_WORDS]
     disk = ScsiDisk.from_file(image)
@@ -186,6 +211,7 @@ def boot_from_w0(image, ext_sectors=8192, target=5, devices=2, disk_mb=None, pol
     # D57: Model D, D40Q, M64K (MONITOR CHECK.MEM.SIZ needs both boards for 63K)
     cpu.d57 = 0o7
     cpu.w0 = disk
+    cpu.terminal.vt640 = terminal == "vt640"
     cpu.w1 = None
     if w1 is not None:
         cpu.w1 = cpu.scsi.targets[4] = ScsiDisk.from_file(w1)

@@ -22,8 +22,9 @@ module board_top (
     output logic [31:0] sd_lba3,
     output logic [3:0]  sd_rd,
     output logic [3:0]  sd_wr,
+    output logic [5:0]  sd_blk_cnt3,
     input  logic [3:0]  sd_ack,
-    input  logic [8:0]  sd_buff_addr,
+    input  logic [13:0] sd_buff_addr,
     input  logic [7:0]  sd_buff_dout,
     output logic [7:0]  sd_buff_din,
     input  logic        sd_buff_wr,
@@ -115,7 +116,7 @@ module board_top (
     // one clock in simulation: the video runs at clk / 2
     synclavier_core core (
         .clk, .rst_hard, .rst, .rt_enable, .clk_vid(clk), .ps2_key, .ps2_mouse, .color(2'd0),
-        .img_mounted, .img_readonly, .img_size, .sd_lba0, .sd_lba1, .sd_lba2, .sd_lba3, .sd_rd, .sd_wr, .sd_ack,
+        .img_mounted, .img_readonly, .img_size, .sd_lba0, .sd_lba1, .sd_lba2, .sd_lba3, .sd_rd, .sd_wr, .sd_blk_cnt3, .sd_ack,
         .sd_buff_addr, .sd_buff_dout, .sd_buff_din, .sd_buff_wr,
         .xr_addr, .xr_rd, .xr_wr, .xr_wide, .xr_wdata, .xr_rdata, .xr_ack,
         .ce_pix, .vga_r, .vga_g, .vga_b, .vga_hs, .vga_vs, .vga_hblank, .vga_vblank,

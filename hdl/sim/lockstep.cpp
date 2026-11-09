@@ -106,7 +106,7 @@ uint32_t lba_of(Top* top, int d) {
 struct SdModel {
     std::vector<uint8_t> img[4];                 // F0, F1, state image, W0 (SCSI)
     bool present[4] = {false, false, false, false}, prot[4] = {false, false, true, false};
-    int drive = -1, phase = 0, wait = 0, i = 0;
+    int drive = -1, phase = 0, wait = 0, i = 0, nbytes = 512;
     bool writing = false;
     uint64_t reads = 0, writes = 0;
     void step(Top* top) {
@@ -122,15 +122,16 @@ struct SdModel {
             return;
         case 1:
             top->sd_ack = 1 << drive; top->sd_buff_addr = 0; i = 0;
+            nbytes = 512 * (drive == 3 ? top->sd_blk_cnt3 + 1 : 1);   // hps_io sd_blk_cnt
             phase = writing ? 3 : 2; wait = 4; return;
-        case 2: {                                  // block -> FPGA
+        case 2: {                                  // blocks -> FPGA
             uint32_t lba = lba_of(top, drive);
             size_t off = (size_t)lba * 512 + i;
             top->sd_buff_addr = i;
             top->sd_buff_dout = off < img[drive].size() ? img[drive][off] : 0;
             top->sd_buff_wr = 1;
             wait = 3;
-            if (++i == 512) { phase = 4; reads++; }
+            if (++i == nbytes) { phase = 4; reads++; }
             return; }
         case 3: {                                  // block <- FPGA
             top->sd_buff_addr = i; phase = 5; wait = 3; return; }
@@ -746,6 +747,9 @@ int main(int argc, char** argv) {
     std::printf("lockstep OK: %llu instructions, %llu cycles, %llu ns simulated",
                 (unsigned long long)n, (unsigned long long)cycles, (unsigned long long)time_ns);
     if (samples) std::printf(", %llu audio samples", (unsigned long long)samples);
+#ifdef BOARD
+    std::printf(", %llu SD reads", (unsigned long long)sd.reads);
+#endif
     std::printf("\n");
     delete top;
     return 0;

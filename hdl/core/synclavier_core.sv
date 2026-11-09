@@ -45,8 +45,9 @@ module synclavier_core #(
     output logic [31:0] sd_lba3,
     output logic [3:0]  sd_rd,
     output logic [3:0]  sd_wr,
+    output logic [5:0]  sd_blk_cnt3,     // drive 3 (SCSI disk): blocks - 1 per request
     input  logic [3:0]  sd_ack,
-    input  logic [8:0]  sd_buff_addr,
+    input  logic [13:0] sd_buff_addr,
     input  logic [7:0]  sd_buff_dout,
     output logic [7:0]  sd_buff_din,
     input  logic        sd_buff_wr,
@@ -139,7 +140,7 @@ module synclavier_core #(
         .blocks2(state_blocks), .protect3(w0_protect), .blocks3(w0_blocks),
         .active(led_disk),
         .img_mounted, .img_readonly, .img_size, .sd_lba0, .sd_lba1, .sd_lba2, .sd_lba3,
-        .sd_rd, .sd_wr, .sd_ack,
+        .sd_rd, .sd_wr, .sd_blk_cnt3, .sd_ack,
         .sd_buff_addr, .sd_buff_dout, .sd_buff_din, .sd_buff_wr
     );
 

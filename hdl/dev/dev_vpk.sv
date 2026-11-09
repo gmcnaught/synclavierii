@@ -206,9 +206,14 @@ module dev_vpk (
 
     wire check = creg[5:0] == 6'o05;                       // KEYBOARD.CHECK: 105
     wire known = !reg_sel && (creg & READ_BIT) != 0;
+    // the answer to the current request, a clock old: a read comes at least
+    // three clocks after anything it depends on changes (timing: an 80-way
+    // multiplexer)
+    logic [15:0] answer_q;
+    always_ff @(posedge clk) answer_q <= answer;
     assign rdata = !known || check ? 16'd0 :
                    creg[1:0] == 2'd0 ? kcr :
-                   creg[1:0] == 2'd1 ? answer : 16'd0;
+                   creg[1:0] == 2'd1 ? answer_q : 16'd0;
     assign nosyn = sel && rd && !known && strict;
     assign ack   = sel && !nosyn;
 

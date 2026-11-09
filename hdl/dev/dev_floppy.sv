@@ -68,7 +68,7 @@ module dev_floppy (
     // registered read port (one M10K). The read port follows the D103
     // position, or the word being written back while flushing; q_word says
     // which word q holds.
-    logic [15:0] sbuf [256];
+    logic [7:0]  sbuf_hi [256], sbuf_lo [256];   // two plain byte RAMs (block RAM)
     logic [15:0] q;
     logic [7:0]  q_word;
     logic        b_we;
@@ -149,10 +149,10 @@ module dev_floppy (
     wire [7:0] q_byte = pos[0] ? q[15:8] : q[7:0];
     always_ff @(posedge clk) begin
         if (b_we) begin
-            if (b_be[0]) sbuf[b_wa][7:0]  <= b_wd[7:0];
-            if (b_be[1]) sbuf[b_wa][15:8] <= b_wd[15:8];
+            if (b_be[0]) sbuf_lo[b_wa] <= b_wd[7:0];
+            if (b_be[1]) sbuf_hi[b_wa] <= b_wd[15:8];
         end
-        q <= sbuf[r_word];
+        q <= {sbuf_hi[r_word], sbuf_lo[r_word]};
         q_word <= r_word;
     end
     always_comb begin
@@ -172,19 +172,28 @@ module dev_floppy (
     assign fd_wdata = q;
 
     wire signed [31:0] ns = {22'd0, tick_ns};
+    // a Type I command's step time, multiplied out the clock after the write
+    // (the instruction's tick comes then at the earliest): timing
+    logic [15:0] seek_n;
+    logic [31:0] seek_step;
+    logic        seek_go;
+    wire signed [31:0] seek_ns = $signed(seek_step * {16'd0, seek_n});
 
     task automatic start_type1(input logic [15:0] start, input logic [15:0] target);
         logic [15:0] nsteps;
         nsteps = target > start ? target - start : start - target;
         if (nsteps == 16'd0) nsteps = 16'd1;
         if (drive) head1 <= target; else head0 <= target;
-        busy_ns <= step_ns * {16'd0, nsteps};
+        seek_n <= nsteps;                     // busy_ns = step x steps, set the next clock
+        seek_step <= step_ns;
+        seek_go <= 1'b1;
     endtask
 
     always_ff @(posedge clk) begin
         if (rst) begin
             filling <= 1'b0;
             flushing <= 1'b0;
+            seek_go <= 1'b0;
             if (ld_we) case (ld_addr)
                 5'd0:  select <= ld_data[15:0];
                 5'd1:  track <= ld_data[7:0];
@@ -292,7 +301,7 @@ module dev_floppy (
         end else if (tick) begin
             phase <= phase + {22'd0, tick_ns} >= REV_NS ? phase + {22'd0, tick_ns} - REV_NS
                                                         : phase + {22'd0, tick_ns};
-            if (busy_ns > 0) begin
+            if (busy_ns > 0 && !seek_go) begin
                 busy_ns <= busy_ns - ns;
                 if (busy_ns - ns <= 0) status <= status & ~BUSY;
             end
@@ -317,6 +326,11 @@ module dev_floppy (
                     end
                 end
             end
+        end
+        if (seek_go) begin                    // the step time of a Type I command
+            seek_go <= 1'b0;
+            busy_ns <= seek_ns - (tick ? ns : 32'sd0);
+            if (tick && seek_ns - ns <= 0) status <= status & ~BUSY;
         end
         end
     end

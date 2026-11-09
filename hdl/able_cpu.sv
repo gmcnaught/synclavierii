@@ -89,7 +89,7 @@ module able_cpu (
 );
 
     typedef enum logic [3:0] {S_FETCH, S_DECODE, S_SRCMEM, S_SRCIO, S_EXEC, S_TICK, S_END, S_HALT,
-                              S_CFETCH, S_CSRC} state_t;
+                              S_CFETCH, S_CSRC, S_FWAIT} state_t;
 
     state_t      state;
     logic [15:0] r [16];
@@ -112,8 +112,11 @@ module able_cpu (
 
     // ---------------------------------------------------------------- decode
     wire [3:0]  pcr  = pcs ? 4'o17 : 4'o16;
-    // the instruction word in DECODE: repeated, fetched from a page, or from BRAM
-    wire [15:0] fword = rep ? ir : (paged_f ? fbuf : mem_rdata);
+    // the instruction word in DECODE: repeated, or fetched (from BRAM via
+    // S_FWAIT, or from a page) into fbuf. The internal memory is 100+ block
+    // RAMs behind an output multiplexer: its data is only ever registered
+    // (fbuf, val), never decoded in the same clock (timing).
+    wire [15:0] fword = rep ? ir : fbuf;
     wire [7:0]  sbyte = (state == S_DECODE) ? fword[7:0] : ir[7:0];
     wire [7:0]  dbyte = ir[15:8];
     wire [3:0]  sreg = sbyte[3:0];
@@ -187,7 +190,7 @@ module able_cpu (
         mem_wdata = val;
         io_rd     = 1'b0;
         io_wr     = 1'b0;
-        io_dev    = sbyte[6:0];
+        io_dev    = ir[6:0];
         io_wdata  = val;
         irq_sample = 1'b0;
         irq_psw    = 1'b0;
@@ -215,16 +218,22 @@ module able_cpu (
     end
 
     localparam logic [9:0] NS_PER_TRANSFER = 10'd333;
+    // the instruction's transfers x 333 ns, set when EXEC ends (a register:
+    // tick_ns feeds every device's time logic)
+    logic [9:0] tick_exec;
     always_comb begin
         tick = 1'b0;
         tick_ns = NS_PER_TRANSFER;
         if (state == S_TICK) begin
             tick = 1'b1;
-            tick_ns = NS_PER_TRANSFER * ({9'd0, !rep} + {9'd0, src_xfer} + {9'd0, dst_xfer});
+            tick_ns = tick_exec;
         end else if (io_held) begin
             tick = 1'b1;
         end
     end
+    // the destination transfer as EXEC leaves it (an untaken jump has none)
+    wire dst_now = dst_xfer && !(dbyte >= 8'o320 && dbyte < 8'o340 && !cond(dbyte[2:0]));
+    wire [1:0] xfers = 2'(!rep) + 2'(src_xfer) + 2'(dst_now);
     // a held read is retried (333 ns) only when the throttle allows
     assign io_held = state == S_SRCIO && io_rd && io_hold && !io_ack && !io_nosyn && !stall;
 
@@ -268,8 +277,13 @@ module able_cpu (
                     state <= S_DECODE;
                 end else begin
                     pc_at <= r[pcr];
-                    state <= paged_now ? S_CFETCH : S_DECODE;
+                    state <= paged_now ? S_CFETCH : S_FWAIT;
                 end
+            end
+
+            S_FWAIT: begin                                        // BRAM word -> fbuf
+                fbuf <= mem_rdata;
+                state <= S_DECODE;
             end
 
             S_CFETCH: if (cm_ack) begin                           // Model D page fetch
@@ -340,6 +354,8 @@ module able_cpu (
 
             S_EXEC: begin
                 state <= S_TICK;
+                tick_exec <= xfers == 2'd0 ? 10'd0 : xfers == 2'd1 ? 10'd333 :
+                             xfers == 2'd2 ? 10'd666 : 10'd999;
                 if (!dbyte[7]) begin                              // I/O destination
                     if (dbyte[6:0] == PSW_DEV) begin
                         z <= val[0]; c <= val[1]; m <= val[2];

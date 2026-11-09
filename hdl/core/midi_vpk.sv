@@ -77,13 +77,8 @@ module midi_vpk #(
         endcase
     endfunction
 
-    function automatic logic [6:0] fold(input logic [6:0] n);
-        logic [6:0] f;
-        f = n;
-        if (f < 7'd33) f = f + 7'd12 * 7'((7'd44 - f) / 7'd12);
-        if (f > 7'd108) f = f - 7'd12 * 7'((f - 7'd97) / 7'd12);
-        return f;
-    endfunction
+    // note folding and controller scaling: tables (tools/gen_midi_tables.py)
+    `include "midi_tables.svh"
 
     // ------------------------------------------------ immediate host ops
     logic       im_we;
@@ -106,7 +101,7 @@ module midi_vpk #(
     logic [6:0]  prog;
     logic        seq_took_tap, seq_idle;     // from the sequencer below
 
-    wire [6:0]  key = fold(msg_m1) - 7'd33;
+    wire [6:0]  key = vpk_key(msg_m1);
     wire [10:0] bend = {msg_m2, msg_m1[6:3]};       // top 11 bits of 14
     wire signed [19:0] bdev = $signed({9'd0, bend}) - 20'sd1024;
     wire signed [19:0] braw = 20'sd128 + ((bdev * 20'sd96) >>> 10);
@@ -123,9 +118,6 @@ module midi_vpk #(
                                      seq_step_down ? pending + 12'(seq_step_n)
                                                    : pending - 12'(seq_step_n);
 
-    function automatic logic [7:0] scale(input logic [6:0] v, input logic [7:0] span);
-        return 8'(({1'b0, v} * span + 15'd63) / 15'd127);
-    endfunction
 
     always_ff @(posedge clk) begin
         im_we <= 1'b0;
@@ -188,13 +180,13 @@ module midi_vpk #(
                     end
                     3'd3: case (msg_m1)
                         7'd1:  begin im_we <= 1'b1; im_op <= OP_ANALOG; im_addr <= 8'd5;
-                                     im_data <= 8'd13 + scale(msg_m2, 8'd180); end
+                                     im_data <= 8'd13 + scale180(msg_m2); end
                         7'd2:  begin im_we <= 1'b1; im_op <= OP_ANALOG; im_addr <= 8'd6;
-                                     im_data <= 8'd20 + scale(msg_m2, 8'd225); end
+                                     im_data <= 8'd20 + scale225(msg_m2); end
                         7'd4:  begin im_we <= 1'b1; im_op <= OP_ANALOG; im_addr <= 8'd3;
-                                     im_data <= 8'd235 - scale(msg_m2, 8'd225); end
+                                     im_data <= 8'd235 - scale225(msg_m2); end
                         7'd11: begin im_we <= 1'b1; im_op <= OP_ANALOG; im_addr <= 8'd2;
-                                     im_data <= 8'd235 - scale(msg_m2, 8'd225); end
+                                     im_data <= 8'd235 - scale225(msg_m2); end
                         7'd16: begin im_we <= 1'b1; im_op <= OP_ANALOG; im_addr <= 8'd1;
                                      im_data <= msg_m2 == 7'd0 ? 8'd0 : 8'd28 + {1'b0, msg_m2}; end
                         7'd64: begin

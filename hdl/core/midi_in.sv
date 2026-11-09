@@ -149,16 +149,12 @@ module midi_in #(
     logic [11:0] clav [6];
     logic [15:0] panel [8];
 
-    // note -> clavier octave and bit: fold into MIDI 36..96
-    logic [6:0] n;
-    always_comb begin
-        n = m1;
-        if (n < 7'd36) n = n + 7'd12 * 7'(((7'd47 - n) / 7'd12));
-        if (n > 7'd96) n = n - 7'd12 * 7'(((n - 7'd85) / 7'd12));
-    end
-    wire [6:0] k = n - 7'd36;                 // 0..60
-    wire [2:0] oct = 3'(k / 7'd12);
-    wire [3:0] bit_ = 4'(k % 7'd12);
+    // note -> clavier octave and bit: fold into MIDI 36..96 (a table:
+    // tools/gen_midi_tables.py ork_key)
+    `include "midi_tables.svh"
+    wire [6:0] ob = ork_key(m1);
+    wire [2:0] oct = ob[6:4];
+    wire [3:0] bit_ = ob[3:0];
 
     // program change sequencer (real time)
     localparam longint MS = CLK_HZ / 1000;

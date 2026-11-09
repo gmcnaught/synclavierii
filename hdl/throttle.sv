@@ -27,17 +27,24 @@ module throttle #(
     localparam longint FLOOR_Q16 = -(64'(CATCHUP_NS) * 64'd65536);
 
     logic signed [47:0] debt;
-    wire  signed [47:0] next = debt - 48'(NS_PER_CLK_Q16) + (tick ? 48'(tick_ns) <<< 16 : 48'sd0);
+    // the tick is taken a clock late and the lost time accumulated a clock
+    // after that: real-time accounting only (timing at 50 MHz)
+    logic        tick_q;
+    logic [9:0]  tick_ns_q;
+    wire  signed [47:0] next = debt - 48'(NS_PER_CLK_Q16) + (tick_q ? 48'(tick_ns_q) <<< 16 : 48'sd0);
 
     assign stall = enable && debt > 48'sd0;
 
     // given up this clock (< one clock's worth: at most 1 us a clock)
     wire  signed [47:0] lost = next < 48'(FLOOR_Q16) ? 48'(FLOOR_Q16) - next : 48'sd0;
-    logic signed [47:0] lost_acc;
-    wire  signed [47:0] lost_sum = lost_acc + lost;
+    logic signed [47:0] lost_acc, lost_q;
+    wire  signed [47:0] lost_sum = lost_acc + lost_q;
     localparam logic signed [47:0] US_Q16 = 48'sd1000 <<< 16;
 
     always_ff @(posedge clk) begin
+        tick_q <= tick && !rst;
+        tick_ns_q <= tick_ns;
+        lost_q <= rst ? 48'sd0 : lost;
         if (rst || !enable) debt <= '0;
         else debt <= next < 48'(FLOOR_Q16) ? 48'(FLOOR_Q16) : next;
         if (rst) begin

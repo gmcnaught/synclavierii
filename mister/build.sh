@@ -43,8 +43,12 @@ fit=output_files/$PROJECT.fit.summary
 grep -hE "uninferred|can't infer memory|Error \(" build.log 2>/dev/null | sort -u | head -40 || true
 
 if [ -f output_files/$PROJECT.sta.rpt ]; then
-    "$QBIN/quartus_sta" -t sta_paths.tcl >/dev/null 2>&1 || echo "(worst-path report failed)"
+    "$QBIN/quartus_sta" -t sta_paths.tcl > output_files/sta_paths.log 2>&1 || { echo "(worst-path report failed)"; tail -20 output_files/sta_paths.log; }
     if [ -f output_files/worst_paths_core.txt ]; then head -60 output_files/worst_paths_core.txt || true; fi
+    if [ -f output_files/core_50mhz.txt ]; then
+        echo "== core paths over 20 ns (50 MHz), by module"; sed -n '/endpoints with paths over 20 ns/,$p' output_files/core_50mhz.txt
+    fi
+    if [ -f output_files/core_modules.txt ]; then echo "== worst path per module"; cat output_files/core_modules.txt; fi
 fi
 
 echo

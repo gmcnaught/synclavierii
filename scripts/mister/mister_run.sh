@@ -15,11 +15,11 @@
 # and mount it in S2, with F0=03-SYSTD, F1=14-RTPO1 (as the simulator has
 # them): the core starts ORK-LM.
 #
-# MISTER=root@192.168.20.204 by default (SSH key login).
+# MISTER=root@<address of the MiSTer> is required (SSH key login).
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 RBF=${1:?usage: mister_run.sh RBF [KEYS...]}; shift
-DEV=${MISTER:-root@192.168.20.204}
+DEV=${MISTER:?set MISTER to root@<address of the MiSTer>}
 STATE=${STATE:-0}
 if [ "$STATE" = 1 ]; then F1=${F1:-14-RTPO1}; fi
 F0=${F0:-03-SYSTD}; F1=${F1:-18-UTILS}; TAG=${TAG:-run}

@@ -158,11 +158,47 @@ boards/
   summarised here, not copied.
 * Board roles and installation notes supplied by the project owner.
 
-## Licence
+## Licence and provenance
 
-This project's own files are released under the **MIT licence** (see
-[`LICENSE`](LICENSE)). Third-party material keeps its own terms:
-`tests/fixtures/NED-SCSI.LST` is MIT (see
-`tests/fixtures/LICENSE-NED-Software`). NED disk images such as Release L
-are not licensed for redistribution and are never included; users supply
-their own. Contribution workflow: [`CONTRIBUTING.md`](CONTRIBUTING.md).
+Synclavier® is a registered trademark of Synclavier Digital. This is an
+independent hobby project; it is not affiliated with, endorsed by or
+supported by Synclavier Digital or New England Digital.
+
+| Part | Licence |
+|---|---|
+| This project's own files (HDL, simulator, tools, tests, docs) | MIT, [`LICENSE`](LICENSE) |
+| `mister/sys/` (MiSTer framework, unchanged) | GPL-2.0, [`mister/sys/LICENSE-GPL2`](mister/sys/LICENSE-GPL2) |
+| `third_party/font8x8/` (Daniel Hepper) | Public domain (header of `font8x8_basic.h`) |
+| `tests/fixtures/NED-SCSI.LST` (NED assembler listing) | MIT, [`tests/fixtures/LICENSE-NED-Software`](tests/fixtures/LICENSE-NED-Software) |
+
+A built core (`.rbf`) contains `mister/sys/`, so a distributed RBF is a
+combined work under **GPL-2.0**; the MIT files remain usable on their own
+under MIT.
+
+Where the information comes from:
+
+* **NED documentation** that is published on archive.org and in the
+  `Synclavier/Documentation` GitHub repository (MIT), summarised here, not
+  copied.
+* **NED software source** published by Synclavier Digital under the MIT
+  licence (`jbemond/Software`), read to match the hardware behaviour the
+  software expects.
+* **Binary analysis for compatibility** of NED disk images (Release L from
+  `Synclavier/Synclavier_Distributions`; Release 5.3 from a Synclavier³
+  download), done on lawfully obtained copies. Only descriptions of formats
+  and behaviour are in the repository.
+
+[`docs/sources.md`](docs/sources.md) pins every source by URL, commit,
+path and checksum, and says what each was used for.
+
+**Not included**, and never committed: NED disk images (`*.simg`), timbre
+and sound files (`*.stmb`, `*.ssnd`, `*.sprg`), images built from them
+(`*.IMG`, `*.SST`), ROMs and board photos. Users supply their own disk
+images; the docs say how to build the core's images from them.
+`tests/test_repo_hygiene.py` fails if one of these file types is added.
+
+Rights holders: if you believe something here should not be, please open
+an issue on this repository and it will be dealt with promptly.
+
+Contribution workflow: [`CONTRIBUTING.md`](CONTRIBUTING.md); see also
+[`NOTICE`](NOTICE).

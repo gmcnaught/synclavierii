@@ -19,8 +19,12 @@
 #                 container as tar streams, so it need not exist on the host.
 #
 # Security: the runner has the host's Docker socket, i.e. root on the NAS,
-# and runs any workflow job of this repository. Keep the repository
-# private and do not add other people's workflows to it.
+# and runs any workflow job of this repository that selects it. The
+# repository is public, so: Build RBF only selects it for pushes, manual
+# runs and same-repository pull requests; Settings -> Actions -> General
+# requires approval before workflows run for all outside contributors; and
+# a fork PR that changes .github/workflows/ must be read before approving
+# it (the PR's copy of the workflow is the one that runs).
 services:
   runner:
     image: myoung34/github-runner:ubuntu-noble

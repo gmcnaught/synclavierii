@@ -1,0 +1,29 @@
+synclavierii
+Copyright (c) 2026 The synclavierii contributors
+
+Synclavier(R) is a registered trademark of Synclavier Digital. This
+project is independent and is not affiliated with, endorsed by or
+supported by Synclavier Digital or New England Digital.
+
+This repository contains:
+
+  * The project's own files, under the MIT licence (LICENSE).
+
+  * mister/sys/: the MiSTer framework (Template_MiSTer), unchanged, under
+    the GNU General Public License version 2 (mister/sys/LICENSE-GPL2). A
+    built core (.rbf) includes it and is distributed under GPL-2.0.
+
+  * third_party/font8x8/font8x8_basic.h: 8x8 bitmap font by Daniel
+    Hepper, based on work by Marcel Sondaar / IBM; public domain.
+
+  * tests/fixtures/NED-SCSI.LST: an NED assembler listing from
+    jbemond/Software ("Official Software for the Synclavier(R) Digital
+    Audio System"), Copyright (c) 2017 Synclavier Digital, MIT licence
+    (tests/fixtures/LICENSE-NED-Software).
+
+It does not contain NED disk images, timbre or sound files, ROM contents,
+or board photos. docs/sources.md lists every source used, with URLs,
+commits and checksums.
+
+Rights holders with a concern about any content: please open an issue on
+the repository.

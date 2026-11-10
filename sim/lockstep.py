@@ -699,9 +699,9 @@ def w0_bin_actions(cpu, b=1):
             (10_380 * ms, lambda c: kb.press_button(B(t))),
             (10_440 * ms, lambda c: kb.press_button(B(t), False)),
             (10_500 * ms, lambda c: kb.press_button(B("trrout"), False))]
-    for k in (36, 38, 40, 41, 43, 47, 48, 50):
-        acts += [(16_000 * ms, lambda c, k=k: kb.press_key(k, velocity=90)),
-                 (16_600 * ms, lambda c, k=k: kb.press_key(k, False))]
+    for i, k in enumerate((36, 38, 40, 41, 43, 47, 48, 50)):   # 2 us apart: one 'K' per instruction
+        acts += [(16_000 * ms + 2000 * (i + 1), lambda c, k=k: kb.press_key(k, velocity=90)),
+                 (16_600 * ms + 2000 * (i + 1), lambda c, k=k: kb.press_key(k, False))]
     return acts
 
 

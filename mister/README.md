@@ -165,6 +165,21 @@ disk image as S4 (`<file delay="2" type="s" index="4" path="W1.IMG"/>`
 in the MGL). A copy of a W0 image, or any NED SCSI disk image up to
 32 MB, works; `CATALOG W1:` lists it.
 
+**Your own samples (sound files).** `tools/sound_import.py` puts a WAV
+or AIFF file (mono or stereo, any common bit depth, loop and root note
+from its `smpl`/INST chunk) on a disk image as a NED sound file:
+`python3 tools/sound_import.py W1.IMG mysample.wav --create 32` makes a
+blank 32 MB W1: with it (`--name` sets the 8-character name; without
+`--create` the file is added to an existing image, e.g. a copy of
+W0-53.IMG, with `--replace` to overwrite a file of the same name).
+Mount the disk as S4 with a `--w1` state image, or as W0. In the
+simulator MONITOR lists it as `Sound` (`ENTER W1:`, `CATALOG`), and a file
+imported under the name of a sound file a timbre uses (W0:CLARA3) loads
+into poly memory and plays at the right pitch; loading from W1: inside
+SYN-5.3 is not yet tested. Rates that are not a multiple of 100 Hz
+(22050 Hz) are resampled to the next 100 Hz up. See
+[`tools/README.md`](../tools/README.md).
+
 **VT640 graphics terminal and mouse.** `tools/w0_image.py --vt640`
 configures SYN-5.3 for a VT640 (Tektronix 4010 graphics over the terminal)
 with a mouse on D44 (`W0-53-VT640.SST`; the Synclavier³ W0 is configured

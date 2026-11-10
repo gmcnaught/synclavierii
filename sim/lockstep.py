@@ -835,6 +835,7 @@ def w0_multi_actions(cpu):
     back on outputs 1-2 (TRACK ROUTING + TRACK VOLUME + track button 1)."""
     from .devices.synth import vpk_button_number as B
     kb = cpu.keyboard
+    ms = 1_000_000
     acts = []
     for t, name in ((10_600, "bankb"), (10_900, "timb.0"), (12_500, "entryb"), (12_800, "timb.1")):
         acts += [(t * ms, lambda c, n=name: kb.press_button(B(n))),
@@ -848,6 +849,8 @@ def w0_multi_actions(cpu):
              (15_600 * ms, lambda c: kb.press_key(52, velocity=100)),
              (16_200 * ms, lambda c: kb.press_key(52, False))]
     return acts
+
+
 def syn53_cpu(image, skip=0):
     """Release 5.3 from a W0 image (sim.boot.boot_from_w0, 30 MB disk): boot
     to Ready, CREATE USER, SET RTP SYN-5.3, PLAY, then `skip` instructions."""

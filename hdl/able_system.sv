@@ -259,7 +259,7 @@ module able_system #(
         if (rst && ld_dev_we && ld_dev_sel == 3'd7 && ld_dev_addr == 13'd31)
             synth_strict <= ld_dev_data[0];
     // ------------------------------------- card complement (M16, OSD Hardware page)
-    // Taken at reset, as cards were swapped with the power off. 0 in a field
+    // Taken while reset lasts (its value at the end counts), as cards were swapped with the power off. 0 in a field
     // keeps the state image's value. Poly voices fill bins of 32 in order,
     // the last bin takes the rest (sim/devices/poly.py PolySynth.layout).
     logic [13:0] cfg_q;
@@ -293,7 +293,7 @@ module able_system #(
         rst_d <= rst;
         // poly memory size: 32 MB (a 3200) unless the state load says
         // poly bins: 1 (a 3200) unless the state load says (a 6400: 2)
-        if (rst && !rst_d) cfg_q <= hw_cfg;
+        if (rst) cfg_q <= hw_cfg;           // the value when reset ends (the HPS sends the OSD status after power-on)
         if (rst && !rst_d) ld_bins <= 3'd1;
         else if (rst && ld_dev_we && ld_dev_sel == 3'd3 && ld_dev_addr == 13'd13)
             ld_bins <= ld_dev_data[2:0];

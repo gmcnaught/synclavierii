@@ -444,6 +444,7 @@ module dev_fm #(
                            nvoices <= ld_data[5:0] > 6'(MAXV) ? 6'(MAXV) : ld_data[5:0];
                 default: if (ld_addr[4:3] == 2'd1) adc[ld_addr[2:0]] <= ld_data[15:0];
             endcase
+            if (nvoices_ovr != 6'd0) nvoices <= nvoices_ovr;   // OSD (M16): its value when reset ends
             if (ld_voice_we && ld_voice_addr == 6'd32) rr <= ld_voice_data[39:0];
             if (ld_voice_we && ld_voice_addr == 6'd33) {phase, to_next} <= ld_voice_data[15:0];
         end else begin

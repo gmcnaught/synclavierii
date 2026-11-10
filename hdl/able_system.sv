@@ -24,8 +24,10 @@ module able_system #(
     output logic        term_vt640,        // VT640 graphics terminal (state load: device 3 index 9)
     output logic        term_mouse,        // D44/D45/D54 mouse (state load: device 3 index 10)
     output logic [19:0] scsi_block_ns,     // SCSI disk time per block (state load: device 3 index 11)
+    output logic [25:0] scsi_seek_ns,      // SCSI seek time (state load: device 3 index 12)
     input  logic        rt_enable,         // 1: hold the CPU to real time (throttle.sv)
     output logic [31:0] lag_us,            // real time given up by the throttle
+    output logic [23:0] stall_us [7],      // lag_us by what the CPU waited on (STALL_* below)
 
     // devices outside this module
     output logic        dev_rd,
@@ -147,7 +149,9 @@ module able_system #(
     logic        stall;
 
     logic        rt_stall, fm_stall;
-    throttle #(.CLK_HZ(CLK_HZ)) pace (.clk, .rst, .enable(rt_enable), .tick, .tick_ns, .stall(rt_stall), .lag_us);
+    logic [6:0]  lost_ns;
+    throttle #(.CLK_HZ(CLK_HZ)) pace (.clk, .rst, .enable(rt_enable), .tick, .tick_ns, .stall(rt_stall),
+                                      .lag_us, .lost_ns);
     assign stall = rt_stall || fm_stall;
 
     // Model D code fetches go through a cache (code_cache.sv) whose misses
@@ -193,6 +197,43 @@ module able_system #(
     wire sel_ext  = io && !(sel_rtc || sel_md || sel_term || sel_xm || sel_fd ||
                             sel_kb || sel_fm || sel_cv);
 
+    // ------------------------------------------- real time lost, by cause
+    // Each clock the throttle gives up real time (lost_ns, a clock late) is
+    // charged to what the CPU was doing in that clock: a code fetch waiting
+    // on the cache (a miss reads DDR3), a device transfer waiting for SYN
+    // (SCSI 024-027, poly 154-157, external memory 060-063, any other), the
+    // FM engine's stall, or none of these (running). Whole microseconds,
+    // so the seven add up to lag_us within a few us. Hardware diagnostics
+    // only: with rt_enable = 0 nothing is lost.
+    localparam int STALL_FETCH = 0, STALL_SCSI = 1, STALL_POLY = 2, STALL_XMEM = 3,
+                   STALL_IO = 4, STALL_FM = 5, STALL_RUN = 6;
+    wire io_wait = io && !io_ack && !io_nosyn;
+    logic [2:0] cause, cause_q;
+    always_comb begin
+        if (cm_rd && !cm_ack)                         cause = 3'(STALL_FETCH);
+        else if (io_wait && io_dev[6:2] == 5'b00101)  cause = 3'(STALL_SCSI);
+        else if (io_wait && io_dev[6:2] == 5'b11011)  cause = 3'(STALL_POLY);
+        else if (io_wait && sel_xm)                   cause = 3'(STALL_XMEM);
+        else if (io_wait)                             cause = 3'(STALL_IO);
+        else if (fm_stall)                            cause = 3'(STALL_FM);
+        else                                          cause = 3'(STALL_RUN);
+    end
+    logic [10:0] stall_ns [7];
+    always_ff @(posedge clk) begin
+        cause_q <= cause;
+        for (int i = 0; i < 7; i++) begin
+            if (rst) begin
+                stall_ns[i] <= '0;
+                stall_us[i] <= '0;
+            end else if (cause_q == 3'(i) && lost_ns != '0) begin
+                if (stall_ns[i] + 11'(lost_ns) >= 11'd1000) begin
+                    stall_ns[i] <= stall_ns[i] + 11'(lost_ns) - 11'd1000;
+                    stall_us[i] <= stall_us[i] + 24'd1;
+                end else stall_ns[i] <= stall_ns[i] + 11'(lost_ns);
+            end
+        end
+    end
+
     logic [15:0] rtc_rdata, md_rdata, term_rdata, xm_rdata_cpu, fd_rdata_cpu;
     logic        rtc_irq, md_ack, md_nosyn, term_ack, term_hold, term_irq, xm_cpu_ack;
     logic        fd_cpu_ack, fd_nosyn;
@@ -213,6 +254,9 @@ module able_system #(
         if (rst && !rst_d) scsi_block_ns <= '0;
         else if (rst && ld_dev_we && ld_dev_sel == 3'd3 && ld_dev_addr == 13'd11)
             scsi_block_ns <= ld_dev_data[19:0];
+        if (rst && !rst_d) scsi_seek_ns <= '0;
+        else if (rst && ld_dev_we && ld_dev_sel == 3'd3 && ld_dev_addr == 13'd12)
+            scsi_seek_ns <= ld_dev_data[25:0];
         if (rst && !rst_d) term_mouse <= 1'b0;
         else if (rst && ld_dev_we && ld_dev_sel == 3'd3 && ld_dev_addr == 13'd10)
             term_mouse <= ld_dev_data[0];

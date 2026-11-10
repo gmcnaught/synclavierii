@@ -120,7 +120,7 @@ module board_top (
 
     // one clock in simulation: the video runs at clk / 2
     synclavier_core core (
-        .clk, .rst_hard, .rst, .rt_enable, .clk_vid(clk), .ps2_key, .ps2_mouse, .color(2'd0), .panel_over(1'b0),
+        .clk, .rst_hard, .rst, .rt_enable, .clk_vid(clk), .ps2_key, .ps2_mouse, .color(2'd0), .panel_over(1'b0), .stall_view(1'b0),
         .img_mounted, .img_readonly, .img_size, .sd_lba0, .sd_lba1, .sd_lba2, .sd_lba3, .sd_lba4, .sd_rd, .sd_wr, .sd_blk_cnt3, .sd_blk_cnt4, .sd_ack,
         .sd_buff_addr, .sd_buff_dout, .sd_buff_din, .sd_buff_wr,
         .xr_addr, .xr_rd, .xr_wr, .xr_wide, .xr_wdata, .xr_rdata, .xr_ack,

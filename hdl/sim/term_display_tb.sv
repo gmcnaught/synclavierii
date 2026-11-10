@@ -8,6 +8,7 @@
 //   terminal: "HELLO" then CR LF and "WORLD", or the bytes of +input=FILE;
 //   prints the keypad mode at the end ("keypad_app N")
 //   +vt640: VT640 mode (graphics plane; no panel, no pointer)
+//   +stall: the status line's stall view, stall_us[i] = 0x10000 * i + 0x1234 + i
 //   +vpk: the VPK panel: display " SYNCLAVIER 5.3 " / "40 VOICES 36M  ",
 //         character 31 = 0x01 (shown as a space); PBN 33 (Stop) on, PBN 159
 //         (VClr) state 3, PBN 108 (Tb5) blinking; the frame is one with the
@@ -18,7 +19,9 @@ module term_display_tb;
     logic [7:0]  in_data = '0;
     logic [15:0] lights [8];
     logic [15:0] display [3];
-    logic        vpk = 0, vt640 = 0;
+    logic        vpk = 0, vt640 = 0, stall_view = 0;
+    logic [23:0] stall_us [7];
+    always_comb for (int i = 0; i < 7; i++) stall_us[i] = 24'(i) * 24'h10000 + 24'h1234 + 24'(i);
     logic [1:0]  vpk_lights [160];
     logic [7:0]  vpk_chars [32];
     logic        ce_pix, hs, vs, hblank, vblank;
@@ -31,7 +34,7 @@ module term_display_tb;
         .lights, .display, .ptr_on(1'b1), .ptr_x(10'd600), .ptr_y(9'd100),
         .lag_us(32'h0001_2a3f), .underruns(16'h0002), .overruns(16'h0000),
         .midi_count(16'h0123), .midi_last(8'hf8), .midi_errs(16'h0000), .midi_alt(1'b1),
-        .vpk, .vpk_lights, .vpk_chars, .vt640, .panel_over(1'b0),
+        .vpk, .vpk_lights, .vpk_chars, .vt640, .panel_over(1'b0), .stall_view, .stall_us,
         .ce_pix, .r, .g, .b, .hs, .vs, .hblank, .vblank,
         .peek_addr(12'd0), .peek_data, .top_row, .keypad_app
     );
@@ -78,6 +81,7 @@ module term_display_tb;
         display[2] = 16'h0004;
         vpk = $test$plusargs("vpk");
         vt640 = $test$plusargs("vt640");
+        stall_view = $test$plusargs("stall");
         vtext = " SYNCLAVIER 5.3 40 VOICES 36M  ";
         for (int i = 0; i < 32; i++) vpk_chars[i] = i < 31 ? vtext[i] : 8'h01;
         for (int i = 0; i < 160; i++) vpk_lights[i] = 2'd0;

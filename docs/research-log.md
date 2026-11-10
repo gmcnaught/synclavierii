@@ -456,6 +456,44 @@ Details in [`timbre-libraries.md`](timbre-libraries.md).
   `raetro/quartus:17.0` image (no self-hosted runner is registered for this
   repository).
 
+## 26. CPU and voice hardware during disk loads (M11, M14)
+
+Sources: `jbemond/Software` (NED XPL source) and *Cards and Components -
+Description.docx* (`Synclavier/Documentation`).
+
+* **Voices run without the CPU.** Each 8-voice FM card set has its own
+  crystal (SS4) and clock generator (SS2) ([`fm-voice.md`](fm-voice.md));
+  the CPU writes D160-D162 and the interpolators run to their limits on
+  their own. The poly bin is "a synchronous system" clocked by its PSSRGA,
+  which makes the 32 sample clocks; the CPU reaches it through D32X ->
+  PSCI -> PSF, and the PSBMC is the memory controller (cards doc). Poly
+  envelopes count at 25 kHz (`SYNLITS/FCODLITS:83`).
+* **Poly memory writes never wait in software.** The SCSI driver streams
+  `write(d157)=read(ScsiWord)`, 254 words per RPT, with no status check
+  (`XPL/SCSICODE:336-338,395`). How the bin arbitrates CPU access against
+  sample fetches (and whether D157 delays SYN) is not documented.
+* **Disks are programmed I/O.** SCSI: D24 select/data, D25 bus signals,
+  D26 byte, D27 word (`-XPL/SCSILITS:5-13`); the card makes ACK itself,
+  the CPU polls D25 between sectors, one sector is one uninterruptible
+  254-word RPT. No DMA or FIFO. Floppy: per-byte DRQ polling of D100, data
+  on D103 (`RTP/DISKREAD:231-242`), interrupts off from SEEK
+  (`DISKSEEK:175`) until the read ends (`DISKREAD:539`).
+* **A sound-file load stops the main loop, not the interrupts.** PS.LOAD
+  sets `RUN.SYN = 0` for the whole file (`SYNRSOU/03-PRIM/197-PAL1:362,833`),
+  reading 200 sectors a call. The D16 interrupt (1 ms) keeps starting
+  queued notes and scanning MIDI and the keyboard (`10-INT/144-TIM3`,
+  `144-TIM4:74-90`) and catches up milliseconds lost to "INTERRUPTS
+  DISABLED FOR > 1 MSEC" (`144-TIM2:333-339`). The main loop fills the note
+  queues 80 ms ahead (Internals p. 8), so on the instrument new sequencer
+  notes stop about 80 ms into a load; sounding notes continue. NED: "Scrubbing
+  in EditView while loading a sound file will likely hang until the sound
+  file is finished loading" (`197-PAL1:631-632`).
+* **Consequence for the core.** On the instrument a load delays main-loop
+  work but never the voices. In the core every device runs on simulated
+  time, so a real-time stall stops the voices too (underruns). M14 clocks
+  the voices from real time and keeps the CPU side at the D157 and
+  D160-D162 register writes, the split the hardware has.
+
 ## Searched without useful results
 
 * archive.org full-text and metadata search for "synclavier", "new england

@@ -117,6 +117,7 @@ module able_sys_top (
     end
 
     logic [31:0] lag_us;
+    logic [23:0] stall_us [7];
     logic [15:0] kb_lights [8];
     logic [15:0] kb_display [3];
     logic        kb_vpk;
@@ -126,6 +127,7 @@ module able_sys_top (
     logic [10:0] poly_units;           // poly memory size (not used here)
     logic        term_vt640, term_mouse;
     logic [19:0] scsi_block_ns;
+    logic [25:0] scsi_seek_ns;
 
     able_system sys (.*);
 endmodule

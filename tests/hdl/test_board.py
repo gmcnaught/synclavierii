@@ -251,6 +251,25 @@ def test_term_display_panel():
     assert all(px[104 * w + 600 + i] for i in range(5)) and not px[104 * w + 605]
 
 
+def test_term_display_stall_view():
+    """The status line's stall view (stall_view = 1): lag by cause, seven
+    fields of 11 columns (able_system.sv STALL_* order)."""
+    if not HAVE_VERILATOR:
+        print("  skip test_term_display_stall_view (needs verilator)")
+        return
+    tmp = tempfile.mkdtemp()
+    try:
+        frame = os.path.join(tmp, "frame.pgm")
+        _testbench("term_display", ("hdl/core/term_display.sv", "hdl/core/tek_plane.sv"),
+                   ["+frame=" + frame, "+stall"])
+        term, panel, inverted, display = frame_text(frame, skip={(6, 75)})
+    finally:
+        shutil.rmtree(tmp)
+    want = "".join(" %-3s %06X" % (name, 0x10000 * i + 0x1234 + i) for i, name in
+                   enumerate(("Fch", "SCS", "Ply", "Xm", "IO", "FM", "Run")))
+    assert panel[2] == want, (panel[2], want)
+
+
 def test_term_display_vpk():
     """The VPK panel strip (vpk = 1): the 2 x 16 display, the status line,
     the 160 labels by PBN; a lit label (state 1, and 3) inverted in both

@@ -43,6 +43,11 @@ while time runs, as the D24's handshake would wait). SYN-5.3's driver
 polls D25 for REQ before each block, so it waits between instructions
 with its interrupts running, as on the instrument. block_ns = 0: data is
 there at once (the default; the simulator's earlier behaviour).
+Seek time (seek_ns > 0, with disk time): a READ that does not start where
+the target's last READ or WRITE ended (or goes to the other target) first
+costs seek_ns, the drive's access time: block i at t0 + seek_ns +
+(i + 1) x block_ns. The core fetches the READ's first line from the SD
+card during that time (dev_scsi.sv, sd_floppy.sv).
 Blocks are 512 bytes = one 256-word NED sector; the image file is the
 sectors in order with big-endian words (a `.simg`), so SCSI bytes are the
 file's bytes.
@@ -152,10 +157,12 @@ class ScsiHost(Device):
 
     numbers = (0o24, 0o25, 0o26, 0o27)
 
-    def __init__(self, targets=None, initiator=6, block_ns=0):
+    def __init__(self, targets=None, initiator=6, block_ns=0, seek_ns=0):
         self.targets = dict(targets or {})
         self.initiator = initiator
         self.block_ns = block_ns
+        self.seek_ns = seek_ns
+        self.head = None         # (target, block) where the last READ/WRITE ended
         self.time_ns = 0
         self.timed = False       # the data phase of a READ with disk time
         self.t0 = 0
@@ -288,6 +295,14 @@ class ScsiHost(Device):
         self.t0 = self.time_ns
         status, data, out_len, done = self.target.execute(cdb)
         self.status = status
+        if cdb[0] in (0x08, 0x0A, 0x28, 0x2A) and (data or out_len):
+            if cdb[0] in (0x08, 0x0A):
+                lba, n = ((cdb[1] & 0x1F) << 16) | (cdb[2] << 8) | cdb[3], cdb[4] or 256
+            else:
+                lba, n = int.from_bytes(cdb[2:6], "big"), int.from_bytes(cdb[7:9], "big")
+            if self.timed and self.head != (self.target_id, lba):
+                self.t0 += self.seek_ns
+            self.head = (self.target_id, lba + n)
         if data:
             self.data_in, self.pos = data, 0
             self.phase = DATA_IN

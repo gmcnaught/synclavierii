@@ -36,6 +36,7 @@ module synclavier_core #(
     input  logic [24:0] ps2_mouse,
     input  logic [1:0]  color,
     input  logic        panel_over,      // VT640 terminal: panel strip over its last 96 lines
+    input  logic        stall_view,      // status line: lag by stall cause instead of health
 
     input  logic [4:0]  img_mounted,
     input  logic        img_readonly,
@@ -141,6 +142,9 @@ module synclavier_core #(
     logic [16:0] w0_blocks;
     wire  [1:0]  fd_present = sd_present[1:0];
     logic [10:0] fd_sectors0, fd_sectors1;
+    logic        scsi_hint, scsi_line_ok;            // dev_scsi <-> sd_floppy (seek time)
+    logic [15:0] scsi_hint_blk, scsi_probe_blk;
+    logic        scsi_unit;
     sd_floppy media (
         .clk, .rst(rst_hard),
         .addr(m_addr), .rd(m_rd), .wr(m_wr), .wdata(m_wdata), .rdata(m_rdata), .ack(m_ack),
@@ -150,7 +154,9 @@ module synclavier_core #(
         .active(led_disk),
         .img_mounted, .img_readonly, .img_size, .sd_lba0, .sd_lba1, .sd_lba2, .sd_lba3, .sd_lba4,
         .sd_rd, .sd_wr, .sd_blk_cnt3, .sd_blk_cnt4, .sd_ack,
-        .sd_buff_addr, .sd_buff_dout, .sd_buff_din, .sd_buff_wr
+        .sd_buff_addr, .sd_buff_dout, .sd_buff_din, .sd_buff_wr,
+        .hint(scsi_hint), .hint_drive(scsi_unit ? 3'd4 : 3'd3), .hint_blk(scsi_hint_blk),
+        .probe_drive(scsi_unit ? 3'd4 : 3'd3), .probe_blk(scsi_probe_blk), .probe_hit(scsi_line_ok)
     );
 
     // ---------------------------------------------------------- boot loader
@@ -206,14 +212,16 @@ module synclavier_core #(
     logic        kb_rx_valid;
     logic [7:0]  kb_rx_data;
     logic [31:0] lag_us;
+    logic [23:0] stall_us [7];
     logic [10:0] poly_units;
     logic        term_vt640, term_mouse;
     logic [19:0] scsi_block_ns;
+    logic [25:0] scsi_seek_ns;
     logic        scsi_hold;
 
     able_system #(.CLK_HZ(CLK_HZ)) sys (
-        .clk, .rst(cpu_rst), .rt_enable, .lag_us,
-        .cpu_model, .cpu_d57, .term_bits, .poly_units, .term_vt640, .term_mouse, .scsi_block_ns,
+        .clk, .rst(cpu_rst), .rt_enable, .lag_us, .stall_us,
+        .cpu_model, .cpu_d57, .term_bits, .poly_units, .term_vt640, .term_mouse, .scsi_block_ns, .scsi_seek_ns,
         .dev_rd, .dev_wr, .dev_num, .dev_wdata,
         .dev_rdata, .dev_ack, .dev_nosyn, .dev_hold(scsi_hold),           // SCSI disk time
         .dev_irq(12'(mouse_irq) << 6),                // PSW bit 10: D54 (mouse)
@@ -286,9 +294,10 @@ module synclavier_core #(
                       (dev_num == 7'o044 || dev_num == 7'o045 || dev_num == 7'o054);
     wire  card     = term_bits[8];                                         // D51: D70 exists
     wire  sel_midi = (dev_rd || dev_wr) && dev_num[6:2] == 5'b01110 && card; // 070-073
-    logic        scsi_unit;
     dev_scsi #(.TARGET(4'd5), .TARGET1(4'd4)) scsi (
         .clk, .rst(cpu_rst), .tick, .tick_ns, .block_ns(scsi_block_ns), .hold(scsi_hold),
+        .seek_ns(scsi_seek_ns), .hint(scsi_hint), .hint_blk(scsi_hint_blk),
+        .probe_blk(scsi_probe_blk), .line_ok(scsi_line_ok), .line_wait(rt_enable),
         .sel(sel_scsi), .rd(dev_rd), .wr(dev_wr), .reg_sel(dev_num[1:0]),
         .wdata(dev_wdata), .rdata(scsi_rdata), .ack(scsi_ack),
         .present(sd_present[3]), .protect(w0_protect), .blocks(w0_blocks),
@@ -498,7 +507,7 @@ module synclavier_core #(
         .in_data(cpu_rst ? msg_data : term_tx_data),
         .color, .lights(kb_lights), .display(kb_display),
         .vpk(kb_vpk), .vpk_lights, .vpk_chars, .vt640(term_vt640), .panel_over,
-        .ptr_on, .ptr_x, .ptr_y, .lag_us, .underruns, .overruns,
+        .ptr_on, .ptr_x, .ptr_y, .lag_us, .underruns, .overruns, .stall_view, .stall_us,
         .midi_count, .midi_last, .midi_errs, .midi_alt,
         .ce_pix, .r(vga_r), .g(vga_g), .b(vga_b), .hs(vga_hs), .vs(vga_vs),
         .hblank(vga_hblank), .vblank(vga_vblank),

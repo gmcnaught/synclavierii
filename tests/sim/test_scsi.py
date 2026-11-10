@@ -61,6 +61,41 @@ def test_extended_read_with_manual_last_byte():
     assert h.log == [(5, bytes([0x28, 0, 0, 0, 0, 1, 0, 0, 2, 0]))]
 
 
+def read10(h, lba, n):
+    """Connect and send EXTENDED READ (lba, n blocks); the data phase follows."""
+    connect(h)
+    for b in (0x28, 0, 0, 0, lba >> 8, lba & 0xFF, 0, 0, n, 0):
+        h.write(0o26, b)
+
+
+def drain(h, n):
+    """Read n blocks as words (taking each block as soon as REQ is up),
+    then status and message. Returns the simulated time spent."""
+    t = h.time_ns
+    for _ in range(n):
+        while not h.read(0o25) & REQ:                    # disk time: poll REQ
+            h.tick(100_000)
+        for _ in range(256):
+            h.read(0o27)
+    assert h.read(0o27) == 0x0000                        # status, message
+    return h.time_ns - t
+
+
+def test_disk_time_seek():
+    """Disk time with seek time: a READ that continues the last one costs
+    n x block_ns; one that does not (or the first) costs seek_ns more."""
+    h = ScsiHost({5: ScsiDisk(bytes(512 * 8))}, block_ns=500_000, seek_ns=20_000_000)
+    read10(h, 0, 2)
+    assert drain(h, 2) == 21_000_000                     # first READ: seek + 2 blocks
+    read10(h, 2, 2)
+    assert drain(h, 2) == 1_000_000                      # continues: 2 blocks
+    read10(h, 1, 1)
+    assert drain(h, 1) == 20_500_000                     # back one: seek + 1 block
+    h.head = None                                        # as after a state image load
+    read10(h, 2, 1)
+    assert drain(h, 1) == 20_500_000
+
+
 def test_write_and_bad_command():
     disk = ScsiDisk(bytes(1024))
     h = ScsiHost({5: disk})

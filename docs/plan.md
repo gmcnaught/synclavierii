@@ -95,6 +95,7 @@ shows lag, audio underruns and MIDI activity. Details: [`hdl.md`](hdl.md),
 | M11 | SCSI load time: 32-block SD lines with prefetch, disk time (`--disk-us`), seek time (`--seek-us`); status line "Lag by cause" | on .62 (PR #43): boot 18 ms lag, 0 underruns; CLARA3 load +0 lag, 0 underruns (was 67 ms, 43) | `hdl/dev/dev_scsi.sv`, `hdl/core/sd_floppy.sv` |
 | M12 | Second SCSI disk W1: (target 4, OSD S4, `--w1`) | board lockstep `CATALOG W1:`; on .62 | `hdl/dev/dev_scsi.sv` |
 | M13 | VT640 graphics terminal + D44 mouse (`--vt640`) | board picture = reference pixel for pixel; on .62: menu, graphic timbre display, crosshair | [`devices/vt640-graphics-terminal.md`](devices/vt640-graphics-terminal.md), `hdl/core/tek_plane.sv`, `hdl/dev/dev_mouse.sv` |
+| M14 | FM and poly voices on real time: `hdl/voice_clock.sv` gives `dev_fm` and `dev_poly` a 333 ns tick per 333 ns of the clock (OSD "Voice clock", real time by default while pacing is on), so CPU waits (SD, DDR3) no longer stop the audio, as on the instrument (research log §26); lockstep keeps CPU time | system bench: a 1 ms CPU stall plays 192 sounding samples on real time, 0 on CPU time; 8-voice audio = Python sample for sample. On .62 (PR #44, 48 % ALMs, slack +0.239 ns) with `W0-53-FM32.SST` (32 FM voices): boot 18 ms lag, then a 30-note FM chord, CLARA3 load and poly chord add 0 lag, 0 underruns, 0 overruns; no idle drift | `hdl/voice_clock.sv`, [`hdl.md`](hdl.md) |
 
 ### Next
 
@@ -103,7 +104,7 @@ MiSTer.
 
 | # | Milestone | What it takes | Done when |
 |---|---|---|---|
-| **M14** | **Voices on real time** | Done in HDL (PR pending hardware): `hdl/voice_clock.sv` gives `dev_fm` and `dev_poly` a 333 ns tick per 333 ns of the clock (OSD "Voice clock", default real time while pacing is on), so CPU waits (SD, DDR3) no longer stop the audio, as on the instrument (research log §26). Lockstep keeps CPU time. System bench: a 1 ms CPU stall plays 192 samples on real time, 0 on CPU time; 8-voice audio without a stall = Python's sample for sample | MiSTer: no underruns at boot and during loads with 32 FM voices (`W0-53-FM32.SST`) |
+| — | No milestone open. Candidates: external-memory (D60–D63) waits, the last 16–18 ms of boot lag; Launchkey pad/pot numbers (M8a, needs a MIDI capture); sound against recordings (M3.3) | | |
 
 Lower value on MiSTer (possible, not planned): SMPTE card (D70–D73,
 subsystem 8), multichannel distributor (D32/D33, mixed to stereo),

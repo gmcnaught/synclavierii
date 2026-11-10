@@ -21,22 +21,18 @@ FPRM/FPSM boards is not required.
 | MIDI card | D70–D73 MIDI subsystem card: SYN-5.3 reads MIDI itself (routing, recording, sync) and sends MIDI out on the UART (state image `W0-53-MIDI.SST`) | [`devices/d70-midi-subsystem.md`](devices/d70-midi-subsystem.md) |
 | Terminal | VT100 subset on the video output, PS/2 keyboard, PF keys | `hdl/core/term_display.sv` |
 
-## Done in HDL, waiting for a hardware test
+## Verified on hardware since the last summary
 
-| # | Item | Where |
-|---|---|---|
-| M14 | FM and poly voices on real time: a CPU wait (SD card, DDR3) no longer stops the audio, as on the instrument; OSD "Voice clock" | `hdl/voice_clock.sv`, [`hdl.md`](hdl.md) |
-
-Verified on a MiSTer (.62, 2026-11-09): MIDI card (M8b), 32 FM voices
+On a MiSTer (.62, 2026-11-09): MIDI card (M8b), 32 FM voices
 (M9, `--fm-voices 32`), poly memory up to 224 MB (M10, `--poly-mb 224`),
 SCSI load time (M11: sound files load with 0 underruns), W1: (M12, `--w1`),
-VT640 graphics and mouse (M13, `--vt640`).
+VT640 graphics and mouse (M13, `--vt640`); FM and poly voices on real time
+(M14, `hdl/voice_clock.sv`: a CPU wait no longer stops the audio).
 
 ## Next
 
 | Item | Needs |
 |---|---|
-| Hardware test of M14 on a MiSTer | the RBF build |
 | Launchkey pad and pot numbers (M8a) | a MIDI capture from the user's Launchkey |
 | FM and poly sound against a real instrument (M3.3) | recordings |
 

@@ -244,10 +244,9 @@ module synclavier_core #(
     // D57 bit 0x4000 (D57_DIG_STM_EXISTS) from the state image, or set by the
     // OSD at reset: SYN-5.3 then offers the digital record device, and the
     // CPU traps native routines 64-76 to dig_stm (below).
-    logic        stm_on_q, rst_q;
+    logic        stm_on_q;
     always_ff @(posedge clk) begin
-        rst_q <= cpu_rst;
-        if (cpu_rst && !rst_q) stm_on_q <= dig_stm_on;
+        if (cpu_rst) stm_on_q <= dig_stm_on;    // its value when reset ends (the HPS sends the OSD after power-on)
     end
     wire  [15:0] d57 = cpu_d57 | {1'b0, stm_on_q, 14'd0};
     logic        nat_req, nat_ack, nat_wr;

@@ -11,6 +11,8 @@
 // `lag_us` counts the real time given up at that cap (the CPU could not keep
 // up, e.g. waiting on an SD block): simulated time is that far behind
 // real time for good. Shown on the screen for the hardware test.
+// `lost_ns` is the real time given up in the previous clock, in whole ns
+// (able_system.sv charges it to what the CPU was waiting on).
 module throttle #(
     parameter longint CLK_HZ = 50_000_000,
     parameter int CATCHUP_NS = 200_000
@@ -21,7 +23,8 @@ module throttle #(
     input  logic tick,
     input  logic [9:0] tick_ns,
     output logic stall,
-    output logic [31:0] lag_us
+    output logic [31:0] lag_us,
+    output logic [6:0]  lost_ns
 );
     localparam longint NS_PER_CLK_Q16 = (64'd1_000_000_000 * 64'd65536) / CLK_HZ;
     localparam longint FLOOR_Q16 = -(64'(CATCHUP_NS) * 64'd65536);
@@ -40,6 +43,7 @@ module throttle #(
     logic signed [47:0] lost_acc, lost_q;
     wire  signed [47:0] lost_sum = lost_acc + lost_q;
     localparam logic signed [47:0] US_Q16 = 48'sd1000 <<< 16;
+    assign lost_ns = lost_q[22:16];
 
     always_ff @(posedge clk) begin
         tick_q <= tick && !rst;

@@ -117,6 +117,7 @@ module able_sys_top (
     end
 
     logic [31:0] lag_us;
+    logic [23:0] stall_us [7];
     logic [15:0] kb_lights [8];
     logic [15:0] kb_display [3];
     logic        kb_vpk;

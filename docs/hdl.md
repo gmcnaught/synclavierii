@@ -253,7 +253,14 @@ DDR3 and the video/audio outputs.
 | Audio | core | `pcm_out.sv`'s 48 kHz samples held on `AUDIO_L/R` (signed). |
 
 OSD: F0 and F1 image slots, text colour, aspect ratio, real-time pacing
-(the throttle; off runs as fast as the clock allows), reset. LED: disk
+(the throttle; off runs as fast as the clock allows), status line, reset.
+"Status line: Lag by cause" replaces the health fields with the lag split
+by what the CPU was waiting on when the throttle gave up the time
+(`able_system.sv`, microseconds in hex since reset): `Fch` a code fetch
+(a code-cache miss reads DDR3), `SCS` SCSI D24–D27, `Ply` poly D154–D157,
+`Xm` external memory D60–D63, `IO` any other device, `FM` the FM engine's
+stall, `Run` none of these. The seven add up to `Lag us` within a few
+microseconds. LED: disk
 activity; slow blink when the boot failed or the CPU halted (no SYN).
 Unknown devices answer no SYN and halt the CPU, as on the real machine.
 

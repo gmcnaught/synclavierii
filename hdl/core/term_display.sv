@@ -66,6 +66,8 @@ module term_display #(
     input  logic [7:0]  midi_last,
     input  logic [15:0] midi_errs,
     input  logic        midi_alt,       // MIDI line at 9600 rather than 31250
+    input  logic        stall_view,     // status line: lag_us by cause (able_system.sv STALL_*)
+    input  logic [23:0] stall_us [7],
     input  logic        vpk,            // show the VPK panel (else the ORK's)
     input  logic [1:0]  vpk_lights [160], // by light address (clk domain, read as they are)
     input  logic [7:0]  vpk_chars [32],   // display: 0-15 upper line, 16-31 lower
@@ -385,11 +387,29 @@ module term_display #(
         hex_char = n < 4'd10 ? 8'h30 + 8'(n) : 8'h37 + 8'(n);
     endfunction
 
+    // stall view: seven fields of 11 columns from column 1, "Fch 00ABCD "
+    // (label, space, microseconds in hex, space)
+    localparam logic [8*21-1:0] STALL_LABELS = "FchSCSPlyXm IO FM Run";
+    wire [6:0]  stc_col = h[9:3] - 7'd1;
+    wire [2:0]  stc_f   = 3'(stc_col / 7'd11);
+    wire [3:0]  stc_k   = 4'(stc_col % 7'd11);
+    wire [23:0] stc_val = stall_us[stc_f];
+    logic [7:0] stc_ch;
+    always_comb begin
+        stc_ch = 8'h20;
+        if (h[9:3] >= 7'd1 && h[9:3] <= 7'd77) begin
+            if (stc_k < 4'd3) stc_ch = STALL_LABELS[8*(20 - 3*int'(stc_f) - int'(stc_k)) +: 8];
+            else if (stc_k >= 4'd4 && stc_k <= 4'd9)
+                stc_ch = hex_char(stc_val[4*(9 - int'(stc_k)) +: 4]);
+        end
+    end
+
     // the status line's character at column h[9:3]
     logic [7:0] st_ch;
     always_comb begin
         st_ch = 8'h20;
-        case (h[9:3])
+        if (stall_view) st_ch = stc_ch;
+        else case (h[9:3])
             7'd1: st_ch = "L"; 7'd2: st_ch = "a"; 7'd3: st_ch = "g"; 7'd4: st_ch = " ";
             7'd5: st_ch = "u"; 7'd6: st_ch = "s";
             7'd8: st_ch = hex_char(lag_us[31:28]);  7'd9: st_ch = hex_char(lag_us[27:24]);

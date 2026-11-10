@@ -36,6 +36,7 @@ module synclavier_core #(
     input  logic [24:0] ps2_mouse,
     input  logic [1:0]  color,
     input  logic        panel_over,      // VT640 terminal: panel strip over its last 96 lines
+    input  logic        stall_view,      // status line: lag by stall cause instead of health
 
     input  logic [4:0]  img_mounted,
     input  logic        img_readonly,
@@ -206,13 +207,14 @@ module synclavier_core #(
     logic        kb_rx_valid;
     logic [7:0]  kb_rx_data;
     logic [31:0] lag_us;
+    logic [23:0] stall_us [7];
     logic [10:0] poly_units;
     logic        term_vt640, term_mouse;
     logic [19:0] scsi_block_ns;
     logic        scsi_hold;
 
     able_system #(.CLK_HZ(CLK_HZ)) sys (
-        .clk, .rst(cpu_rst), .rt_enable, .lag_us,
+        .clk, .rst(cpu_rst), .rt_enable, .lag_us, .stall_us,
         .cpu_model, .cpu_d57, .term_bits, .poly_units, .term_vt640, .term_mouse, .scsi_block_ns,
         .dev_rd, .dev_wr, .dev_num, .dev_wdata,
         .dev_rdata, .dev_ack, .dev_nosyn, .dev_hold(scsi_hold),           // SCSI disk time
@@ -498,7 +500,7 @@ module synclavier_core #(
         .in_data(cpu_rst ? msg_data : term_tx_data),
         .color, .lights(kb_lights), .display(kb_display),
         .vpk(kb_vpk), .vpk_lights, .vpk_chars, .vt640(term_vt640), .panel_over,
-        .ptr_on, .ptr_x, .ptr_y, .lag_us, .underruns, .overruns,
+        .ptr_on, .ptr_x, .ptr_y, .lag_us, .underruns, .overruns, .stall_view, .stall_us,
         .midi_count, .midi_last, .midi_errs, .midi_alt,
         .ce_pix, .r(vga_r), .g(vga_g), .b(vga_b), .hs(vga_hs), .vs(vga_vs),
         .hblank(vga_hblank), .vblank(vga_vblank),

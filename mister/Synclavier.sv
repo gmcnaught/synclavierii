@@ -54,6 +54,7 @@ localparam CONF_STR = {
 	"O[122:121],Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 	"O[3],Real-time pacing,On,Off;",
 	"O[4],VT640: panel strip,Hidden,Over bottom;",
+	"O[5],Status line,Health,Lag by cause;",
 	"-;",
 	"T[0],Reset;",
 	"R[0],Reset and close OSD;",
@@ -145,6 +146,7 @@ synclavier_core #(.CLK_HZ(50_000_000), .VID_CE_DIV(1)) core
 	.ps2_mouse(ps2_mouse),
 	.color(status[2:1]),
 	.panel_over(status[4]),
+	.stall_view(status[5]),
 
 	.img_mounted(img_mounted),
 	.img_readonly(img_readonly),

@@ -7,7 +7,8 @@
 // Poly memory is a word array behind a port that answers a few clocks late,
 // and behind the mix read stream: commands taken on some clocks, data back
 // in order 12 clocks later (as the board bench's DDR3). +bins=N +units=N
-// set the bins and the memory per bin (128 KB units; default 1, 256).
+// set the bins and the memory per bin (128 KB units; default 1, 256);
+// +last=N the voices in the last bin (default 32), +mono=1 mono voice cards.
 module dev_poly_tb;
     logic        clk = 0, rst = 1;
     logic        tick = 0;
@@ -25,11 +26,14 @@ module dev_poly_tb;
     logic [15:0] s_rdata = 0;
     logic [2:0]  bin_count = 3'd1;
     logic [10:0] units = 11'd256;
+    logic [5:0]  last = 6'd32;
+    logic        mono = 1'b0;
     logic signed [15:0] mix_out_l, mix_out_r;
     int          errors = 0, lines = 0, reads = 0, mixes = 0;
 
     dev_poly dut (
-        .clk, .rst, .enable(1'b1), .bin_count, .size_units(units), .tick, .tick_ns,
+        .clk, .rst, .enable(1'b1), .bin_count, .size_units(units),
+        .last_voices(last), .mono, .tick, .tick_ns,
         .sel, .rd, .wr, .reg_sel, .wdata, .rdata, .ack,
         .m_addr, .m_rd, .m_wr, .m_wide, .m_wdata, .m_rdata, .m_ack, .clearing(),
         .s_addr, .s_rd, .s_ack, .s_rvalid, .s_rdata,
@@ -106,6 +110,8 @@ module dev_poly_tb;
         end
         if ($value$plusargs("bins=%d", a)) bin_count = 3'(a);
         if ($value$plusargs("units=%d", a)) units = 11'(a);
+        if ($value$plusargs("last=%d", a)) last = 6'(a);
+        if ($value$plusargs("mono=%d", a)) mono = a != 0;
         fd = $fopen(path, "r");
         repeat (4) @(posedge clk);
         rst = 0;

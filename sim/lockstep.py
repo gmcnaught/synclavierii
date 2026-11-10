@@ -209,6 +209,8 @@ def _device_header(cpu):
         out += struct.pack("<cBHI", b"V", 3, 8, cpu.poly.sectors // 256)
         if cpu.poly.nbins != 1:                             # poly bins (a 6400: 2)
             out += struct.pack("<cBHI", b"V", 3, 13, cpu.poly.nbins)
+        if cpu.poly.bin_voices[-1] != 32:                   # voices in the last bin (M16)
+            out += struct.pack("<cBHI", b"V", 3, 14, cpu.poly.bin_voices[-1])
     for dev, idx, v in ((0, 0, rtc.elapsed), (0, 1, rtc.pending),
                         (1, 0, md.d4), (1, 1, md.d5),
                         (2, 0, xm.sector), (2, 1, xm.word),
@@ -540,8 +542,35 @@ def build(top="cpu", force=False):
     return exe
 
 
+def hw_cfg(voices=None, mono=False, mb=None, fm=None):
+    """The core's OSD Hardware page as its 14-bit hw_cfg (status[20:7],
+    mister/Synclavier.sv): [5:0] poly voices / 4 (0: the state image's),
+    [6] mono voice cards, [10:7] poly MB per bin / 4, 9 = 224 MB / bins
+    (0: the state image's), [13:11] FM voices / 8 (0: the state image's).
+    mb may be "max"."""
+    v = 0
+    if voices:
+        if not 4 <= voices <= 128 or voices % 4:
+            raise ValueError("voices: 4..128 in steps of 4")
+        v |= voices // 4
+    if mono:
+        v |= 1 << 6
+    if mb:
+        if mb == "max":
+            v |= 9 << 7
+        elif not 4 <= int(mb) <= 32 or int(mb) % 4:
+            raise ValueError("mb: 4..32 in steps of 4, or max")
+        else:
+            v |= int(mb) // 4 << 7
+    if fm:
+        if fm not in (8, 16, 24, 32):
+            raise ValueError("fm: 8, 16, 24 or 32")
+        v |= fm // 8 << 11
+    return v
+
+
 def check(path, max_instructions=None, top="cpu", wav=None, realtime=False, frame=None,
-          state=None, w0=None, w1=None, rt_voices=False, stall=None):
+          state=None, w0=None, w1=None, rt_voices=False, stall=None, cfg=0):
     """Run a trace on the HDL. Returns (ok, output text). wav: write the
     system's 48 kHz PCM output (pcm_out.sv) to this WAV file. realtime:
     run the system with the throttle on (50 MHz); behaviour must not change
@@ -550,7 +579,8 @@ def check(path, max_instructions=None, top="cpu", wav=None, realtime=False, fram
     (tools/state_image.py) to boot from instead of F0. rt_voices (system,
     with realtime): the voices on real time (voice_clock.sv, M14); audio is
     counted instead of compared. stall (system): (instruction, clocks), hold
-    the CPU that long before it fetches that instruction."""
+    the CPU that long before it fetches that instruction. cfg (board): the
+    OSD Hardware page (hw_cfg), applied to the state image as it loads."""
     cmd = [build(top), path] + ([str(max_instructions)] if max_instructions else [])
     env = dict(os.environ)
     if frame:
@@ -569,6 +599,8 @@ def check(path, max_instructions=None, top="cpu", wav=None, realtime=False, fram
         env["LOCKSTEP_RT_VOICES"] = "1"
     if stall:
         env["LOCKSTEP_STALL"] = "%d,%d" % stall
+    if cfg:
+        env["LOCKSTEP_HWCFG"] = str(cfg)
     p = subprocess.run(cmd, capture_output=True, text=True, env=env)
     return p.returncode == 0, p.stdout + p.stderr
 
@@ -794,6 +826,13 @@ def main(argv=None):
                          "w0_midi_actions)")
     ap.add_argument("--poly-mb", type=int, default=32, help="w0boot --poly: poly memory in MB (per bin)")
     ap.add_argument("--poly-bins", type=int, default=1, help="w0boot --poly: poly bins (a 6400: 2)")
+    ap.add_argument("--poly-voices", type=int,
+                    help="w0boot --poly: poly voices in all, 4..128 in steps of 4 (bins of 32, "
+                         "the last takes the rest; replaces --poly-bins)")
+    ap.add_argument("--mono", action="store_true",
+                    help="w0boot: mono poly voice cards (o#pvoice, a 3200's)")
+    ap.add_argument("--osd", default="",
+                    help="check --top board: OSD Hardware page, e.g. 'voices=72,mono,mb=8,fm=32'")
     ap.add_argument("--type", help="w0boot: terminal input typed at 11 s (e.g. F: SYN-5.3's "
                                    "graphic timbre display)")
     ap.add_argument("--vt640", action="store_true",
@@ -815,8 +854,12 @@ def main(argv=None):
                          "w0_vpk_actions)")
     a = ap.parse_args(argv)
     if a.mode == "check":
+        kw = {}
+        for item in filter(None, a.osd.split(",")):
+            k, _, v = item.partition("=")
+            kw[k] = True if not v else (v if v == "max" else int(v))
         ok, text = check(a.args[0], top=a.top, wav=a.wav, realtime=a.realtime, state=a.state,
-                         w0=a.w0, w1=a.w1)
+                         w0=a.w0, w1=a.w1, cfg=hw_cfg(**kw))
         print(text, end="")
         return 0 if ok else 1
     t = time.time()
@@ -830,13 +873,16 @@ def main(argv=None):
         poly = None
         if a.poly:
             from .devices.poly import PolySynth
-            poly = PolySynth(sectors=a.poly_mb * 2048, bins=a.poly_bins)
+            bins, last = (PolySynth.layout(a.poly_voices) if a.poly_voices
+                          else (a.poly_bins, 32))
+            a.poly_bins = bins
+            poly = PolySynth(sectors=a.poly_mb * 2048, bins=bins, last_voices=last)
         midi = None
         if a.midi:
             from .devices.midi import MidiSubsystem
             midi = MidiSubsystem()
         cpu, _ = boot_from_w0(a.args[0], poly=poly, keyboard="vpk" if a.vpk else "ork", midi=midi,
-                              fm_voices=a.fm_voices, w1=a.w1,
+                              fm_voices=a.fm_voices, w1=a.w1, mono=a.mono,
                               terminal="vt640" if a.vt640 else None, mouse=a.mouse,
                               scsi_block_ns=a.disk_us * 1000, scsi_seek_ns=a.seek_us * 1000)
         path = a.args[1]

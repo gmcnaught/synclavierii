@@ -139,11 +139,25 @@ Velocity, pressure and the wheels act on a timbre once they are patched to
 it, as on the real instrument (hold a VK button such as VK VEL and press
 the destination, e.g. PARTIAL VOLUME).
 
-**More voices and poly memory.** `tools/w0_image.py --fm-voices 32` gives
-SYN-5.3 32 FM voices (a 9600; default 8) and `--poly-mb N` (32–224, in
-steps of 32) N MB of poly memory (default 32, a 3200); the state image's
-name says which, e.g. `W0-53-FM32-P224.SST`. The poly memory is cleared
-after reset in DDR3 bursts (estimated 0.6 s for 224 MB; not yet measured).
+**Cards: voices, memory, mono or stereo (OSD Hardware page).** The
+instrument was upgraded by adding cards, and the OSD page **Hardware**
+sets the same complement for the next reset (Reset, or Reset and close
+OSD; SYN-5.3 looks for its hardware only at start-up):
+
+| Item | Values | |
+|---|---|---|
+| Poly voices | From image, 4 … 128 in steps of 4 | voice cards came in fours; bins fill 32 voices each, the last bin takes the rest (72 = 32 + 32 + 8 in 3 bins) |
+| Poly voice cards | From image, Mono | mono: a 3200's cards; SYN-5.3 pans hard right and the core plays it on both outputs |
+| Poly memory/bin | From image, 4 … 32 MB, 224 MB/bins | memory came in 4 MB steps |
+| FM voices | From image, 8, 16, 24, 32 | |
+
+"From image" keeps what the state image says. The same choices exist in
+`tools/w0_image.py`, which bakes them into a state image:
+`--poly-voices N`, `--mono`, `--poly-mb N` (4–224 in steps of 4, per
+bin), `--fm-voices N` (default 32; 8, 16, 24 as a Synclavier II's card
+sets), `--poly-bins N`; the name says which, e.g. `W0-53-V72-MONO.SST`,
+`W0-53-FM8-P224.SST`. The poly memory is cleared after reset in DDR3
+bursts (estimated 0.6 s for 224 MB; not yet measured).
 
 **A second SCSI disk (W1:).** `tools/w0_image.py --w1` keeps W1 (SCSI
 target 4) in MONITOR's device table (`W0-53-W1.SST`); mount the second

@@ -5,7 +5,11 @@ Specification and evidence: docs/poly-synth.md (section numbers below).
 16-bit poly memory of its own (default 32 voices and 65536 sectors = 32 MB,
 one 32 MB page: a 3200; a 6400 has 2 bins (5.3 manual: "move sound files
 from poly bin 1 to poly bin 2"), a 9600 3 [INF]). Bins from `bins` up are
-absent (their channel numbers do not read back).
+absent (their channel numbers do not read back). The last bin may hold
+fewer voices (`last_voices`, M16: voice cards came in steps of 4); its
+channels from there up keep nothing, like channels above the voice count.
+`mono`: mono voice cards (a 3200's, options bit `o#pvoice`): SYN-5.3 then
+pans hard right, and the right sum goes to both outputs [CHOICE].
 
   D155 PSC  write: channel (low 8 bits latched: bin 7-6, channel 5-0).
             read: the latched channel when its bin is present, else 0;
@@ -138,15 +142,22 @@ class PolySynth(Device):
 
     numbers = (0o154, 0o155, 0o156, 0o157)
 
-    def __init__(self, voices=32, sectors=65536, sample_rate=None, bins=1):
+    def __init__(self, voices=32, sectors=65536, sample_rate=None, bins=1,
+                 last_voices=None, mono=False):
         if not 4 <= voices <= 32 or voices % 4:
             raise ValueError("voices: 4..32 in steps of 4")
+        if last_voices is None:
+            last_voices = voices
+        if not 4 <= last_voices <= voices or last_voices % 4:
+            raise ValueError("last_voices: 4..voices in steps of 4")
         if sectors % 256:
             raise ValueError("sectors: a multiple of 256 (the size probe's step)")
         if not 1 <= bins <= 4:
             raise ValueError("bins: 1..4")
-        self.nvoices = voices        # per bin
+        self.nvoices = voices        # per bin (voice i is bin i // voices)
         self.nbins = bins
+        self.bin_voices = [voices] * (bins - 1) + [last_voices]
+        self.mono = mono
         self.sectors = sectors       # per bin
         self.bin_words = sectors * SECTOR_WORDS
         self.mem = array("H", bytes(2 * bins * self.bin_words))   # bin b from b * bin_words
@@ -175,7 +186,7 @@ class PolySynth(Device):
         # CHOICE: channels at or above the voice count ("ghost/refresh
         # channels", POLYSOU:1101) keep nothing: writes dropped, reads 0
         b, c = self._bin(), self.channel & 63
-        return self.voice[b * self.nvoices + c] if b is not None and c < self.nvoices else None
+        return self.voice[b * self.nvoices + c] if b is not None and c < self.bin_voices[b] else None
 
     def read(self, dev):
         if dev == 0o155:
@@ -188,8 +199,9 @@ class PolySynth(Device):
 
     def _read_data(self):
         fc = self.fc
-        if fc == PSNUMV:
-            n = self.nvoices
+        if fc == PSNUMV:                         # the latched channel's bin
+            b = self._bin()
+            n = self.bin_voices[b] if b is not None else self.nvoices
             return n // 4 | 0x10 | (0x20 if n > 16 else 0)
         if fc == 22:
             v = self._mem_read(self.addr, self._bin())
@@ -349,6 +361,8 @@ class PolySynth(Device):
             e = s * v.eval
             left += e * v.lcur >> 24
             right += e * v.rcur >> 24
+        if self.mono:
+            return right, right
         return left, right
 
     # ---------------------------------------------------------- host side
@@ -358,3 +372,12 @@ class PolySynth(Device):
         self.advance()
         n = self.nvoices
         return [64 * (i // n) + i % n for i in range(len(self.voice)) if self.voice[i].on & 1]
+
+    @staticmethod
+    def layout(total):
+        """(bins, last_voices) for `total` poly voices, 4..128 in steps of 4:
+        bins fill 32 voices each, in order; the last takes the rest (M16)."""
+        if not 4 <= total <= 128 or total % 4:
+            raise ValueError("poly voices: 4..128 in steps of 4")
+        bins = (total + 31) // 32
+        return bins, total - 32 * (bins - 1)

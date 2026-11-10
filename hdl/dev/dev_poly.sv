@@ -1,5 +1,5 @@
 // D154-D157 poly sampling synthesizer (M7.7): `bin_count` bins (1-4; a 3200 has
-// 1, a 6400 2, M15) of 32 voices, each bin with size_units x 64K words of
+// 1, a 6400 2, M15) of 32 voices (the last bin `last_voices`, 4-32, M16), each bin with size_units x 64K words of
 // poly memory (256 units = 32 MB, 65536 sectors, a 3200's; bins x size up
 // to 224 MB on the MiSTer, M10) behind a word port; bin b's memory is
 // words b x size_units x 64K up. The behaviour is sim/devices/poly.py's,
@@ -44,6 +44,8 @@ module dev_poly #(
     input  logic        enable,
     input  logic [2:0]  bin_count,    // bins present, 1-4 (others read as 1)
     input  logic [10:0] size_units,   // memory per bin: size_units x 65536 words (128 KB)
+    input  logic [5:0]  last_voices,  // voices in the last bin, 4-32 (M16; others: 32)
+    input  logic        mono,         // mono voice cards (o#pvoice): the right sum to both outputs
     input  logic        tick,
     input  logic [9:0]  tick_ns,
 
@@ -83,7 +85,6 @@ module dev_poly #(
     localparam logic [6:0] FC_NUMV = 7'd12, FC_WMA = 7'd16, FC_RMA = 7'd20, FC_MDATA_W = 7'd18,
                            FC_MDATA_R = 7'd22, FC_ON = 7'd10, FC_RON = 7'd11, FC_INC = 7'd8,
                            FC_MOD = 7'd9, FC_EVSM = 7'd59;
-    localparam logic [15:0] NUMV = 16'h0038;     // 32 voices: 32/4 | 0x10 | 0x20
 
     localparam logic [3:0] E_CLEAR = 4'd0, E_IDLE = 4'd1, E_RATE = 4'd2, E_ENV = 4'd3,
                            E_CPU_RD = 4'd4, E_MEM = 4'd6, E_MIX_RD = 4'd7,
@@ -182,7 +183,12 @@ module dev_poly #(
     wire [7:0] nv = {nb, 5'd0};                  // voices: 32 per bin
     wire [6:0] last_v = 7'(nv - 8'd1);
     wire       bin_ok = {1'b0, channel[7:6]} < nb;
-    wire       ch_ok = !channel[5] && bin_ok;
+    wire [5:0] lastn = last_voices >= 6'd4 && last_voices <= 6'd32 ? last_voices : 6'd32;
+    // voices in the latched channel's bin (an absent bin reads as 32)
+    wire [5:0] bin_nv = bin_ok && {1'b0, channel[7:6]} == nb - 3'd1 ? lastn : 6'd32;
+    wire       ch_ok = !channel[5] && bin_ok && {1'b0, channel[4:0]} < bin_nv;
+    // PSNUMV: voices / 4 | 0x10 | (voices > 16 ? 0x20 : 0), e.g. 32 -> 0x38
+    wire [15:0] numv = {10'd0, bin_nv > 6'd16, 1'b1, bin_nv[5:2]};
     wire [6:0] cv = {channel[7:6], channel[4:0]};
     wire [3:0] req_env = env_field(req_fc);
     wire [27:0] limit    = {1'b0, size_units, 16'd0} > 28'(1) << MEM_BITS ? 28'(1) << MEM_BITS
@@ -286,7 +292,7 @@ module dev_poly #(
     logic [29:0] s_addr_w;
     assign s_addr = s_addr_w[MEM_BITS-1:0];
     assign s_rd = es == E_MIX_ISS;
-    wire signed [32:0] o_l = 33'(fm_l) + 33'(acc_l);
+    wire signed [32:0] o_l = 33'(fm_l) + 33'(mono ? acc_r : acc_l);
     wire signed [32:0] o_r = 33'(fm_r) + 33'(acc_r);
     function automatic logic signed [15:0] sat(input logic signed [32:0] v);
         if (v > 33'sd32767) sat = 16'sd32767;
@@ -421,7 +427,7 @@ module dev_poly #(
                 end else if (req && req_rd) begin   // D157 read
                     rdata <= 16'd0;
                     if (req_fc == FC_NUMV) begin
-                        rdata <= NUMV; ack <= 1'b1; req <= 1'b0;
+                        rdata <= numv; ack <= 1'b1; req <= 1'b0;
                     end else if (req_fc == FC_MDATA_R) begin
                         addr <= addr + 28'd1;
                         if (in_range) begin maddr <= boff(channel[7:6], limit) + {2'd0, addr}; mwr <= 1'b0; es <= E_MEM; end

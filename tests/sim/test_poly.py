@@ -192,6 +192,43 @@ def test_ghost_channels():
     assert p.read(PSD) == 0
 
 
+
+def test_card_complement():
+    """M16: poly voices in steps of 4 fill bins of 32; the last bin's
+    PSNUMV and its absent channels; mono voice cards."""
+    assert PolySynth.layout(4) == (1, 4)
+    assert PolySynth.layout(32) == (1, 32)
+    assert PolySynth.layout(72) == (3, 8)
+    assert PolySynth.layout(128) == (4, 32)
+    for bad in (0, 2, 130):
+        try:
+            PolySynth.layout(bad)
+        except ValueError:
+            continue
+        raise AssertionError(bad)
+    p = PolySynth(sectors=256, bins=3, last_voices=8)
+    numv = []
+    for b in range(4):
+        p.write(PSC, 64 * b)
+        p.write(PSF, PSNUMV)
+        numv.append(p.read(PSD))
+    assert numv == [0x38, 0x38, 0x02 | 0x10, 0x38]      # bin 3 absent: as 32
+    p.write(PSC, 128 + 7)                               # bin 2, channel 7: present
+    _fc(p, PSLCVOL, 100)
+    p.write(PSF, PSLCVOL)
+    assert p.read(PSD) == 100
+    p.write(PSC, 128 + 8)                               # channel 8: no voice card
+    _fc(p, PSLCVOL, 100)
+    p.write(PSF, PSLCVOL)
+    assert p.read(PSD) == 0
+    m = PolySynth(sectors=256, mono=True)
+    v = m.voice[0]
+    v.on, v.eval, v.lcur, v.rcur = 1, 4095, 0, 4095
+    m.mem[0] = 1000
+    left, right = m._mix()
+    assert left == right and right != 0
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:

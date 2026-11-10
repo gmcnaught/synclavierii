@@ -21,8 +21,10 @@ module able_system #(
     input  logic [1:0]  cpu_model,         // 1 B, 2 C, 3 D (able_cpu.sv)
     input  logic [15:0] cpu_d57,           // Model D: D57 options
     input  logic [15:0] term_bits,         // D51 device-present bits (15-8)
+    input  logic [13:0] hw_cfg,            // OSD Hardware page (M16, sim/lockstep.py hw_cfg), taken at reset
     output logic [10:0] poly_units,        // poly memory size per bin, 128 KB units (state load: device 3 index 8)
     output logic [2:0]  poly_bins,         // poly bins, 1-4 (state load: device 3 index 13)
+    output logic [5:0]  poly_last,         // voices in the last bin, 4-32 (state load: device 3 index 14)
     output logic        term_vt640,        // VT640 graphics terminal (state load: device 3 index 9)
     output logic        term_mouse,        // D44/D45/D54 mouse (state load: device 3 index 10)
     output logic [19:0] scsi_block_ns,     // SCSI disk time per block (state load: device 3 index 11)
@@ -256,17 +258,51 @@ module able_system #(
     always_ff @(posedge clk)
         if (rst && ld_dev_we && ld_dev_sel == 3'd7 && ld_dev_addr == 13'd31)
             synth_strict <= ld_dev_data[0];
+    // ------------------------------------- card complement (M16, OSD Hardware page)
+    // Taken at reset, as cards were swapped with the power off. 0 in a field
+    // keeps the state image's value. Poly voices fill bins of 32 in order,
+    // the last bin takes the rest (sim/devices/poly.py PolySynth.layout).
+    logic [13:0] cfg_q;
+    logic [2:0]  ld_bins;
+    logic [5:0]  ld_last;
+    logic [10:0] ld_units;
+    wire  [5:0]  cfg_v4 = cfg_q[5:0];                       // poly voices / 4
+    wire  [3:0]  cfg_mb = cfg_q[10:7];                      // MB per bin / 4; 9 = 224 MB / bins
+    wire  [2:0]  cfg_bins = 3'((7'(cfg_v4) + 7'd7) >> 3);
+    always_comb begin
+        if (cfg_v4 != 6'd0 && cfg_v4 <= 6'd32) begin
+            poly_bins = cfg_bins;
+            poly_last = 6'((cfg_v4 - {cfg_bins - 3'd1, 3'd0}) << 2);
+        end else begin
+            poly_bins = ld_bins;
+            poly_last = ld_last;
+        end
+        if (cfg_mb >= 4'd1 && cfg_mb <= 4'd8) poly_units = {2'd0, cfg_mb, 5'd0};   // x 32 units = 4 MB
+        else if (cfg_mb == 4'd9)
+            case (poly_bins)
+                3'd2:    poly_units = 11'd896;
+                3'd3:    poly_units = 11'd597;
+                3'd4:    poly_units = 11'd448;
+                default: poly_units = 11'd1792;
+            endcase
+        else poly_units = ld_units;
+    end
+
     logic rst_d;                            // ORK unless this reset's state load selects the VPK
     always_ff @(posedge clk) begin
         rst_d <= rst;
         // poly memory size: 32 MB (a 3200) unless the state load says
         // poly bins: 1 (a 3200) unless the state load says (a 6400: 2)
-        if (rst && !rst_d) poly_bins <= 3'd1;
+        if (rst && !rst_d) cfg_q <= hw_cfg;
+        if (rst && !rst_d) ld_bins <= 3'd1;
         else if (rst && ld_dev_we && ld_dev_sel == 3'd3 && ld_dev_addr == 13'd13)
-            poly_bins <= ld_dev_data[2:0];
-        if (rst && !rst_d) poly_units <= 11'd256;
+            ld_bins <= ld_dev_data[2:0];
+        if (rst && !rst_d) ld_last <= 6'd32;
+        else if (rst && ld_dev_we && ld_dev_sel == 3'd3 && ld_dev_addr == 13'd14)
+            ld_last <= ld_dev_data[5:0];
+        if (rst && !rst_d) ld_units <= 11'd256;
         else if (rst && ld_dev_we && ld_dev_sel == 3'd3 && ld_dev_addr == 13'd8)
-            poly_units <= ld_dev_data[10:0];
+            ld_units <= ld_dev_data[10:0];
         if (rst && !rst_d) scsi_block_ns <= '0;
         else if (rst && ld_dev_we && ld_dev_sel == 3'd3 && ld_dev_addr == 13'd11)
             scsi_block_ns <= ld_dev_data[19:0];
@@ -312,6 +348,7 @@ module able_system #(
         .wdata(io_wdata), .rdata(fm_rdata), .ack(fm_ack), .nosyn(fm_nosyn), .strict(synth_strict),
         .tick(voice_tick), .tick_ns(voice_tick_ns), .stall(fm_stall),
         .audio_valid, .audio_l, .audio_r,
+        .nvoices_ovr({cfg_q[13:11], 3'd0}),
         .ld_we(ld_dev_we && (ld_dev_sel == 3'd5 || ld_dev_sel == 3'd6)),
         .ld_wave(ld_dev_sel == 3'd6), .ld_addr(ld_dev_addr), .ld_data(ld_dev_data),
         .ld_voice_we, .ld_voice_addr, .ld_voice_data

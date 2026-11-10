@@ -257,7 +257,12 @@ void board_start(Trace& t, bool& audio_trace) {
     top->dev_irq = 0; top->ps2_key = 0; top->ps2_mouse = 0; top->img_mounted = 0;
     top->mouse_host_we = 0; top->midi_card_we = 0; top->vpk_host_we = 0; top->kb_host_we = 0;
     top->sd_ack = 0; top->sd_buff_wr = 0; top->DDRAM_BUSY = 0; top->DDRAM_DOUT_READY = 0;
+    // LOCKSTEP_HWCFG=n: the OSD Hardware page (M16, sim/lockstep.py hw_cfg),
+    // given after power-on as the HPS does (the core must take its value at
+    // the end of reset, not at its start)
+    top->hw_cfg = 0;
     for (int i = 0; i < 8; i++) board_tick();
+    top->hw_cfg = std::getenv("LOCKSTEP_HWCFG") ? std::atoi(std::getenv("LOCKSTEP_HWCFG")) : 0;
     // LOCKSTEP_STATE=path: a state image (tools/state_image.py) in S2, which
     // the boot loader then loads instead of booting MONITOR from F0
     if (const char* st = std::getenv("LOCKSTEP_STATE")) {

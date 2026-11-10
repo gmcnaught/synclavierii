@@ -38,6 +38,7 @@ module synclavier_core #(
     input  logic [1:0]  color,
     input  logic        panel_over,      // VT640 terminal: panel strip over its last 96 lines
     input  logic        stall_view,      // status line: lag by stall cause instead of health
+    input  logic [13:0] hw_cfg,          // OSD Hardware page (M16): card complement, taken at reset
 
     input  logic [4:0]  img_mounted,
     input  logic        img_readonly,
@@ -184,9 +185,11 @@ module synclavier_core #(
     logic [23:0] b_xm_addr;
     logic [15:0] b_xm_wdata;
     logic [7:0]  msg_data;
+    logic        poly_mono;
     boot_loader boot (
         .clk, .rst, .f0_present(fd_present[0]), .state_present(sd_present[2]),
         .floppy_ext_sectors(EXT_SECTORS), .ext_sectors, .cpu_model, .cpu_d57, .term_bits,
+        .mono(hw_cfg[6]), .pvoice(poly_mono),
         .cpu_rst, .error(boot_error),
         .ld_dev_we, .ld_dev_sel, .ld_dev_addr, .ld_dev_data,
         .ld_voice_we, .ld_voice_addr, .ld_voice_data,
@@ -222,6 +225,7 @@ module synclavier_core #(
     logic [23:0] stall_us [7];
     logic [10:0] poly_units;
     logic [2:0]  poly_bins;
+    logic [5:0]  poly_last;
     logic        term_vt640, term_mouse;
     logic [19:0] scsi_block_ns;
     logic [25:0] scsi_seek_ns;
@@ -232,7 +236,7 @@ module synclavier_core #(
     able_system #(.CLK_HZ(CLK_HZ)) sys (
         .clk, .rst(cpu_rst), .rt_enable, .lag_us, .stall_us,
         .rt_voices, .dbg_stall(1'b0), .voice_tick, .voice_tick_ns,
-        .cpu_model, .cpu_d57, .term_bits, .poly_units, .poly_bins, .term_vt640, .term_mouse, .scsi_block_ns, .scsi_seek_ns,
+        .cpu_model, .cpu_d57, .term_bits, .hw_cfg, .poly_units, .poly_bins, .poly_last, .term_vt640, .term_mouse, .scsi_block_ns, .scsi_seek_ns,
         .dev_rd, .dev_wr, .dev_num, .dev_wdata,
         .dev_rdata, .dev_ack, .dev_nosyn, .dev_hold(scsi_hold),           // SCSI disk time
         .dev_irq(12'(mouse_irq) << 6),                // PSW bit 10: D54 (mouse)
@@ -326,6 +330,7 @@ module synclavier_core #(
     logic signed [15:0] mix_l, mix_r;
     dev_poly #(.MEM_BITS(27)) poly (
         .clk, .rst(cpu_rst), .enable(term_bits[10]), .bin_count(poly_bins), .size_units(poly_units),
+        .last_voices(poly_last), .mono(poly_mono),
         .tick(voice_tick), .tick_ns(voice_tick_ns),
         .sel(sel_poly), .rd(dev_rd), .wr(dev_wr), .reg_sel(dev_num[1:0]), .wdata(dev_wdata),
         .rdata(poly_rdata), .ack(poly_ack),

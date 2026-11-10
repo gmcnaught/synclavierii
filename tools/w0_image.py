@@ -3,7 +3,7 @@
 image (Synclavier3's "W0 Disk Image.simg", not redistributable):
 
     w0_image.py W0IMAGE OUTDIR [--mb 30] [--newdata FILE] [--midi] [--fm-voices N] [--poly-mb N]
-                [--poly-bins N] [--w1] [--vt640]
+                [--poly-bins N | --poly-voices N] [--mono] [--w1] [--vt640]
                 [--disk-us N]
 
   OUTDIR/W0-53.IMG   the W0 disk padded to --mb megabytes, with a USER
@@ -26,15 +26,25 @@ image (Synclavier3's "W0 Disk Image.simg", not redistributable):
                      MIDI subsystem card (D51 bit 8; D70-D73): MIDI in goes
                      to SYN-5.3's own MIDI input, and MIDI out works
                      (hdl/dev/dev_midi.sv, hdl/core/midi_card_feed.sv).
-  --fm-voices N      FM voices installed (default 8; 32 = a 9600): the name
-                     gets -FM<N>, e.g. W0-53-FM32.SST, W0-53-MIDI-FM32.SST.
-  --poly-mb N        poly memory (default 32, a 3200; up to 224 in the core's
-                     256 MB of DDR3): the name gets -P<N>, e.g. W0-53-P224.SST.
+  --fm-voices N      FM voices installed (default 32, as on a 3200, 6400 and
+                     9600; 8/16/24: a Synclavier II's smaller card sets): the
+                     name gets -FM<N> when not 32, e.g. W0-53-FM8.SST.
+  --poly-mb N        poly memory per bin in 4 MB steps (default 32; up to 224
+                     in all in the core's 256 MB of DDR3): the name gets -P<N>,
+                     e.g. W0-53-P224.SST.
                      The core clears it after reset. Per bin with --poly-bins.
   --poly-bins N      poly bins (default 1, a 3200; 2 = a 6400, 32 more poly
                      voices with their own memory; up to 4, SYN-5.3's limit):
                      N x --poly-mb at most 224; the name gets -BIN<N>, e.g.
-                     W0-53-FM32-BIN2.SST.
+                     W0-53-BIN2.SST.
+  --poly-voices N    poly voices in all, 4..128 in steps of 4 (voice cards came
+                     in fours): bins of 32 in order, the last takes the rest
+                     (72 = 32 + 32 + 8, 3 bins); replaces --poly-bins; the
+                     name gets -V<N>. The core's OSD Hardware page can set this,
+                     the memory, mono cards and FM voices at load instead.
+  --mono             mono poly voice cards (a 3200's; options bit o#pvoice):
+                     SYN-5.3 pans hard right and the core plays the right sum
+                     on both outputs; the name gets -MONO.
   --w1               a second SCSI disk, W1: (target 4, mounted as S4): the
                      device table keeps W0, F0 and W1; the name gets -W1.
                      MONITOR then expects a disk in S4.
@@ -99,12 +109,15 @@ def main(argv=None):
                     help="state image without poly voices (D51 poly bit clear)")
     ap.add_argument("--midi", action="store_true",
                     help="state image with the MIDI subsystem card (W0-53-MIDI.SST)")
-    ap.add_argument("--fm-voices", type=int, default=8, choices=(8, 16, 24, 32),
-                    help="FM voices installed (32: a 9600)")
-    ap.add_argument("--poly-mb", type=int, default=32, choices=range(32, 225, 32),
-                    metavar="{32,64,...,224}", help="poly memory in MB (per bin)")
+    ap.add_argument("--fm-voices", type=int, default=32, choices=(8, 16, 24, 32),
+                    help="FM voices installed (default 32)")
+    ap.add_argument("--poly-mb", type=int, default=32, choices=range(4, 225, 4),
+                    metavar="{4,8,...,224}", help="poly memory in MB (per bin)")
     ap.add_argument("--poly-bins", type=int, default=1, choices=(1, 2, 3, 4),
                     help="poly bins (2: a 6400)")
+    ap.add_argument("--poly-voices", type=int, choices=range(4, 129, 4), metavar="{4,8,...,128}",
+                    help="poly voices in all (bins of 32; replaces --poly-bins)")
+    ap.add_argument("--mono", action="store_true", help="mono poly voice cards (o#pvoice)")
     ap.add_argument("--w1", action="store_true", help="W1: at SCSI target 4 (S4)")
     ap.add_argument("--disk-us", type=int, default=500, help="SCSI disk time per block (us)")
     ap.add_argument("--seek-us", type=int, default=25000, help="SCSI seek time (us; with --disk-us)")
@@ -112,6 +125,10 @@ def main(argv=None):
     ap.add_argument("--ork", action="store_true",
                     help="state image with the original keyboard instead of the velocity keyboard")
     a = ap.parse_args(argv)
+    from sim.devices.poly import PolySynth
+    last = 32
+    if a.poly_voices:
+        a.poly_bins, last = PolySynth.layout(a.poly_voices)
     if a.poly_mb * a.poly_bins > 224:
         ap.error("--poly-mb x --poly-bins: at most 224 MB (the core's DDR3)")
     os.makedirs(a.outdir, exist_ok=True)
@@ -128,19 +145,19 @@ def main(argv=None):
     from tools.state_image import state_bytes
     poly = None
     if not a.no_poly:
-        from sim.devices.poly import PolySynth
-        poly = PolySynth(sectors=a.poly_mb * 2048, bins=a.poly_bins)
+        poly = PolySynth(sectors=a.poly_mb * 2048, bins=a.poly_bins, last_voices=last)
     midi = None
     if a.midi:
         from sim.devices.midi import MidiSubsystem
         midi = MidiSubsystem()
     cpu, _ = boot_from_w0(w0, poly=poly, keyboard="ork" if a.ork else "vpk", midi=midi,
                           fm_voices=a.fm_voices, devices=3 if a.w1 else 2,
-                          terminal="vt640" if a.vt640 else None, mouse=a.vt640,
+                          terminal="vt640" if a.vt640 else None, mouse=a.vt640, mono=a.mono,
                           scsi_block_ns=a.disk_us * 1000, scsi_seek_ns=a.seek_us * 1000)
-    name = ("W0-53" + ("-MIDI" if a.midi else "") + ("-FM%d" % a.fm_voices if a.fm_voices != 8 else "")
+    name = ("W0-53" + ("-MIDI" if a.midi else "") + ("-FM%d" % a.fm_voices if a.fm_voices != 32 else "")
             + ("-P%d" % a.poly_mb if a.poly_mb != 32 else "")
-            + ("-BIN%d" % a.poly_bins if a.poly_bins != 1 else "") + ("-W1" if a.w1 else "") + ("-VT640" if a.vt640 else ""))
+            + ("-V%d" % a.poly_voices if a.poly_voices else
+               "-BIN%d" % a.poly_bins if a.poly_bins != 1 else "") + ("-MONO" if a.mono else "") + ("-W1" if a.w1 else "") + ("-VT640" if a.vt640 else ""))
     sst = os.path.join(a.outdir, name + ".SST")
     data = state_bytes(cpu)
     open(sst, "wb").write(data)

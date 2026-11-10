@@ -21,7 +21,10 @@ Format (512-byte blocks, 16-bit words big-endian, as the floppy images):
                30 {repeat armed, repeat left}, 31 repeat word, 32 repeat pc,
                33 D2, 34 interrupt shadow (sim/cpu.py; version 1 images
                have none of 25-34 and S = installed: a Model B, D51 bits
-               1000)
+               1000), 35 external-memory word address + 1 of the staged
+               MONITOR's options word (configuration word 17), 0 if none:
+               the core sets o#pvoice there when the OSD asks for mono
+               voice cards (M16)
   blocks 1..   N entries of 8 words, padded to a block: kind (0 device,
                1 voice engine), device select, address, 0, data (64 bits,
                high word first). Device entries are the 'V' values of
@@ -92,6 +95,8 @@ def state_bytes(cpu):
                        cpu.terminal.device_bits, cpu.page, cpu.ppc,
                        cpu.rpt_next << 8 | cpu.rpt_left, cpu.rpt_word, cpu.rpt_pc,
                        cpu.d2, cpu.int_shadow)
+    xa = getattr(cpu, "cmopt_xaddr", None)
+    hdr += struct.pack(">H", 0 if xa is None else xa + 1)
     out = bytearray(hdr.ljust(BLOCK, b"\0"))
     ent = bytearray()
     for kind, sel, addr, data in es:

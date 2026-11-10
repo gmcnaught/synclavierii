@@ -307,17 +307,18 @@ def test_dev_scsi():
     _testbench("dev_scsi", "hdl/dev/dev_scsi.sv")
 
 
-def poly_stimulus(path, seed=1, ops=6000, bins=1, sectors=65536):
+def poly_stimulus(path, seed=1, ops=6000, bins=1, sectors=65536, last_voices=32, mono=False):
     """Stimulus for hdl/sim/dev_poly_tb.sv from sim/devices/poly.py: POLY.CHECK-
     style init, poly memory writes/reads, voices (loops, stereo master,
     PSWL rewrites, restarts), envelopes and volume ramps, random time steps,
     register reads and mixes, each with the model's answer. With bins > 1
-    each bin gets its own tables and voices (channel 64 x bin + c)."""
+    each bin gets its own tables and voices (channel 64 x bin + c).
+    last_voices: voices in the last bin (M16); mono: mono voice cards."""
     import math
     import random
     from sim.devices.poly import PolySynth
     rng = random.Random(seed)
-    p = PolySynth(sectors=sectors, bins=bins)
+    p = PolySynth(sectors=sectors, bins=bins, last_voices=last_voices, mono=mono)
     end = p.sectors * 256
     out = []
 
@@ -352,6 +353,8 @@ def poly_stimulus(path, seed=1, ops=6000, bins=1, sectors=65536):
     for ch in (1, 65, 129, 193):
         w(1, ch); w(1, ch); rd(1)
     fc(0, 12); rd(3); rd(3); rd(2)
+    for b in range(4):                              # PSNUMV per bin (absent: as 32)
+        fc(64 * b, 12); rd(3)
     for b in range(bins):
         for ch in range(64 * b, 64 * b + 64):
             fc(ch, 0, 0xFFFF, 0xFFFF, 0, 255, 0xFFFF, 0xFFFF, 0, 0, 255, 0, 0)
@@ -433,12 +436,17 @@ def test_dev_poly():
     with tempfile.NamedTemporaryFile(suffix=".stim", delete=False) as f:
         path = f.name
     try:
-        # a 3200 (1 bin, 32 MB); a 6400 (2 bins); 4 bins (the most SYN-5.3 looks for)
-        for bins, units in ((1, 256), (2, 128), (4, 64)):
-            poly_stimulus(path, bins=bins, sectors=units * 256)
+        # a 3200 (1 bin, 32 MB); a 6400 (2 bins); 4 bins (the most SYN-5.3 looks for);
+        # M16: a part-filled last bin (4, 8, 20 voices), mono voice cards
+        for bins, units, last, mono in ((1, 256, 32, False), (2, 128, 32, False),
+                                        (4, 64, 32, False), (1, 32, 4, True),
+                                        (3, 64, 8, False), (2, 96, 20, True)):
+            poly_stimulus(path, bins=bins, sectors=units * 256, last_voices=last, mono=mono)
             out = _testbench("dev_poly", "hdl/dev/dev_poly.sv",
-                             args=["+stim=" + path, "+bins=%d" % bins, "+units=%d" % units])
-            print("  %d bin(s): %s" % (bins, [ln for ln in out.splitlines() if "dev_poly OK" in ln][0]))
+                             args=["+stim=" + path, "+bins=%d" % bins, "+units=%d" % units,
+                                   "+last=%d" % last, "+mono=%d" % mono])
+            print("  %d bin(s), last %d%s: %s" % (bins, last, ", mono" if mono else "",
+                  [ln for ln in out.splitlines() if "dev_poly OK" in ln][0]))
     finally:
         os.unlink(path)
 

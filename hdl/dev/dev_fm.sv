@@ -68,6 +68,7 @@ module dev_fm #(
     output logic signed [39:0] audio_l,
     output logic signed [39:0] audio_r,
 
+    input  logic [5:0]  nvoices_ovr,  // OSD Hardware page (M16): voices present, 0 = the state image's
     input  logic        ld_we,        // state load (simulation, state images), sim/lockstep.py:
     input  logic        ld_wave,      //   device 5 (ld_wave = 0) or 6 (wave memory byte)
     input  logic [12:0] ld_addr,
@@ -420,7 +421,8 @@ module dev_fm #(
         audio_valid <= 1'b0;
         if (rst) begin
             if (!rst_d) begin
-                clearing <= 1'b1; clr_a <= '0; nvoices <= 6'd8;
+                clearing <= 1'b1; clr_a <= '0;
+                nvoices <= nvoices_ovr != 6'd0 ? nvoices_ovr : 6'd8;
             end else if (clearing) begin
                 clr_a <= clr_a + 1'b1;
                 if (clr_a == (VB+1)'(MAXV - 1)) clearing <= 1'b0;
@@ -438,9 +440,11 @@ module dev_fm #(
                 5'd4: ext_out <= ld_data[0];
                 5'd5: adc_select <= ld_data[2:0];
                 5'd6: rem <= ld_data[17:0];
-                5'd16: nvoices <= ld_data[5:0] > 6'(MAXV) ? 6'(MAXV) : ld_data[5:0];
+                5'd16: if (nvoices_ovr == 6'd0)
+                           nvoices <= ld_data[5:0] > 6'(MAXV) ? 6'(MAXV) : ld_data[5:0];
                 default: if (ld_addr[4:3] == 2'd1) adc[ld_addr[2:0]] <= ld_data[15:0];
             endcase
+            if (nvoices_ovr != 6'd0) nvoices <= nvoices_ovr;   // OSD (M16): its value when reset ends
             if (ld_voice_we && ld_voice_addr == 6'd32) rr <= ld_voice_data[39:0];
             if (ld_voice_we && ld_voice_addr == 6'd33) {phase, to_next} <= ld_voice_data[15:0];
         end else begin

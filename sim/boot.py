@@ -163,8 +163,11 @@ def set_terminal(program, terminal, mouse=False):
     return program
 
 
+O_PVOICE = 0o200            # options: mono (3200) poly voice cards (-XPL/SYSLITS)
+
+
 def boot_from_w0(image, ext_sectors=8192, target=5, devices=2, disk_mb=None, poly=None,
-                 w1=None, terminal=None, mouse=False, **system_kw):
+                 w1=None, terminal=None, mouse=False, mono=False, **system_kw):
     """Return (cpu, layout) ready to boot MONITOR from a Release 5.3-style W0:
     image (a hard-disk .simg, e.g. Synclavier3's "W0 Disk Image.simg").
 
@@ -180,7 +183,12 @@ def boot_from_w0(image, ext_sectors=8192, target=5, devices=2, disk_mb=None, pol
     (Synclavier3's: Macintosh); "vt640" configures a VT640 graphics terminal
     (cpu.terminal.vt640 set: the core draws Tektronix graphics). mouse: a
     D44/D45/D54 mouse (devices.mouse.Mouse, cpu.mouse) and the configuration
-    bit that tells SYN-5.3 it is there. Writes go
+    bit that tells SYN-5.3 it is there. mono: mono poly voice cards (a
+    3200's): MONITOR's options word gets o#pvoice, which the loader copies
+    into SYN-5.3, and the PolySynth sends its right sum to both outputs.
+    cpu.cmopt_xaddr is the external-memory word address of that options
+    word (MONITOR is staged at sector 0); the state image records it so the
+    core's OSD can set the bit at load. Writes go
     to the in-memory copies of the
     images (cpu.w0, cpu.w1), never the files.
     """
@@ -192,6 +200,10 @@ def boot_from_w0(image, ext_sectors=8192, target=5, devices=2, disk_mb=None, pol
     program = keep_devices(read_file(W, "MONITOR"), devices)
     if terminal or mouse:
         program = set_terminal(program, terminal or "vt640", mouse)
+    if mono:
+        program[config_pointer(program) + C_CMOPT] |= O_PVOICE
+        if poly is not None:
+            poly.mono = True
     if mouse:
         from .devices.mouse import Mouse
         system_kw["mouse"] = Mouse()
@@ -212,6 +224,7 @@ def boot_from_w0(image, ext_sectors=8192, target=5, devices=2, disk_mb=None, pol
     cpu.d57 = 0o7
     cpu.w0 = disk
     cpu.terminal.vt640 = terminal == "vt640"
+    cpu.cmopt_xaddr = config_pointer(program) + C_CMOPT
     cpu.w1 = None
     if w1 is not None:
         cpu.w1 = cpu.scsi.targets[4] = ScsiDisk.from_file(w1)

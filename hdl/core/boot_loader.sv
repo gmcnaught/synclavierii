@@ -28,6 +28,9 @@
 // gives the CPU model (cpu_model, Model C/D state through the debug port),
 // D57, the D51 device bits, and stores only the first S sectors of
 // external memory: the rest is cleared (Release 5.3: tools/w0_image.py).
+// Header word 35 (M16) locates the staged MONITOR's options word; with
+// `mono` (OSD) the loader sets o#pvoice (0200) in it, and `pvoice` is that
+// bit as loaded (mono voice cards, dev_poly).
 //
 // Progress and errors are written to the terminal display (msg_*).
 module boot_loader (
@@ -40,6 +43,8 @@ module boot_loader (
     output logic [1:0]  cpu_model,          // 1 B (floppy boot, version 1), else the image's
     output logic [15:0] cpu_d57,
     output logic [15:0] term_bits,          // D51 device bits
+    input  logic        mono,               // OSD: mono poly voice cards (set o#pvoice)
+    output logic        pvoice,             // o#pvoice of the loaded options word
     output logic        cpu_rst,            // the system's reset (load ports live)
     output logic        error,
 
@@ -126,7 +131,7 @@ module boot_loader (
     // state mode
     logic        smode;
     logic [19:0] wp;                // next word of the image
-    logic [15:0] hw [35];           // header words 0-34
+    logic [15:0] hw [36];           // header words 0-35
     logic [16:0] stored;            // external memory sectors in the image
     logic [15:0] n_ent;
     logic        pend_lo;           // second byte of a wave-memory word
@@ -176,6 +181,7 @@ module boot_loader (
             cpu_model <= 2'd1;
             cpu_d57 <= 16'd0;
             term_bits <= 16'o001000;
+            pvoice <= 1'b0;
         end else begin
             if (m_busy) begin
                 if (m_c == 8'd0) m_busy <= 1'b0;
@@ -356,7 +362,7 @@ module boot_loader (
             B_SHDR: begin                         // block 0: the header
                 if (fd_rd && fd_ack) begin
                     fd_rd <= 1'b0;
-                    if (wp < 20'd35) hw[wp[5:0]] <= fd_rdata;
+                    if (wp < 20'd36) hw[wp[5:0]] <= fd_rdata;
                     wp <= wp + 20'd1;
                 end else if (!fd_rd && !fd_ack) begin
                     if (wp == 20'd256) begin
@@ -458,6 +464,10 @@ module boot_loader (
                 if (fd_rd && fd_ack) begin
                     fd_rd <= 1'b0;
                     xm_addr <= xn; xm_wdata <= fd_rdata; xm_wr <= 1'b1;
+                    if (hw[35] != 16'd0 && xn == {8'd0, hw[35] - 16'd1}) begin
+                        xm_wdata <= fd_rdata | (mono ? 16'o200 : 16'd0);
+                        pvoice <= fd_rdata[7] | mono;
+                    end
                     wp <= wp + 20'd1;
                 end else if (xm_wr && xm_ack) begin
                     xm_wr <= 1'b0;

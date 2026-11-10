@@ -338,7 +338,7 @@ bitstream combines it with this project's MIT code.
 | — | D3, D4567 | done, lockstep-checked |
 | — | Real-time throttle | done (`hdl/throttle.sv`), checked in lockstep |
 | M14 | Voices on real time | done (`hdl/voice_clock.sv`), checked with a stalled CPU in the system bench |
-| M15 | Poly bins (a 6400) | `dev_poly` against Python for 1, 2 and 4 bins; board lockstep of SYN-5.3 with 2 bins, CLARA3 loaded into and played from bin 1 |
+| M15 | Poly bins (a 6400) | done: `dev_poly` against Python for 1, 2 and 4 bins; board lockstep of SYN-5.3 with 2 bins, CLARA3 loaded into and played from the second bin; on .62 with 0 underruns |
 | 4.6 | Disk images from SD (D100 floppy) | done: F0/F1 images over hps_io (`sd_floppy.sv`), boot loader; checked in board simulation |
 | — | Synthesis and timing (Quartus) | CI (`build-rbf.yml`); results in the PR |
 | — | On MiSTer hardware: boot to `Ready >`, `CATALOG` | needs a board |

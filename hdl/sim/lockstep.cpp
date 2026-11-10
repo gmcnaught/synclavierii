@@ -257,7 +257,7 @@ void board_start(Trace& t, bool& audio_trace) {
     top->rst_hard = 1; top->rst = 1; top->rt_enable = 0;
     top->dev_ack = top->dev_nosyn = top->dev_hold = top->halt_req = 0;
     top->dev_irq = 0; top->ps2_key = 0; top->ps2_mouse = 0; top->img_mounted = 0;
-    top->mouse_host_we = 0; top->midi_card_we = 0; top->vpk_host_we = 0; top->kb_host_we = 0;
+    top->mouse_host_we = 0; top->midi_card_we = 0; top->smpte_host_we = 0; top->vpk_host_we = 0; top->kb_host_we = 0;
     top->sd_ack = 0; top->sd_buff_wr = 0; top->DDRAM_BUSY = 0; top->DDRAM_DOUT_READY = 0;
     // LOCKSTEP_HWCFG=n: the OSD Hardware page (M16, sim/lockstep.py hw_cfg),
     // given after power-on as the HPS does (the core must take its value at
@@ -642,6 +642,7 @@ int main(int argc, char** argv) {
         top->vpk_host_we = 0;
 #ifdef BOARD
         top->midi_card_we = 0;
+        top->smpte_host_we = 0;
         top->mouse_host_we = 0;
 #endif
         if (t.peek() == 'K') {                   // host key/button change
@@ -654,6 +655,12 @@ int main(int argc, char** argv) {
             } else if (kind == 9) {              // a mouse packet
 #ifdef BOARD
                 top->mouse_host_buttons = index; top->mouse_host_dxy = value; top->mouse_host_we = 1;
+#endif
+            } else if (kind == 10) {             // a MIDI in byte for the SMPTE reader
+#ifdef BOARD
+                top->smpte_host_byte = value; top->smpte_host_we = 1;
+#else
+                std::fprintf(stderr, "SMPTE reader bytes need the board top\n"); std::exit(2);
 #endif
             } else if (kind == 8) {              // a byte into the MIDI card's input FIFO
 #ifdef BOARD

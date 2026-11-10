@@ -43,7 +43,7 @@ answer them):
 
 | Select written to D70 | User | Readback test |
 |---|---|---|
-| 8 (`SMPTE.SUBSYS`) | SMPTE reader: `171-PRF1:862-863`, `SYNSOU/LINKMOD/LINKSOU:783-784` (probe), `03-PRIM/143-SIO:110-120` (`INIT.SMPTE`), `10-INT/144-TIM1:793-819` (`SMPTE.SCAN`, only while `SMPTE.ONOFF<>0`, `144-TIM2:411`) | `(READ(D70)&255)=8`; bit 8 (256) = "data available" |
+| 8 (`SMPTE.SUBSYS`) | SMPTE reader: `171-PRF1:862-863`, `SYNSOU/LINKMOD/LINKSOU:783-784` (probe), `03-PRIM/143-SIO:110-120` (`INIT.SMPTE`), `10-INT/144-TIM1:793-819` (`SMPTE.SCAN`, only while `SMPTE.ONOFF<>0`, `144-TIM2:411`). Modelled from MIDI Time Code (M20): [`smpte.md`](smpte.md) | `(READ(D70)&255)=8`; bit 8 (256) = "data available" |
 | `"40"` (32, `DSPEnable\|DSP#`) | DSP70 probe `SYNSOU/DSPMOD/TSMSOU:326-328` (STM screens only, `SYNSOU/STMMOD/STINSOU1`) | `(READ(D70)&"40")="40"` |
 | 16–23 | MIDI (this doc) | `READ(SYSSEL)=I` (whole word) |
 
@@ -258,7 +258,7 @@ State machine, running status supported (`142-MIDI:1181-1215`) [OBS]:
 |---|---|
 | `80`–`EF` | `CHANNEL=b&15`, `MIDI.STATE=((b>>4)&7)+1` (1 note off … 7 pitch wheel), `SUBSTATE=0` |
 | `F0` | if `MIDI.INPUT.CHAN>-2`: enter sysex; bytes saved only while recording or echo on (`SAVE.SYSEX.BYTE`, `142-MIDI:802-822`) |
-| `F1`–`F7` | system common state 8: `F2` song position (used only if `EXT.CLOCK.MODE=3`), `F3` song select, others ignored; any status ends a sysex |
+| `F1`–`F7` | system common state 8: `F2` song position (used only if `EXT.CLOCK.MODE=3`), `F3` song select, others ignored, including `F1` MTC quarter frames ("TUNE REQUEST OR UNDEFINED", `142-MIDI:1165-1168`: SYN-5.3 does not chase MTC from MIDI; [`smpte.md`](smpte.md) §1); any status ends a sysex |
 | `F8`–`FF` | only if `EXT.CLOCK.MODE=3`: `SYNC.TO.MIDI` (F8 clock, FA start, FB continue, FC stop); otherwise ignored |
 
 Data bytes are processed when (`142-MIDI:857-863`):
@@ -403,7 +403,8 @@ Goal: SYN-5.3 detects one MIDI subsystem, receives notes, and may send bytes.
   with "absent" (below).
 * Own D70–D73; never halt on any read or write of them.
 * **D70**: write latches `sel` (16-bit). Read returns `sel` if `sel == 16`,
-  else 0.
+  else 0 (with the SMPTE reader, M20: `8 | 256` for `sel == 8`, and D71–D73
+  are the reader's while 8 is selected; [`smpte.md`](smpte.md)).
 * **D71 write**: latch `mcha = value & 0xF` (port = bits 0–2, reset =
   bit 3).
 * **D71 read**: if `sel == 16`: `1 if input FIFO not empty else 0` (bit 1 =
@@ -432,7 +433,9 @@ from the MiSTer UART (messages re-sent with their status byte; F8/FA/FB/FC
 passed; FE, SysEx and system common dropped; panel-control messages kept
 back for the keyboard paths). Ports 0–3 share one 256-byte output FIFO
 and one UART output. State images with the card: `tools/w0_image.py
---midi`. Lockstep trace event `K` kind 8 puts a byte in the input FIFO.
+--midi` (`--smpte` adds the SMPTE reader). Lockstep trace event `K` kind 8
+puts a byte in the input FIFO; kind 10 gives a MIDI in byte to the SMPTE
+reader.
 
 Expected result with defaults (OMNI, mapped to keyboard, echo off): note
 on/off with velocity on any channel plays the keyboard timbre; CC1 → mod

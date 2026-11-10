@@ -741,6 +741,105 @@ def test_dig_stm():
             os.unlink(path)
 
 
+def smpte_stimulus(path, seed=1, runs=24):
+    """Stimulus for hdl/sim/dev_smpte_tb.sv from sim/devices/smpte.py
+    SmpteReader: SYN-5.3's INIT.SMPTE and 20 ms SMPTE.SCAN reads over MTC
+    runs at the four rates (nominal, jittered and very short quarter-frame
+    periods), with full frames, real-time bytes, other SysEx, pieces out of
+    order, stops past the time-out, other selects, and a tick in the same
+    clock as a byte."""
+    import random
+    from sim.devices.smpte import SmpteReader, full_frame, quarter_frame_ns, quarter_frames
+    rng = random.Random(seed)
+    r = SmpteReader()
+    sel = [0]
+    out = []
+
+    def w(reg, v):
+        if reg == 0:
+            sel[0] = v
+        elif sel[0] == 8:
+            r.write(0o70 + reg, v)
+        out.append("W %d %d" % (reg, v))
+
+    def rd(reg):
+        out.append("R %d %d" % (reg, r.read(0o70 + reg) if sel[0] == 8 else 0))
+
+    def rx(b):
+        r.receive(b)
+        out.append("B %d" % b)
+
+    def time(ns_total):
+        while ns_total > 0:
+            ns = rng.choice((333, 666, 999, 1023))
+            n = max(1, min(ns_total // ns, rng.randrange(1, 4000)))
+            for _ in range(n):
+                r.tick(ns)
+            out.append("T %d %d" % (ns, n))
+            ns_total -= ns * n
+            if rng.random() < 0.3:                  # SMPTE.SCAN
+                w(0, 8); rd(0); rd(1); rd(2); rd(3)
+
+    w(0, 8); w(1, 0o220); w(0, 16); w(1, 0o200); w(0, 8); rd(0); rd(1); rd(2); rd(3)
+    for run in range(runs):
+        rate = rng.randrange(4)
+        t0 = (rng.choice((0, 1, 23)), rng.choice((0, 9, 39, 59)), rng.choice((0, 30, 59, 59)),
+              rng.randrange(20))
+        if run < 3:                                     # minute 40 (drop frame), 9, a day
+            rate, t0 = ((2, (0, 39, 59, 20)), (2, (0, 8, 59, 20)), (3, (23, 59, 59, 20)))[run]
+        if rng.random() < 0.5:
+            for b in full_frame(t0, rate):
+                rx(b)
+        period = quarter_frame_ns(rate) if run % 3 else rng.choice((900, 2000, 20_000))
+        count = 200 if run < 3 else rng.choice((9, 40, 200))
+        for i, (a, b) in enumerate(quarter_frames(t0, rate, count)):
+            if rng.random() < 0.02:
+                b = (b + 0x10) & 0x7F                   # a piece out of order
+            rx(a)
+            if rng.random() < 0.05:
+                rx(0xF8)                                # real time between status and data
+            if rng.random() < 0.1:
+                ns = rng.choice((333, 999))
+                r.tick(ns)
+                r.receive(b)
+                out.append("X %d %d" % (ns, b))
+            else:
+                rx(b)
+            time(int(period * rng.uniform(0.9, 1.1)) if run % 2 else period)
+            if rng.random() < 0.02:                     # F1 cut short, a note
+                for b in (0xF1, 0x90, 0x10 | rng.randrange(8), 100):
+                    rx(b)
+            if rng.random() < 0.02:                     # other SysEx (user bits, not MTC)
+                ff = list(full_frame((1, 2, 3, 4), 1, rng.randrange(128)))
+                ff[rng.choice((1, 3, 4))] = rng.choice((0x02, 0x43))
+                for b in ff:
+                    rx(b)
+        if rng.random() < 0.5:
+            time(60_000_000)                            # stopped: past the time-out
+        if rng.random() < 0.3:
+            w(0, rng.choice((16, 17, 32, 8 + 65536 // 2)))
+            rd(0); rd(1); rd(3)
+            w(1, rng.randrange(1 << 16))
+    open(path, "w").write("\n".join(out) + "\n")
+
+
+def test_dev_smpte():
+    """The SMPTE reader (hdl/dev/dev_smpte.sv) against sim/devices/smpte.py."""
+    if not HAVE_VERILATOR:
+        print("  skip test_dev_smpte (needs verilator)")
+        return
+    import tempfile
+    for seed in (1, 2, 3):
+        with tempfile.NamedTemporaryFile(suffix=".stim", delete=False) as f:
+            path = f.name
+        try:
+            smpte_stimulus(path, seed)
+            out = _testbench("dev_smpte", "hdl/dev/dev_smpte.sv", args=["+stim=" + path])
+            print("  " + [ln for ln in out.splitlines() if "dev_smpte OK" in ln][0])
+        finally:
+            os.unlink(path)
+
+
 def test_ps2_ascii():
     if not HAVE_VERILATOR:
         print("  skip test_ps2_ascii (needs verilator)")

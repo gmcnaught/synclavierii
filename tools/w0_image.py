@@ -2,7 +2,7 @@
 """Make the MiSTer files for Release 5.3 (docs/release-5.3.md) from a W0
 image (Synclavier3's "W0 Disk Image.simg", not redistributable):
 
-    w0_image.py W0IMAGE OUTDIR [--mb 30] [--newdata FILE] [--midi] [--fm-voices N] [--poly-mb N]
+    w0_image.py W0IMAGE OUTDIR [--mb 30] [--newdata FILE] [--midi [--smpte]] [--fm-voices N] [--poly-mb N]
                 [--poly-bins N | --poly-voices N] [--mono] [--w1] [--vt640]
                 [--disk-us N] [--dig-stm]
                 [--disk-us N] [--multi N]
@@ -27,6 +27,10 @@ image (Synclavier3's "W0 Disk Image.simg", not redistributable):
                      MIDI subsystem card (D51 bit 8; D70-D73): MIDI in goes
                      to SYN-5.3's own MIDI input, and MIDI out works
                      (hdl/dev/dev_midi.sv, hdl/core/midi_card_feed.sv).
+  --smpte            with the card, the SMPTE reader on its bus (D70 subsystem
+                     8), which reads MIDI Time Code from MIDI in (docs/devices/
+                     smpte.md; implies --midi): the name gets -SMPTE, e.g.
+                     W0-53-MIDI-SMPTE.SST. The core's OSD can add it at load.
   --fm-voices N      FM voices installed (default 32, as on a 3200, 6400 and
                      9600; 8/16/24: a Synclavier II's smaller card sets): the
                      name gets -FM<N> when not 32, e.g. W0-53-FM8.SST.
@@ -120,6 +124,8 @@ def main(argv=None):
                     help="state image without poly voices (D51 poly bit clear)")
     ap.add_argument("--midi", action="store_true",
                     help="state image with the MIDI subsystem card (W0-53-MIDI.SST)")
+    ap.add_argument("--smpte", action="store_true",
+                    help="the SMPTE reader (MIDI Time Code in) on the MIDI card's bus; implies --midi")
     ap.add_argument("--fm-voices", type=int, default=32, choices=(8, 16, 24, 32),
                     help="FM voices installed (default 32)")
     ap.add_argument("--poly-mb", type=int, default=32, choices=range(4, 225, 4),
@@ -163,15 +169,16 @@ def main(argv=None):
     if not a.no_poly:
         poly = PolySynth(sectors=a.poly_mb * 2048, bins=a.poly_bins, last_voices=last)
     midi = None
-    if a.midi:
+    if a.midi or a.smpte:
         from sim.devices.midi import MidiSubsystem
-        midi = MidiSubsystem()
+        from sim.devices.smpte import SmpteReader
+        midi = MidiSubsystem(smpte=SmpteReader() if a.smpte else None)
     cpu, _ = boot_from_w0(w0, poly=poly, keyboard="ork" if a.ork else "vpk", midi=midi,
                           fm_voices=a.fm_voices, devices=3 if a.w1 else 2,
                           terminal="vt640" if a.vt640 else None, mouse=a.vt640, mono=a.mono,
                           scsi_block_ns=a.disk_us * 1000, scsi_seek_ns=a.seek_us * 1000,
                           dig_stm=DigitalStm() if a.dig_stm else None, multi=a.multi)
-    name = ("W0-53" + ("-MIDI" if a.midi else "") + ("-FM%d" % a.fm_voices if a.fm_voices != 32 else "")
+    name = ("W0-53" + ("-MIDI" if midi else "") + ("-SMPTE" if a.smpte else "") + ("-FM%d" % a.fm_voices if a.fm_voices != 32 else "")
             + ("-P%d" % a.poly_mb if a.poly_mb != 32 else "")
             + ("-V%d" % a.poly_voices if a.poly_voices else
                "-BIN%d" % a.poly_bins if a.poly_bins != 1 else "") + ("-MONO" if a.mono else "") + ("-W1" if a.w1 else "") + ("-VT640" if a.vt640 else "") + ("-DSTM" if a.dig_stm else "")

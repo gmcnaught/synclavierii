@@ -86,6 +86,8 @@ module board_top (
     input  logic [15:0] mouse_host_dxy,
     input  logic        midi_card_we,
     input  logic [7:0]  midi_card_byte,
+    input  logic        smpte_host_we,
+    input  logic [7:0]  smpte_host_byte,
     input  logic        term_rx_valid,
     input  logic [7:0]  term_rx_data,
     output logic        term_tx_valid,
@@ -127,14 +129,14 @@ module board_top (
 
     // one clock in simulation: the video runs at clk / 2
     synclavier_core core (
-        .clk, .rst_hard, .rst, .rt_enable, .rt_voices(rt_enable), .clk_vid(clk), .ps2_key, .ps2_mouse, .color(2'd0), .panel_over(1'b0), .stall_view(1'b0), .hw_cfg, .dig_stm_on(1'b0), .out_pair,
+        .clk, .rst_hard, .rst, .rt_enable, .rt_voices(rt_enable), .clk_vid(clk), .ps2_key, .ps2_mouse, .color(2'd0), .panel_over(1'b0), .stall_view(1'b0), .hw_cfg, .dig_stm_on(1'b0), .out_pair, .smpte_osd(1'b0),
         .img_mounted, .img_readonly, .img_size, .sd_lba0, .sd_lba1, .sd_lba2, .sd_lba3, .sd_lba4, .sd_lba5, .sd_rd, .sd_wr, .sd_blk_cnt3, .sd_blk_cnt4, .sd_blk_cnt5, .sd_ack,
         .sd_buff_addr, .sd_buff_dout, .sd_buff_din, .sd_buff_wr,
         .xr_addr, .xr_rd, .xr_wr, .xr_wide, .xr_wdata, .xr_rdata, .xr_ack,
         .xs_addr, .xs_rd, .xs_ack, .xs_rvalid, .xs_rdata,
         .ce_pix, .vga_r, .vga_g, .vga_b, .vga_hs, .vga_vs, .vga_hblank, .vga_vblank,
         .audio_l(), .audio_r(),
-        .midi_rxd(1'b1), .midi_txd(), .mouse_host_we, .mouse_host_buttons, .mouse_host_dxy, .midi_card_we, .midi_card_byte, .kb_host_we, .kb_host_panel, .kb_host_index, .kb_host_value,
+        .midi_rxd(1'b1), .midi_txd(), .mouse_host_we, .mouse_host_buttons, .mouse_host_dxy, .midi_card_we, .midi_card_byte, .smpte_host_we, .smpte_host_byte, .kb_host_we, .kb_host_panel, .kb_host_index, .kb_host_value,
         .vpk_host_we, .vpk_host_op, .vpk_host_addr, .vpk_host_data,
         .led_disk, .booting, .boot_error, .halted, .poly_clearing,
         .sim_rx_valid(term_rx_valid), .sim_rx_data(term_rx_data), .term_tx_valid, .term_tx_data,

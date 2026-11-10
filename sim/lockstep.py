@@ -58,7 +58,8 @@ Trace format v2 (little-endian):
                   keyboard host op (kind - 2, addr, data); 8 a byte into
                   the MIDI card's input FIFO (index 0, byte; board top); 9 a
                   mouse packet (index buttons, word dX << 8 | dY, 8-bit
-                  two's complement; board top)
+                  two's complement; board top); 10 a MIDI in byte for the
+                  SMPTE reader (index 0, byte; board top)
     'H' u8        halted: 1 no SYN on read, 2 no SYN on write, 3 HALT
     'E'           end of trace
 
@@ -198,6 +199,12 @@ def _device_header(cpu):
     card = getattr(cpu, "midi", None)
     if card is not None and (card.sel or card.mcha or card.fifo):
         raise ValueError("MIDI card state is not the power-on state (dev_midi.sv has no load port)")
+    if card is not None and card.smpte is not None:         # D70 SMPTE reader (M20)
+        from .devices.smpte import SmpteReader
+        fresh, r = SmpteReader(), card.smpte
+        if any(getattr(r, f) != getattr(fresh, f) for f in vars(fresh) if f != "opcode"):
+            raise ValueError("SMPTE reader state is not the power-on state (dev_smpte.sv has no load port)")
+        out += struct.pack("<cBHI", b"V", 3, 17, 1)
     from .devices.poly import PolySynth
     if getattr(term, "vt640", False):                       # VT640 graphics terminal
         out += struct.pack("<cBHI", b"V", 3, 9, 1)
@@ -375,6 +382,13 @@ def record(cpu, path, instructions, snapshot_every=256, max_steps=None, max_wait
             card_receive(byte)
             ev.extend(struct.pack("<cBBH", b"K", 8, 0, byte & 0xFF))
         card.receive = recorded_receive
+        if card.smpte is not None:                       # SMPTE reader input: 'K' kind 10
+            smpte_receive = card.smpte.receive
+
+            def recorded_smpte(byte):
+                smpte_receive(byte)
+                ev.extend(struct.pack("<cBBH", b"K", 10, 0, byte & 0xFF))
+            card.smpte.receive = recorded_smpte
 
     def snapshot(time_ns=None):
         t = cpu.time_ns if time_ns is None else time_ns
@@ -460,6 +474,8 @@ def record(cpu, path, instructions, snapshot_every=256, max_steps=None, max_wait
             del term.feed
         if card is not None:
             del card.receive
+            if card.smpte is not None:
+                del card.smpte.receive
         if mouse is not None:
             del mouse.host
         if vpk_wrapped:
@@ -526,7 +542,7 @@ SYSTEM_RTL = ["hdl/able_cpu.sv", "hdl/code_cache.sv", "hdl/dev/dev_rtc.sv", "hdl
               "hdl/dev/dev_floppy.sv", "hdl/dev/dev_keyboard.sv", "hdl/dev/dev_vpk.sv",
               "hdl/dev/dev_fm.sv",
               "hdl/dev/pcm_out.sv", "hdl/throttle.sv", "hdl/voice_clock.sv", "hdl/able_system.sv"]
-CORE_RTL = ["hdl/core/sd_floppy.sv", "hdl/dev/dev_scsi.sv", "hdl/dev/dev_poly.sv", "hdl/dev/dev_midi.sv", "hdl/dev/dev_mouse.sv", "hdl/dev/dev_multi.sv",
+CORE_RTL = ["hdl/core/sd_floppy.sv", "hdl/dev/dev_scsi.sv", "hdl/dev/dev_poly.sv", "hdl/dev/dev_midi.sv", "hdl/dev/dev_smpte.sv", "hdl/dev/dev_mouse.sv", "hdl/dev/dev_multi.sv",
             "hdl/core/boot_loader.sv", "hdl/core/term_display.sv", "hdl/core/tek_plane.sv",
             "hdl/core/ps2_ascii.sv", "hdl/core/midi_in.sv", "hdl/core/midi_vpk.sv", "hdl/core/midi_card_feed.sv",
             "hdl/core/panel_mouse.sv", "hdl/core/audio_fifo.sv", "hdl/core/dig_stm.sv",
@@ -790,6 +806,33 @@ def w0_midi_actions(cpu):
     return acts
 
 
+def w0_smpte_actions(cpu, start=(0, 0, 5, 0)):
+    """SMPTE reader actions for a W0 boot with the velocity keyboard, the
+    MIDI card and the reader (M20): at 11 s hold SMPTE and press EXT (SMPTE
+    on: INIT.SMPTE, then SMPTE.SCAN every 20 ms), then from 11.5 s MIDI Time
+    Code, 29.97 drop frame (SYN-5.3's default SMPTE mode) from 00:00:05:00:
+    a full frame, then quarter frames at their rate (2 bytes 320 us apart)
+    until 14.5 s, then a stop past the reader's time-out (the sequencer
+    stops), and MTC again from 00:00:20:00 at 15.2 s (it locks again)."""
+    from .devices.smpte import full_frame, quarter_frame_ns, quarter_frames
+    from .devices.synth import vpk_button_number as B
+    kb, r = cpu.keyboard, cpu.midi.smpte
+    ms, us = 1_000_000, 1_000
+    acts = []
+    for t, name, down in ((11_000, "smpte", 1), (11_100, "ext", 1), (11_200, "ext", 0),
+                          (11_300, "smpte", 0)):
+        acts.append((t * ms, lambda c, n=name, d=down: kb.press_button(B(n), bool(d))))
+    p = quarter_frame_ns(2)
+    for t0, at, until in ((start, 11_500 * ms, 14_500 * ms), ((0, 0, 20, 0), 15_200 * ms, 17_400 * ms)):
+        for i, b in enumerate(full_frame(t0, 2)):
+            acts.append((at + 320 * us * i, lambda c, b=b: r.receive(b)))
+        at += 5 * ms
+        for i, msg in enumerate(quarter_frames(t0, 2, (until - at) // p)):
+            for k, b in enumerate(msg):
+                acts.append((at + i * p + 320 * us * k, lambda c, b=b: r.receive(b)))
+    return acts
+
+
 def w0_chord_actions(cpu):
     """Velocity keyboard actions for a W0 boot: BANK 1, ENTRY 2 on the VPK
     panel (SIMPLE FM SINE), then 20 keys (30-49) pressed 20 ms apart from
@@ -900,6 +943,9 @@ def main(argv=None):
     ap.add_argument("--midi", action="store_true",
                     help="w0boot: with the MIDI card (sim/devices/midi.py; with --poly --vpk: "
                          "w0_midi_actions)")
+    ap.add_argument("--smpte", action="store_true",
+                    help="w0boot: the SMPTE reader on the MIDI card's bus (sim/devices/smpte.py; "
+                         "implies --midi; with --poly --vpk: w0_smpte_actions)")
     ap.add_argument("--poly-mb", type=int, default=32, help="w0boot --poly: poly memory in MB (per bin)")
     ap.add_argument("--poly-bins", type=int, default=1, help="w0boot --poly: poly bins (a 6400: 2)")
     ap.add_argument("--poly-voices", type=int,
@@ -967,9 +1013,10 @@ def main(argv=None):
             a.poly_bins = bins
             poly = PolySynth(sectors=a.poly_mb * 2048, bins=bins, last_voices=last)
         midi = None
-        if a.midi:
+        if a.midi or a.smpte:
             from .devices.midi import MidiSubsystem
-            midi = MidiSubsystem()
+            from .devices.smpte import SmpteReader
+            midi = MidiSubsystem(smpte=SmpteReader() if a.smpte else None)
         dig_stm = None
         if a.dig_stm:
             from .devices.digstm import DigitalStm, Source
@@ -1011,6 +1058,7 @@ def main(argv=None):
         actions = ork_lm_note_actions(cpu, dbg, a.args[0])
     if a.mode == "w0boot" and a.poly and not a.dig_stm:
         actions = (w0_multi_actions(cpu) if a.multi and a.vpk else
+                   w0_smpte_actions(cpu) if a.smpte and a.vpk else
                    w0_midi_actions(cpu) if a.midi and a.vpk else
                    w0_chord_actions(cpu) if a.vpk and a.fm_voices > 8 else
                    w0_vpk_actions(cpu) if a.vpk else w0_poly_actions(cpu))

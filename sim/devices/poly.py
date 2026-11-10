@@ -3,7 +3,8 @@
 Specification and evidence: docs/poly-synth.md (section numbers below).
 One bin (bin 0) with `voices` voices and `sectors` sectors of 16-bit poly
 memory (default 32 voices and 65536 sectors = 32 MB, one 32 MB page: a
-3200; a 6400 / 9600 has 2 / 3 such bins [INF]); bins 1-3 are absent (their channel numbers do not read back).
+3200; a 6400 has 2 such bins (5.3 manual: "move sound files from poly bin 1
+to poly bin 2"), a 9600 3 [INF]); bins 1-3 are absent (their channel numbers do not read back).
 
   D155 PSC  write: channel (low 8 bits latched: bin 7-6, channel 5-0).
             read: the latched channel when it is in bin 0, else 0; bit 8

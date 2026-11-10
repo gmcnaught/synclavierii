@@ -104,7 +104,7 @@ MiSTer.
 
 | # | Milestone | What it takes | Done when |
 |---|---|---|---|
-| — | No milestone open. Candidates: external-memory (D60–D63) waits, the last 16–18 ms of boot lag; Launchkey pad/pot numbers (M8a, needs a MIDI capture); sound against recordings (M3.3) | | |
+| — | No milestone open. Candidates: second poly bin (a 6400 has 2 bins per the 5.3 manual; the model has bin 0 only: 32 of a 6400's up to 64 poly voices, D155 channels 64–127, a second poly memory); external-memory (D60–D63) waits, the last 16–18 ms of boot lag; Launchkey pad/pot numbers (M8a, needs a MIDI capture); sound against recordings (M3.3) | | |
 
 Lower value on MiSTer (possible, not planned): SMPTE card (D70–D73,
 subsystem 8), multichannel distributor (D32/D33, mixed to stereo),

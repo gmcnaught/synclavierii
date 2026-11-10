@@ -33,6 +33,7 @@ VT640 graphics and mouse (M13, `--vt640`); FM and poly voices on real time
 
 | Item | Needs |
 |---|---|
+| Second poly bin: a 6400 has 2 (5.3 manual), the core has 1 (32 voices) | `dev_poly` channels 64–127, a second poly memory |
 | Launchkey pad and pot numbers (M8a) | a MIDI capture from the user's Launchkey |
 | FM and poly sound against a real instrument (M3.3) | recordings |
 

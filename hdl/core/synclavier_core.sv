@@ -64,6 +64,12 @@ module synclavier_core #(
     output logic [15:0] xr_wdata,
     input  logic [15:0] xr_rdata,
     input  logic        xr_ack,
+    // poly mix reads (ddram_word's read stream): many in flight, data in order
+    output logic [26:0] xs_addr,
+    output logic        xs_rd,
+    input  logic        xs_ack,
+    input  logic        xs_rvalid,
+    input  logic [15:0] xs_rdata,
 
     output logic        ce_pix,
     output logic [7:0]  vga_r,
@@ -215,6 +221,7 @@ module synclavier_core #(
     logic [31:0] lag_us;
     logic [23:0] stall_us [7];
     logic [10:0] poly_units;
+    logic [2:0]  poly_bins;
     logic        term_vt640, term_mouse;
     logic [19:0] scsi_block_ns;
     logic [25:0] scsi_seek_ns;
@@ -225,7 +232,7 @@ module synclavier_core #(
     able_system #(.CLK_HZ(CLK_HZ)) sys (
         .clk, .rst(cpu_rst), .rt_enable, .lag_us, .stall_us,
         .rt_voices, .dbg_stall(1'b0), .voice_tick, .voice_tick_ns,
-        .cpu_model, .cpu_d57, .term_bits, .poly_units, .term_vt640, .term_mouse, .scsi_block_ns, .scsi_seek_ns,
+        .cpu_model, .cpu_d57, .term_bits, .poly_units, .poly_bins, .term_vt640, .term_mouse, .scsi_block_ns, .scsi_seek_ns,
         .dev_rd, .dev_wr, .dev_num, .dev_wdata,
         .dev_rdata, .dev_ack, .dev_nosyn, .dev_hold(scsi_hold),           // SCSI disk time
         .dev_irq(12'(mouse_irq) << 6),                // PSW bit 10: D54 (mouse)
@@ -313,18 +320,19 @@ module synclavier_core #(
     // state image made with poly voices); otherwise it answers as a stub
     logic [15:0] poly_rdata, p_wdata;
     logic        poly_ack, p_rd, p_wr, p_ack;
-    logic [26:0] p_addr;
+    logic [26:0] p_addr, p_saddr;
     logic        p_wide;
     logic        mix_valid;
     logic signed [15:0] mix_l, mix_r;
     dev_poly #(.MEM_BITS(27)) poly (
-        .clk, .rst(cpu_rst), .enable(term_bits[10]), .size_units(poly_units),
+        .clk, .rst(cpu_rst), .enable(term_bits[10]), .bin_count(poly_bins), .size_units(poly_units),
         .tick(voice_tick), .tick_ns(voice_tick_ns),
         .sel(sel_poly), .rd(dev_rd), .wr(dev_wr), .reg_sel(dev_num[1:0]), .wdata(dev_wdata),
         .rdata(poly_rdata), .ack(poly_ack),
         .m_addr(p_addr), .m_rd(p_rd), .m_wr(p_wr), .m_wide(p_wide), .m_wdata(p_wdata), .m_rdata(xr_rdata),
         .clearing(poly_clearing),
         .m_ack(p_ack),
+        .s_addr(p_saddr), .s_rd(xs_rd), .s_ack(xs_ack), .s_rvalid(xs_rvalid), .s_rdata(xs_rdata),
         .mix_in_valid(pcm_valid), .mix_in_l(pcm_l), .mix_in_r(pcm_r),
         .mix_out_valid(mix_valid), .mix_out_l(mix_l), .mix_out_r(mix_r)
     );
@@ -361,6 +369,7 @@ module synclavier_core #(
     assign s_xm_ack = xr_ack && xb && !xo;
     assign p_ack    = xr_ack && xb && xo;
     assign xr_addr  = cpu_rst ? {3'b000, b_xm_addr} : xo ? 27'h1000000 + p_addr : {3'b000, s_xm_addr};
+    assign xs_addr  = 27'h1000000 + p_saddr;
     assign xr_wide  = !cpu_rst && xb && xo && p_wide;
     assign xr_rd    = cpu_rst ? 1'b0      : xb && (xo ? p_rd : s_xm_rd);
     assign xr_wr    = cpu_rst ? b_xm_wr   : xb && (xo ? p_wr : s_xm_wr);

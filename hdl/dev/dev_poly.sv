@@ -1,14 +1,18 @@
-// D154-D157 poly sampling synthesizer (M7.7): one bin of 32 voices and
-// size_units x 64K words of poly memory (256 units = 32 MB, 65536 sectors,
-// a 3200's; up to 1792 = 224 MB on the MiSTer, M10) behind a word port. The behaviour is
-// sim/devices/poly.py's, register for register and tick for tick (the
-// evidence and the choices are there and in docs/poly-synth.md).
+// D154-D157 poly sampling synthesizer (M7.7): `bin_count` bins (1-4; a 3200 has
+// 1, a 6400 2, M15) of 32 voices, each bin with size_units x 64K words of
+// poly memory (256 units = 32 MB, 65536 sectors, a 3200's; bins x size up
+// to 224 MB on the MiSTer, M10) behind a word port; bin b's memory is
+// words b x size_units x 64K up. The behaviour is sim/devices/poly.py's,
+// register for register and tick for tick (the evidence and the choices
+// are there and in docs/poly-synth.md).
 //
-//   D155 write: channel (8 bits); read: the channel if < 64, else 0.
+//   D155 write: channel (8 bits: bin 7-6, channel 5-0); read: the channel
+//        if its bin is present, else 0.
 //   D156 write: function code; read: it.
 //   D157 write: data for (channel, FC); FC then moves to its successor.
 //        read: FC 12 the voice count code, FC 22 poly memory (address++),
-//        else the selected voice's register (channels >= 32 read 0).
+//        else the selected voice's register (channels 32-63 of a bin read 0).
+//        Poly memory reads and writes go to the selected channel's bin.
 //   D154: accepted, reads 0.
 // With `enable` low (no poly bit in D51) the device answers as the old stub:
 // writes accepted, reads 0, nothing changes.
@@ -22,7 +26,10 @@
 //
 // Audio: on each `mix_in_valid` (a 48 kHz FM sample) the voices' current
 // words are fetched from poly memory and mixed: sample x EVAL x volume >> 24
-// per side, summed, added to the FM sample, clipped to 16 bits.
+// per side, summed, added to the FM sample, clipped to 16 bits. The fetches
+// go out on the read stream port (s_*) without waiting for each other: a
+// read per sounding voice, its data back in order (s_rvalid), so 64-128
+// voices fit in a 48 kHz sample whatever the DDR3 latency.
 //
 // After reset the device clears its block RAM rows and all poly memory
 // (E_MCLR).
@@ -35,7 +42,8 @@ module dev_poly #(
     input  logic        clk,
     input  logic        rst,
     input  logic        enable,
-    input  logic [10:0] size_units,   // memory present: size_units x 65536 words (128 KB)
+    input  logic [2:0]  bin_count,    // bins present, 1-4 (others read as 1)
+    input  logic [10:0] size_units,   // memory per bin: size_units x 65536 words (128 KB)
     input  logic        tick,
     input  logic [9:0]  tick_ns,
 
@@ -56,6 +64,14 @@ module dev_poly #(
     input  logic [15:0] m_rdata,
     input  logic        m_ack,
 
+    // mix reads: s_rd held with s_addr until s_ack (command taken; the
+    // clock after s_ack is ignored); data in order, one s_rvalid each
+    output logic [MEM_BITS-1:0] s_addr,
+    output logic        s_rd,
+    input  logic        s_ack,
+    input  logic        s_rvalid,
+    input  logic [15:0] s_rdata,
+
     input  logic        mix_in_valid,
     input  logic signed [15:0] mix_in_l,
     input  logic signed [15:0] mix_in_r,
@@ -71,7 +87,7 @@ module dev_poly #(
 
     localparam logic [3:0] E_CLEAR = 4'd0, E_IDLE = 4'd1, E_RATE = 4'd2, E_ENV = 4'd3,
                            E_CPU_RD = 4'd4, E_MEM = 4'd6, E_MIX_RD = 4'd7,
-                           E_MIX_Q = 4'd8, E_MIX_MEM = 4'd9, E_MIX_ACC = 4'd10, E_MIX_OUT = 4'd11,
+                           E_MIX_Q = 4'd8, E_MIX_ISS = 4'd9, E_MIX_WAIT = 4'd10, E_MIX_OUT = 4'd11,
                            E_MCLR = 4'd12;
 
     // ------------------------------------------------------------ helpers
@@ -111,17 +127,18 @@ module dev_poly #(
     endfunction
 
     // ------------------------------------------------------- voice rows
+    // voice v = {bin, channel[4:0]}, 128 rows (rows of absent bins unused)
     // vr: {wl[27:0], ba[27:0], ll[27:0], pi[27:0], inc_w[7:0], mod_w[7:0], pos[29:0], acc[8:0]}
     localparam int VR_W = 167;
     localparam int ER_W = 132;                   // 11 x 12-bit envelope/volume fields
-    logic [VR_W-1:0] vr_mem [32];
-    logic [ER_W-1:0] er_mem [32];
-    logic [15:0]     wd_mem [256];               // FC 0-7 words as written
+    logic [VR_W-1:0] vr_mem [128];
+    logic [ER_W-1:0] er_mem [128];
+    logic [15:0]     wd_mem [1024];              // FC 0-7 words as written
     logic [VR_W-1:0] vr_q, vr_wd;
     logic [ER_W-1:0] er_q, er_wd;
     logic [15:0]     wd_q, wd_wd;
-    logic [4:0]      vr_ra, vr_wa, er_ra, er_wa;
-    logic [7:0]      wd_ra, wd_wa;
+    logic [6:0]      vr_ra, vr_wa, er_ra, er_wa;
+    logic [9:0]      wd_ra, wd_wa;
     logic            vr_we, er_we, wd_we;
     always_ff @(posedge clk) begin
         if (vr_we) vr_mem[vr_wa] <= vr_wd;
@@ -142,7 +159,7 @@ module dev_poly #(
     logic [6:0]  fc;
     logic [15:0] addr_hi;
     logic [27:0] addr;
-    logic [31:0] on0, on1, master;
+    logic [127:0] on0, on1, master;
     logic [47:0] now, next_rate, next_env;
     wire rate_due = next_rate <= now;
     wire env_due  = next_env <= now;
@@ -154,22 +171,36 @@ module dev_poly #(
     wire  start = sel && (rd || wr) && !ack && !req;
 
     logic [3:0]  es;
-    logic [8:0]  cnt;
-    logic [4:0]  pv;
+    logic [10:0] cnt;
+    logic [6:0]  pv;
     logic        pq;
     logic [3:0]  rfield;                         // CPU read/RMW: what to take from q
-    logic [27:0] maddr;
+    logic [29:0] maddr;
     logic        mwr;
 
-    wire       ch_ok = channel[7:5] == 3'd0;
-    wire [4:0] cv = channel[4:0];
+    wire [2:0] nb = bin_count >= 3'd1 && bin_count <= 3'd4 ? bin_count : 3'd1;
+    wire [7:0] nv = {nb, 5'd0};                  // voices: 32 per bin
+    wire [6:0] last_v = 7'(nv - 8'd1);
+    wire       bin_ok = {1'b0, channel[7:6]} < nb;
+    wire       ch_ok = !channel[5] && bin_ok;
+    wire [6:0] cv = {channel[7:6], channel[4:0]};
     wire [3:0] req_env = env_field(req_fc);
     wire [27:0] limit    = {1'b0, size_units, 16'd0} > 28'(1) << MEM_BITS ? 28'(1) << MEM_BITS
                                                                        : {1'b0, size_units, 16'd0};
-    wire       in_range = addr < limit;
+    wire       in_range = addr < limit && bin_ok;
+    // bin b's memory starts at b x limit
+    function automatic logic [29:0] boff(input logic [1:0] b, input logic [27:0] lim);
+        case (b)
+            2'd0: boff = 30'd0;
+            2'd1: boff = {2'd0, lim};
+            2'd2: boff = {1'b0, lim, 1'b0};
+            default: boff = {2'd0, lim} + {1'b0, lim, 1'b0};
+        endcase
+    endfunction
+    wire [29:0] total = boff(2'(nb - 3'd1), limit) + {2'd0, limit};
 
     // ---------------------------------------------------- rate pass step
-    wire        r_slave  = pv[0] && master[pv - 5'd1];
+    wire        r_slave  = pv[0] && master[pv - 7'd1];
     wire        r_active = on0[pv] && !r_slave;
     wire [9:0]  r_inc    = {2'd0, q_inc} + 10'd1;
     wire [9:0]  r_mod    = 10'd256 - {2'd0, q_mod};
@@ -225,16 +256,36 @@ module dev_poly #(
     // ----------------------------------------------------------- mixing
     logic [29:0] mbp;                            // even voice's base + position
     logic        mon;
-    logic [11:0] x_eval, x_lcur, x_rcur;
-    logic signed [15:0] x_s;
     logic signed [31:0] acc_l, acc_r;
     logic signed [15:0] fm_l, fm_r;
     logic        mix_req;
     wire  [29:0] q_bp = {2'd0, q_ba} + q_pos[29:0];
-    wire         x_slave = pv[0] && master[pv - 5'd1];
+    wire         x_slave = pv[0] && master[pv - 7'd1];
+    wire  [29:0] x_bp = x_slave ? mbp + 30'd1 : q_bp;      // within the bin
+    wire         x_fetch = (x_slave ? mon : on0[pv]) && er_q[60 +: 12] != 12'd0
+                           && x_bp < {2'd0, limit};
+    // factors of each read in flight {EVAL, L cur, R cur}, in issue order;
+    // the data comes back in the same order: a 3-stage multiply-accumulate
+    logic [35:0] fq [128];
+    logic [35:0] fq_q;
+    logic [7:0]  fq_wp, fq_rp;
+    wire         fq_we = es == E_MIX_Q && x_fetch;
+    wire  [7:0]  fq_rp_n = s_rvalid ? fq_rp + 8'd1 : fq_rp;
+    always_ff @(posedge clk) begin
+        if (fq_we) fq[fq_wp[6:0]] <= {er_q[60 +: 12], er_q[108 +: 12], er_q[84 +: 12]};
+        fq_q <= fq[fq_rp_n[6:0]];
+    end
+    logic        a1, a2;                         // stage valid
+    logic signed [15:0] x_s;
+    logic [11:0] x_eval, x_lcur, x_rcur, y_lcur, y_rcur;
+    logic signed [28:0] y_e;
     wire signed [28:0] x_e = x_s * $signed({1'b0, x_eval});
-    wire signed [41:0] x_pl = x_e * $signed({1'b0, x_lcur});
-    wire signed [41:0] x_pr = x_e * $signed({1'b0, x_rcur});
+    wire signed [41:0] x_pl = y_e * $signed({1'b0, y_lcur});
+    wire signed [41:0] x_pr = y_e * $signed({1'b0, y_rcur});
+    wire         mix_drained = fq_wp == fq_rp && !a1 && !a2;
+    logic [29:0] s_addr_w;
+    assign s_addr = s_addr_w[MEM_BITS-1:0];
+    assign s_rd = es == E_MIX_ISS;
     wire signed [32:0] o_l = 33'(fm_l) + 33'(acc_l);
     wire signed [32:0] o_r = 33'(fm_r) + 33'(acc_r);
     function automatic logic signed [15:0] sat(input logic signed [32:0] v);
@@ -245,16 +296,16 @@ module dev_poly #(
 
     // ------------------------------------------------- RAM port control
     always_comb begin
-        vr_ra = cnt[4:0]; er_ra = cnt[4:0]; wd_ra = {cv, req_fc[2:0] - 3'd1};
+        vr_ra = cnt[6:0]; er_ra = cnt[6:0]; wd_ra = {cv, req_fc[2:0] - 3'd1};
         vr_we = 1'b0; er_we = 1'b0; wd_we = 1'b0;
         vr_wa = pv; er_wa = pv; wd_wa = {cv, req_fc[2:0]};
         vr_wd = vr_q; er_wd = e_row_n; wd_wd = req_w;
         case (es)
             E_CLEAR: begin
-                wd_we = 1'b1; wd_wa = cnt[7:0]; wd_wd = 16'd0;
-                vr_we = cnt[2:0] == 3'd0; vr_wa = cnt[7:3];
+                wd_we = 1'b1; wd_wa = cnt[9:0]; wd_wd = 16'd0;
+                vr_we = cnt[2:0] == 3'd0; vr_wa = cnt[9:3];
                 vr_wd = {112'd0, 8'd255, 8'd0, 30'd0, 9'd0};
-                er_we = cnt[2:0] == 3'd0; er_wa = cnt[7:3]; er_wd = '0;
+                er_we = cnt[2:0] == 3'd0; er_wa = cnt[9:3]; er_wd = '0;
             end
             E_RATE: if (pq && r_active) begin
                 vr_we = 1'b1;
@@ -296,7 +347,7 @@ module dev_poly #(
     end
 
     assign m_addr  = maddr[MEM_BITS-1:0];
-    assign m_rd    = (es == E_MEM && !mwr) || es == E_MIX_MEM;
+    assign m_rd    = es == E_MEM && !mwr;
     assign m_wr    = (es == E_MEM && mwr) || es == E_MCLR;
     assign m_wdata = es == E_MCLR ? 16'd0 : req_w;
     assign m_wide  = es == E_MCLR;
@@ -307,6 +358,19 @@ module dev_poly #(
         ack <= 1'b0;
         mix_out_valid <= 1'b0;
         if (tick && !rst) now <= now + {38'd0, tick_ns};
+        // mix reads coming back: factors, then sample x EVAL, then x volume
+        a1 <= s_rvalid;
+        if (s_rvalid) begin
+            x_s <= s_rdata;
+            {x_eval, x_lcur, x_rcur} <= fq_q;
+            fq_rp <= fq_rp_n;
+        end
+        a2 <= a1;
+        if (a1) begin y_e <= x_e; y_lcur <= x_lcur; y_rcur <= x_rcur; end
+        if (a2) begin
+            acc_l <= acc_l + 32'(x_pl >>> 24);
+            acc_r <= acc_r + 32'(x_pr >>> 24);
+        end
         if (mix_in_valid) begin
             fm_l <= mix_in_l; fm_r <= mix_in_r;
             mix_req <= 1'b1;
@@ -320,21 +384,22 @@ module dev_poly #(
             on0 <= '0; on1 <= '0; master <= '0;
             now <= '0; next_rate <= '0; next_env <= '0;
             req <= 1'b0; mix_req <= 1'b0; pq <= 1'b0;
+            fq_wp <= '0; fq_rp <= '0; a1 <= 1'b0; a2 <= 1'b0;
         end else case (es)
             E_CLEAR: begin
-                cnt <= cnt + 9'd1;
-                if (cnt == 9'd255) begin
+                cnt <= cnt + 11'd1;
+                if (cnt == 11'd1023) begin
                     es <= E_MCLR; cnt <= '0; maddr <= '0; req_w <= 16'd0;
                 end
             end
             // all poly memory to zero, as the model starts: SYN-5.3 reads
             // some of it before writing (the bin header, the size probe's
             // saved words, sectors 22-25 at start-up), and DDR3 holds
-            // whatever was there before. limit / 512 wide writes, each a
-            // 128-beat DDR3 burst; poly accesses wait for it.
+            // whatever was there before. bins x limit / 512 wide writes,
+            // each a 128-beat DDR3 burst; poly accesses wait for it.
             E_MCLR: if (m_ack) begin
-                maddr <= maddr + 28'd512;
-                if (maddr + 28'd512 >= limit) es <= E_IDLE;
+                maddr <= maddr + 30'd512;
+                if (maddr + 30'd512 >= total) es <= E_IDLE;
             end
             E_IDLE:
                 if (rate_due) begin
@@ -347,7 +412,7 @@ module dev_poly #(
                     rdata <= 16'd0;
                     if (req_reg == 2'd1) begin
                         if (!req_rd) channel <= req_w[7:0];
-                        else rdata <= channel[7:6] == 2'd0 ? {8'd0, channel} : 16'd0;
+                        else rdata <= bin_ok ? {8'd0, channel} : 16'd0;
                     end else if (req_reg == 2'd2) begin
                         if (!req_rd) fc <= req_w[6:0];
                         else rdata <= {9'd0, fc};
@@ -359,7 +424,7 @@ module dev_poly #(
                         rdata <= NUMV; ack <= 1'b1; req <= 1'b0;
                     end else if (req_fc == FC_MDATA_R) begin
                         addr <= addr + 28'd1;
-                        if (in_range) begin maddr <= addr; mwr <= 1'b0; es <= E_MEM; end
+                        if (in_range) begin maddr <= boff(channel[7:6], limit) + {2'd0, addr}; mwr <= 1'b0; es <= E_MEM; end
                         else begin ack <= 1'b1; req <= 1'b0; end
                     end else if (!ch_ok) begin
                         ack <= 1'b1; req <= 1'b0;
@@ -382,7 +447,7 @@ module dev_poly #(
                         addr <= {req_w[11:8], addr_hi, req_w[7:0]}; ack <= 1'b1; req <= 1'b0;
                     end else if (req_fc == FC_MDATA_W) begin
                         addr <= addr + 28'd1;
-                        if (in_range) begin maddr <= addr; mwr <= 1'b1; es <= E_MEM; end
+                        if (in_range) begin maddr <= boff(channel[7:6], limit) + {2'd0, addr}; mwr <= 1'b1; es <= E_MEM; end
                         else begin ack <= 1'b1; req <= 1'b0; end
                     end else if (!ch_ok) begin
                         ack <= 1'b1; req <= 1'b0;
@@ -402,16 +467,16 @@ module dev_poly #(
                         ack <= 1'b1; req <= 1'b0;
                     end
                 end else if (mix_req) begin
-                    mix_req <= 1'b0; pv <= 5'd0; acc_l <= '0; acc_r <= '0;
+                    mix_req <= 1'b0; pv <= 7'd0; acc_l <= '0; acc_r <= '0;
                     es <= E_MIX_RD;
                 end
             // pipelined passes: read voice cnt, write voice pv (= cnt - 1)
             E_RATE, E_ENV: begin
-                pv <= cnt[4:0];
-                pq <= cnt < 9'd32;
+                pv <= cnt[6:0];
+                pq <= cnt < {3'd0, nv};
                 if (es == E_RATE && pq && r_active && r_stop) on0[pv] <= 1'b0;
-                cnt <= cnt + 9'd1;
-                if (cnt == 9'd32) begin
+                cnt <= cnt + 11'd1;
+                if (cnt == {3'd0, nv}) begin
                     if (es == E_RATE) next_rate <= next_rate + RATE_NS;
                     else next_env <= next_env + ENV_NS;
                     es <= E_IDLE;
@@ -433,27 +498,23 @@ module dev_poly #(
                 rdata <= mwr ? 16'd0 : m_rdata;
                 ack <= 1'b1; req <= 1'b0; es <= E_IDLE;
             end
+            // the mix: read each voice's row, issue a read for each one that
+            // sounds; the reads come back above; then wait for the last
             E_MIX_RD: es <= E_MIX_Q;
             E_MIX_Q: begin
-                x_eval <= er_q[60 +: 12]; x_lcur <= er_q[108 +: 12]; x_rcur <= er_q[84 +: 12];
                 if (!pv[0]) begin mbp <= q_bp; mon <= on0[pv]; end
-                if ((x_slave ? mon : on0[pv]) && er_q[60 +: 12] != 12'd0
-                        && (x_slave ? mbp + 30'd1 : q_bp) < {2'd0, limit}) begin
-                    maddr <= x_slave ? 28'(mbp + 30'd1) : 28'(q_bp);
-                    es <= E_MIX_MEM;
-                end else if (pv == 5'd31) es <= E_MIX_OUT;
-                else begin pv <= pv + 5'd1; es <= E_MIX_RD; end
+                if (x_fetch) begin
+                    s_addr_w <= boff(pv[6:5], limit) + x_bp;
+                    fq_wp <= fq_wp + 8'd1;
+                    es <= E_MIX_ISS;
+                end else if (pv == last_v) es <= E_MIX_WAIT;
+                else begin pv <= pv + 7'd1; es <= E_MIX_RD; end
             end
-            E_MIX_MEM: if (m_ack) begin
-                x_s <= m_rdata;
-                es <= E_MIX_ACC;
+            E_MIX_ISS: if (s_ack) begin
+                if (pv == last_v) es <= E_MIX_WAIT;
+                else begin pv <= pv + 7'd1; es <= E_MIX_RD; end
             end
-            E_MIX_ACC: begin
-                acc_l <= acc_l + 32'(x_pl >>> 24);
-                acc_r <= acc_r + 32'(x_pr >>> 24);
-                if (pv == 5'd31) es <= E_MIX_OUT;
-                else begin pv <= pv + 5'd1; es <= E_MIX_RD; end
-            end
+            E_MIX_WAIT: if (mix_drained) es <= E_MIX_OUT;
             E_MIX_OUT: begin
                 mix_out_l <= sat(o_l); mix_out_r <= sat(o_r);
                 mix_out_valid <= 1'b1;

@@ -130,6 +130,9 @@ end
 wire [26:0] xr_addr;
 wire        xr_rd, xr_wr, xr_wide, xr_ack;
 wire [15:0] xr_wdata, xr_rdata;
+wire [26:0] xs_addr;
+wire        xs_rd, xs_ack, xs_rvalid;
+wire [15:0] xs_rdata;
 wire        ce_pix, hs, vs, hblank, vblank;
 wire  [7:0] r, g, b;
 wire        led_disk, booting, boot_error, halted;
@@ -175,6 +178,11 @@ synclavier_core #(.CLK_HZ(50_000_000), .VID_CE_DIV(1)) core
 	.xr_wdata(xr_wdata),
 	.xr_rdata(xr_rdata),
 	.xr_ack(xr_ack),
+	.xs_addr(xs_addr),
+	.xs_rd(xs_rd),
+	.xs_ack(xs_ack),
+	.xs_rvalid(xs_rvalid),
+	.xs_rdata(xs_rdata),
 
 	.ce_pix(ce_pix),
 	.vga_r(r),
@@ -251,6 +259,11 @@ ddram_word ext_memory
 	.wdata(xr_wdata),
 	.rdata(xr_rdata),
 	.ack(xr_ack),
+	.s_addr(xs_addr),
+	.s_rd(xs_rd),
+	.s_ack(xs_ack),
+	.s_rvalid(xs_rvalid),
+	.s_rdata(xs_rdata),
 	.DDRAM_BUSY(DDRAM_BUSY),
 	.DDRAM_BURSTCNT(DDRAM_BURSTCNT),
 	.DDRAM_ADDR(DDRAM_ADDR),

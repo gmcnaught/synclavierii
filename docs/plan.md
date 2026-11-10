@@ -96,6 +96,7 @@ shows lag, audio underruns and MIDI activity. Details: [`hdl.md`](hdl.md),
 | M12 | Second SCSI disk W1: (target 4, OSD S4, `--w1`) | board lockstep `CATALOG W1:`; on .62 | `hdl/dev/dev_scsi.sv` |
 | M13 | VT640 graphics terminal + D44 mouse (`--vt640`) | board picture = reference pixel for pixel; on .62: menu, graphic timbre display, crosshair | [`devices/vt640-graphics-terminal.md`](devices/vt640-graphics-terminal.md), `hdl/core/tek_plane.sv`, `hdl/dev/dev_mouse.sv` |
 | M14 | FM and poly voices on real time: `hdl/voice_clock.sv` gives `dev_fm` and `dev_poly` a 333 ns tick per 333 ns of the clock (OSD "Voice clock", real time by default while pacing is on), so CPU waits (SD, DDR3) no longer stop the audio, as on the instrument (research log §26); lockstep keeps CPU time | system bench: a 1 ms CPU stall plays 192 sounding samples on real time, 0 on CPU time; 8-voice audio = Python sample for sample. On .62 (PR #44, 48 % ALMs, slack +0.239 ns) with `W0-53-FM32.SST` (32 FM voices): boot 18 ms lag, then a 30-note FM chord, CLARA3 load and poly chord add 0 lag, 0 underruns, 0 overruns; no idle drift | `hdl/voice_clock.sv`, [`hdl.md`](hdl.md) |
+| M15 | Poly bins (a 6400 has 2, 5.3 manual: "move sound files from poly bin 1 to poly bin 2"): `sim/devices/poly.py` and `dev_poly.sv` with 1–4 bins of 32 voices, each with its own poly memory (channels 64 × bin + c, memory at bin × size); the mix's DDR3 reads pipelined (`ddram_word.sv` read stream) so 64 voices fit in a 48 kHz sample; `w0_image.py --poly-bins 2` | `dev_poly` = Python for 1, 2, 4 bins (up to 70 voices sounding); board lockstep (19.6M instructions): SYN-5.3 main menu "Bin 1: 32V 32 Mb / Bin 2: 32V 32 Mb", TRACK ROUTING + timbre 2 loads CLARA3 into bin 2, a 9-voice chord on it (3 DDR3 reads in flight); 1-bin run unchanged. On .62 (PR #45, 49 % ALMs, 79 % RAM blocks, slack +0.629 ns) with `W0-53-FM32-BIN2.SST`: same menu, VPK "96 VOICES 68M"; CLARA3 in bin 2 (poly memory read from DDR3), 9-note chord: boot 5.2 ms lag, then 0 added, 0 underruns, 0 overruns, no idle drift | `hdl/dev/dev_poly.sv`, `hdl/board/ddram_word.sv` |
 
 ### Next
 
@@ -104,7 +105,7 @@ MiSTer.
 
 | # | Milestone | What it takes | Done when |
 |---|---|---|---|
-| — | No milestone open. Candidates: external-memory (D60–D63) waits, the last 16–18 ms of boot lag; Launchkey pad/pot numbers (M8a, needs a MIDI capture); sound against recordings (M3.3) | | |
+| — | No milestone open. Candidates: external-memory (D60–D63) waits, the boot lag (18 ms on the M14 build, 5.2 ms on the M15 build: the mix no longer holds DDR3 for one read at a time [INF]); Launchkey pad/pot numbers (M8a, needs a MIDI capture); sound against recordings (M3.3) | | |
 
 Lower value on MiSTer (possible, not planned): SMPTE card (D70–D73,
 subsystem 8), multichannel distributor (D32/D33, mixed to stereo),

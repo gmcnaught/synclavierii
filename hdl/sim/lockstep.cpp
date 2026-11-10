@@ -149,17 +149,18 @@ struct SdModel {
 } sd;
 
 // DDR3 behind DDRAM_*: Avalon-MM, burst 1, BUSY now and then, reads
-// answered after a latency.
+// answered after a latency, pipelined (several in flight, data in order).
 struct DdrModel {
     std::vector<uint64_t> mem;
     uint32_t base = 0x30000000u >> 3;
-    std::deque<std::pair<int, uint64_t>> reads;    // (cycles left, data)
+    std::deque<std::pair<uint64_t, uint64_t>> reads;    // (due cycle, data)
     uint64_t n = 0;
     uint32_t burst_left = 0, burst_a = 0;
+    size_t in_flight_max = 0;
     void step(Top* top) {
         n++;
         top->DDRAM_DOUT_READY = 0;
-        if (!reads.empty() && --reads.front().first <= 0) {
+        if (!reads.empty() && reads.front().first <= n) {
             top->DDRAM_DOUT = reads.front().second;
             top->DDRAM_DOUT_READY = 1;
             reads.pop_front();
@@ -183,7 +184,10 @@ struct DdrModel {
             for (int b = 0; b < 8; b++) if (top->DDRAM_BE >> b & 1) m |= 0xFFull << (8 * b);
             mem[a] = (mem[a] & ~m) | (top->DDRAM_DIN & m);
         }
-        if (top->DDRAM_RD) reads.emplace_back(12, mem[a]);
+        if (top->DDRAM_RD) {
+            reads.emplace_back(n + 12, mem[a]);
+            in_flight_max = std::max(in_flight_max, reads.size());
+        }
     }
     uint16_t word(uint32_t w) const { return mem[w >> 2] >> (16 * (w & 3)) & 0xFFFF; }
 } ddr;
@@ -208,6 +212,7 @@ void board_start(Trace& t, bool& audio_trace) {
     uint8_t want_flags = t.u8();
     std::vector<uint16_t> want_mem(65536), want_xm;
     std::vector<uint8_t> want_wave(8192, 0);       // the header's wave-memory entries
+    uint32_t poly_units = 256, poly_bins = 1;
     for (auto& w : want_mem) w = t.u16();
     for (;;) {
         uint8_t k = t.u8();
@@ -239,11 +244,13 @@ void board_start(Trace& t, bool& audio_trace) {
         } else if (k == 'V') {                     // device state: loaded by the core itself
             uint8_t sel = t.u8(); uint16_t addr = t.u16(); uint32_t v = t.u32();
             if (sel == 6 && addr < 8192) want_wave[addr] = (uint8_t)v;
-            if (sel == 3 && addr == 8) {               // poly memory size (128 KB units)
-                size_t need = (0x1000000u + (size_t)v * 65536) / 4;
-                if (ddr.mem.size() < need) ddr.mem.resize(need, 0x5A5A5A5A5A5A5A5Aull);
-            }
+            if (sel == 3 && addr == 8) poly_units = v;  // poly memory size per bin (128 KB units)
+            if (sel == 3 && addr == 13) poly_bins = v;  // poly bins
         } else { std::fprintf(stderr, "bad header section '%c'\n", k); std::exit(2); }
+    }
+    {   // poly memory: bins x units x 128 KB from word 0x1000000
+        size_t need = (0x1000000u + (size_t)poly_bins * poly_units * 65536) / 4;
+        if (ddr.mem.size() < need) ddr.mem.resize(need, 0x5A5A5A5A5A5A5A5Aull);
     }
     top->rst_hard = 1; top->rst = 1; top->rt_enable = 0;
     top->dev_ack = top->dev_nosyn = top->dev_hold = top->halt_req = 0;
@@ -816,7 +823,8 @@ int main(int argc, char** argv) {
                 (unsigned long long)n, (unsigned long long)cycles, (unsigned long long)time_ns);
     if (samples) std::printf(", %llu audio samples", (unsigned long long)samples);
 #ifdef BOARD
-    std::printf(", %llu SD reads", (unsigned long long)sd.reads);
+    std::printf(", %llu SD reads, %zu DDR3 reads in flight at most", (unsigned long long)sd.reads,
+                ddr.in_flight_max);
 #endif
     std::printf("\n");
     delete top;

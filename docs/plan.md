@@ -105,11 +105,17 @@ MiSTer.
 
 | # | Milestone | What it takes | Done when |
 |---|---|---|---|
-| — | No milestone open. Candidates: external-memory (D60–D63) waits, the boot lag (18 ms on the M14 build, 5.2 ms on the M15 build: the mix no longer holds DDR3 for one read at a time [INF]); Launchkey pad/pot numbers (M8a, needs a MIDI capture); sound against recordings (M3.3) | | |
+| M16 | Card complement in the OSD: poly voices 4–128 in steps of 4, mono/stereo voice cards, poly memory per bin in 4 MB steps, FM 8–32 | [`model-alignment.md`](model-alignment.md) §4 | Main Menu and VPK totals match the OSD; lockstep; .62 chord over all bins, 0 underruns |
+| M17 | Sound file import: WAV/AIFF → NED sound file on a W1: image | same | SYN-5.3 loads and plays it at pitch; round trip = input |
+| M18 | Digital sample-to-memory: native routines 64–76, WAV from SD | same | STM RECORD = WAV bit for bit |
+| M19 | Multichannel distributor D32/D33, 8/16 outputs, OSD output pair | same | multichannel analysis finds the outputs; routing audible |
+| M20 | SMPTE reader (D70 subsystem 8) from MIDI Time Code | same | sequencer chases MTC |
+| M21 | Printer port D40/D41 → SD capture, renderer | same | a printed score renders |
 
-Lower value on MiSTer (possible, not planned): SMPTE card (D70–D73,
-subsystem 8), multichannel distributor (D32/D33, mixed to stereo),
-guitar interface (D134/D135, `SYN-5.3G`), printer port (D40/D41).
+Other candidates: external-memory (D60–D63) waits, the boot lag (5.2 ms on
+the M15 build); Launchkey pad/pot numbers (M8a, needs a MIDI capture);
+sound against recordings (M3.3). Not planned: the guitar interface and the
+other options listed in [`model-alignment.md`](model-alignment.md) §5.
 
 ## 5. Verification strategy
 

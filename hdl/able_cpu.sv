@@ -34,6 +34,14 @@
 //      057 (D57) reads `d57`.
 // Devices 002/010 (C, D) and 011/057 (D) are inside the CPU; on Model B they
 // go out on the I/O bus as before.
+//
+// Native routines (M18): `PCI TO RTNV` + n is a relative transfer never, a
+// no-op on the instrument, which the Synclavier3 interpreter takes as a call
+// of its native routine n (-XPL/INTRPRTR). With `nat_en`, n = 64-76 (the
+// digital STM routines) holds the instruction in EXEC with `nat_req` (n in
+// nat_num - 64, arguments R0-R2 in regs_flat) until the handler answers
+// with nat_ack (one clock), then writes nat_result to R0 if nat_wr. No time
+// passes meanwhile (sim/cpu.py calls the handler inside the instruction).
 
 module able_cpu (
     input  logic        clk,
@@ -72,6 +80,13 @@ module able_cpu (
     input  logic        halt_req,
     output logic        halted,
     output logic [1:0]  halt_reason,  // 1 no SYN on read, 2 no SYN on write, 3 HALT
+
+    input  logic        nat_en,       // M18: trap native routines 64-76
+    output logic        nat_req,      // held until nat_ack
+    output logic [3:0]  nat_num,      // routine - 64
+    input  logic        nat_ack,
+    input  logic        nat_wr,       // with nat_ack: R0 <= nat_result
+    input  logic [15:0] nat_result,
 
     output logic        instr_done,   // END state: instruction at instr_pc completes
     output logic [15:0] instr_pc,
@@ -236,6 +251,11 @@ module able_cpu (
     wire [1:0] xfers = 2'(!rep) + 2'(src_xfer) + 2'(dst_now);
     // a held read is retried (333 ns) only when the throttle allows
     assign io_held = state == S_SRCIO && io_rd && io_hold && !io_ack && !io_nosyn && !stall;
+
+    // RTNV (334) with a literal of 100-114 (octal): a native routine call
+    assign nat_req = nat_en && state == S_EXEC && dbyte == 8'o334 &&
+                     val >= 16'o100 && val <= 16'o114;
+    assign nat_num = val[3:0];
 
     assign instr_done = (state == S_END);
     assign instr_pc   = pc_at;
@@ -414,8 +434,13 @@ module able_cpu (
                             ppc <= r[pcr];
                             if (mc) shadow <= 1'b1;
                         end
-                    end else
+                    end else begin
                         dst_xfer <= 1'b0;                         // no destination write
+                        if (nat_req) begin                        // native routine (M18)
+                            if (!nat_ack) state <= S_EXEC;        // wait for the handler
+                            else if (nat_wr) r[0] <= nat_result;
+                        end
+                    end
                 end else begin                                    // memory (write above)
                     if (dbyte[4])
                         r[dreg] <= (mc && dreg == 4'o12) ? r[dreg] - 16'd1   // MR12D

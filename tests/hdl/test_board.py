@@ -612,6 +612,111 @@ def test_dev_midi():
             os.unlink(path)
 
 
+def dig_stm_stimulus(path, seed=1, calls=1500):
+    """Stimulus for hdl/sim/dig_stm_tb.sv from sim/devices/digstm.py
+    DigitalStm: a small random source (mono or stereo; seed 3 none), then
+    SYN-5.3's sequence (get_rate, latch, start, samples until 256, import or
+    toss, lmax, rmax) with random rates, stereo flags, early imports
+    (underflow), stops, releases, rate changes, a remount, and CPU ticks of
+    random length between the calls."""
+    import random
+    from sim.devices.digstm import DigitalStm, Source
+    rng = random.Random(seed)
+    out = []
+    src = None
+    if seed != 3:
+        ch = 2 if seed % 2 == 0 else 1
+        frames = rng.randrange(1500, 4000)
+        samples = [rng.choice((0, -32768, 32767, rng.randrange(-32768, 32768),
+                               rng.randrange(-300, 300))) for _ in range(frames * ch)]
+        src = Source(samples, ch, rng.choice((441, 480, 505, 1023, 320)))
+        data = src.to_bytes()
+        src = Source.from_bytes(data)
+        words = [data[i] << 8 | data[i + 1] for i in range(0, len(data), 2)]
+        out.append("F %d %s" % (len(words), " ".join(map(str, words))))
+    else:
+        out.append("A")
+    ds = DigitalStm(src)
+
+    class Poly:
+        def write(self, dev, v):
+            assert dev == 0o157
+            out.append("W %d" % v)
+
+    class Cpu:
+        r = [0] * 16
+        time_ns = 0
+    cpu = Cpu()
+    ds.poly = Poly()
+
+    def tick(ns, k):
+        if k:
+            cpu.time_ns += ns * k
+            out.append("T %d %d" % (ns, k))
+
+    def call(n, r0=None, r1=None, r2=None):
+        r = cpu.r
+        r[0] = rng.randrange(1 << 16) if r0 is None else r0
+        r[1] = rng.randrange(1 << 16) if r1 is None else r1
+        r[2] = rng.randrange(1 << 16) if r2 is None else r2
+        args = r[0], r[1], r[2]
+        ds.call(cpu, n)                          # its D157 writes ("W") go first
+        wr = n in (65, 66, 69, 70, 72, 74, 76)   # the routines with a result
+        assert wr or r[0] == args[0]
+        out.append("C %d %d %d %d %d %d" % (n - 64, args[0], args[1], args[2], int(wr),
+                                            r[0] if wr else 0))
+
+    call(74)
+    for _ in range(calls):
+        x = rng.random()
+        if x < 0.04:
+            call(72, 0, rng.choice((0, 1, 1, 3)), rng.choice((441, 480, 505, 0, 2000, 1023, 77)))
+            call(64)
+        elif x < 0.06:
+            call(rng.choice((67, 73)))
+        elif x < 0.08:
+            call(75, rng.choice((400, 441, 505, 0, 1024, 1023, 1)))
+        elif x < 0.10:
+            call(rng.choice((74, 76, 66)))
+        elif x < 0.11:
+            out.append("M")                     # the same file again: its rate again
+            ds.mount(src)
+        else:
+            # wait for 256 frames (or not: an early import underflows)
+            ns = rng.choice((333, 666, 999, rng.randrange(1, 1000)))
+            while rng.random() < 0.97:
+                call(65)
+                if cpu.r[0] >= 256 or not ds.running:
+                    break
+                tick(ns, rng.randrange(50, 3000))
+            call(rng.choice((68, 68, 71)))
+            call(69)
+            call(70)
+        tick(rng.choice((333, 666, 999)), rng.randrange(0, 40))
+    open(path, "w").write("\n".join(out) + "\n")
+    return ds
+
+
+def test_dig_stm():
+    """The digital STM handler (hdl/core/dig_stm.sv) against
+    sim/devices/digstm.py: results, D157 writes, frame timing."""
+    if not HAVE_VERILATOR:
+        print("  skip test_dig_stm (needs verilator)")
+        return
+    import tempfile
+    for seed in (1, 2, 3):
+        with tempfile.NamedTemporaryFile(suffix=".stim", delete=False) as f:
+            path = f.name
+        try:
+            ds = dig_stm_stimulus(path, seed)
+            if seed != 3:
+                assert ds.imports > 100 and ds.calls.get(71, 0) > 20, (ds.imports, ds.calls)
+            out = _testbench("dig_stm", "hdl/core/dig_stm.sv", args=["+stim=" + path])
+            print("  " + [ln for ln in out.splitlines() if "dig_stm OK" in ln][0])
+        finally:
+            os.unlink(path)
+
+
 def test_ps2_ascii():
     if not HAVE_VERILATOR:
         print("  skip test_ps2_ascii (needs verilator)")

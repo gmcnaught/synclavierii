@@ -77,6 +77,12 @@ Interfaces:
   divider being slow) costs no simulated time. Device 001 (PSW/PCW) is
   inside the CPU; `irq[15:4]` are the device request bits.
 * `halt_req`: stop after the current instruction (`halt_reason` 3).
+* Native routines (M18): with `nat_en`, `PCI TO RTNV` + n for n = 64–76
+  (the Synclavier³ interpreter's digital STM routines; RTNV is a no-op on
+  the instrument) waits in EXEC with `nat_req`/`nat_num` until the handler
+  answers `nat_ack` (R0 ← `nat_result` if `nat_wr`); no simulated time
+  passes, as `sim/cpu.py` calls `cpu.native` inside the instruction
+  ([`devices/digital-stm.md`](devices/digital-stm.md)).
 * Debug: register/flag load during reset; `regs_flat`, `flags`,
   `instr_done`/`instr_pc`/`instr_word`.
 * `MODEL_C` parameter: ADC/SBB (270–277) work when 1, are no-ops when 0
@@ -267,6 +273,7 @@ DDR3 and the video/audio outputs.
 | External memory | `hdl/board/ddram_word.sv` | D60–D63's 1024 sectors (512 KB) in DDR3 from 0x30000000, one 16-bit word per Avalon transfer; poly memory from word 0x1000000. A second port, the read stream, takes the poly mix's reads (M15): commands go out without waiting for each other's data, which comes back in order, so a mix of 64–128 voices is about one read per 3 clocks plus one DDR3 latency instead of one latency per voice. Port requests go first; a port read waits until the stream's reads are back. |
 | Poly bins | `hdl/dev/dev_poly.sv` | 1–4 bins of 32 voices (state image device 3 index 13; a 6400: 2, `tools/w0_image.py --poly-bins 2`), the last with 4–32 (index 14, M16), channels 64 × bin + 0–31, bin b's memory from b × the per-bin size. One rate, envelope and mix pass covers all of them (rows in block RAM indexed {bin, channel}). PSNUMV answers the latched channel's bin. `mono` (o#pvoice as loaded): the right sum on both outputs. |
 | Card complement (M16) | `hdl/able_system.sv`, `hdl/core/boot_loader.sv` | OSD Hardware page (`status[20:7]` = `hw_cfg`, taken at reset): poly voices / 4, mono, MB per bin / 4, FM voices / 8; 0 keeps the state image's value. able_system replaces the loaded bins, last-bin voices and memory size; dev_fm takes its voice count; the boot loader ORs o#pvoice into MONITOR's options word (state image header word 35 = its external-memory address + 1). Board lockstep: `sim/lockstep.py check --osd voices=72,mono,mb=8,fm=32` against a w0boot trace made with the same options. |
+| Digital STM (M18) | `hdl/core/dig_stm.sv`, `hdl/core/sd_floppy.sv` | Native routines 64–76 ([`devices/digital-stm.md`](devices/digital-stm.md)) when D57 has bit 0x4000 (state image, `tools/w0_image.py --dig-stm`, or OSD Hardware "Digital STM input (S5)", `status[21]`, taken at reset). The source (`tools/stm_source.py`, a WAV converted) is SD drive 5 (`S5`), read in 32-block lines like the SCSI disks, one word at a time on the shared SD word port when neither the SCSI host nor the floppy controller has a request open. Frames arrive by the CPU's simulated time (ns × rate accumulator); imports go into `dev_poly`'s register port as D157 writes while the CPU waits, so they take the CPU's own write path. Checks: `dig_stm_tb.sv` against `sim/devices/digstm.py` (`test_dig_stm`); board lockstep of SYN-5.3 recording on its STM screen, poly memory dumped at the end (`LOCKSTEP_POLY`) equal to the source. |
 | Terminal display | `hdl/core/term_display.sv`, `tools/vt100.py` | 640 × 480 (25 MHz pixel clock, 59.5 Hz). Lines 0–383: the D50 terminal, 80 × 24, public-domain 8 × 8 font (`third_party/font8x8`, rows doubled) plus the DEC line-drawing set (`tools/gen_font.py`, codes 0x00–0x1F). The VT100 subset Release L's programs use (ORK-LM's menus): cursor addressing, erase in display/line, reverse video, double-height and double-width lines, the line-drawing set, save/restore cursor, index; a VT640's Tektronix graphics (GS … CAN) are skipped. `tools/vt100.py` is the reference model: the test compares pictures pixel for pixel. Lines 384–479: the original panel: the 4-digit display drawn as 7 segments (any pattern; decimal point in the cell corner) and units bits; the 128 buttons, 16 a row (row r = panel word r), 4-character labels (`tools/gen_panel_labels.py`), inverted while lit; a status line; a help line. Mouse pointer. Green, amber or white. |
 | Panel by mouse | `hdl/core/panel_mouse.sv` | hps_io `ps2_mouse` → pointer; holding the left button on a label presses that button. Mouse and MIDI presses are combined (a button is down while either holds it). |
 | Keyboard | `hdl/core/ps2_ascii.sv` | hps_io `ps2_key` → ASCII (US layout, Shift, Caps Lock, Ctrl); Backspace sends BS, which MONITOR takes as delete (`MONCAT/04-IOMOD`); the arrow keys send ^K ^J ^H ^L, the codes the real-time program maps arrows to (`SYNLITS/ASCIILIT`); F1–F4 send PF1–PF4 (`ESC O P`–`S`) and, in keypad application mode (`term_display`'s `keypad_app`, set by `ESC =`), keypad Enter sends `ESC O M`, the VT100 ENTER (`TTYMOD/TTYSOU` maps it to ESC). |
@@ -276,7 +283,8 @@ DDR3 and the video/audio outputs.
 OSD: F0 and F1 image slots, text colour, aspect ratio, real-time pacing
 (the throttle; off runs as fast as the clock allows), status line, voice
 clock (real time or CPU time, see Voice time; CPU time when pacing is off),
-reset.
+reset; S5 the digital STM source and, on the Hardware page, "Digital STM
+input (S5)" (M18).
 "Status line: Lag by cause" replaces the health fields with the lag split
 by what the CPU was waiting on when the throttle gave up the time
 (`able_system.sv`, microseconds in hex since reset): `Fch` a code fetch
@@ -311,6 +319,8 @@ requires the same text.
 | `term_display_tb.sv` (one clock per pixel, as on MiSTer): frame read back with the font: terminal text, display `1234` with the decimal point, three lit buttons inverted, pointer | as expected (3 seeded faults caught) |
 | `term_display_tb.sv` with byte streams: every handled VT100 sequence, and the 1,321 bytes ORK-LM sends for its welcome menu | pictures identical to `tools/vt100.py` (3 seeded faults caught) |
 | `audio_fifo_tb.sv`: jittered input played in order at a steady rate; a stall = one underrun, last sample held; restart at half full | as expected (3 seeded faults caught) |
+| `dig_stm_tb.sv` (M18): ~16,000 native calls per seed (3 seeds: mono, stereo, no source) from `sim/devices/digstm.py`, random tick lengths, rates, stereo flags, early imports, remounts; SD and poly ports answering after random delays | every result and D157 write as Python's |
+| SYN-5.3 (VT640, poly, VPK, 8 FM voices, D57 bit 0x4000) from `W0-53-FM8-VT640-DSTM.SST` with a 1 s source in S5: STM screen, level check, RECORD, stop (`w0boot --dig-stm`, 22M instructions, 19.2 s simulated) | identical for a mono 48 kHz and a stereo 44.1 kHz source; poly memory at the end holds every source frame of the new sound file |
 | `midi_in_tb.sv`: running status, note-on velocity 0, real-time byte inside a message, octave folding, all notes off, channel-16 panel buttons, SysEx skipped, program-change timing | as expected (4 seeded faults caught) |
 
 Each of these faults is caught: processor type left as Model C, wrong

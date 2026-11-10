@@ -28,6 +28,7 @@ set_global_assignment -name SYSTEMVERILOG_FILE ../hdl/core/midi_vpk.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../hdl/core/midi_card_feed.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../hdl/core/panel_mouse.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../hdl/core/audio_fifo.sv
+set_global_assignment -name SYSTEMVERILOG_FILE ../hdl/core/dig_stm.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../hdl/core/synclavier_core.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../hdl/board/ddram_word.sv
 set_global_assignment -name SDC_FILE Synclavier.sdc

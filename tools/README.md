@@ -65,3 +65,17 @@ chunk; export then import gives the same file. `ned_disk.add_file` and
 
 Results of running the disassembler on NED's runtime packages are in
 [`docs/model-c-runtime-analysis.md`](../docs/model-c-runtime-analysis.md).
+
+## `stm_source.py`: digital sample-to-memory source (M18)
+
+```bash
+python3 tools/stm_source.py IN.wav OUT.STM [--start S] [--seconds S]
+python3 tools/stm_source.py --info OUT.STM
+```
+
+Converts a PCM WAV (1 or 2 channels, 8/16/24/32-bit; deeper samples keep
+their top 16 bits) into the file the core reads from SD slot S5 when
+SYN-5.3 records with its digital STM input: a 512-byte header (`SYNCSTM1`,
+channels, rate in 100 Hz units, frames) and the samples as big-endian
+words. Format and behaviour: [`docs/devices/digital-stm.md`](../docs/devices/digital-stm.md).
+Standard library only.

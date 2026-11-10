@@ -101,12 +101,13 @@ uint16_t reg(int i) { return (top->regs_flat[i / 2] >> ((i & 1) * 16)) & 0xFFFF;
 // HPS side of hps_io's SD block interface: one 512-byte block per request.
 uint32_t lba_of(Top* top, int d) {
     return d == 0 ? top->sd_lba0 : d == 1 ? top->sd_lba1 : d == 2 ? top->sd_lba2
-         : d == 3 ? top->sd_lba3 : top->sd_lba4;
+         : d == 3 ? top->sd_lba3 : d == 4 ? top->sd_lba4 : top->sd_lba5;
 }
 
 struct SdModel {
-    std::vector<uint8_t> img[5];                 // F0, F1, state image, W0, W1 (SCSI)
-    bool present[5] = {false, false, false, false, false}, prot[5] = {false, false, true, false, false};
+    std::vector<uint8_t> img[6];                 // F0, F1, state image, W0, W1 (SCSI), STM source
+    bool present[6] = {false, false, false, false, false, false},
+         prot[6] = {false, false, true, false, false, true};
     int drive = -1, phase = 0, wait = 0, i = 0, nbytes = 512;
     bool writing = false;
     uint64_t reads = 0, writes = 0;
@@ -115,7 +116,7 @@ struct SdModel {
         if (wait > 0) { wait--; return; }
         switch (phase) {
         case 0:                                    // idle: pick a request
-            for (int d = 0; d < 5; d++)
+            for (int d = 0; d < 6; d++)
                 if ((top->sd_rd | top->sd_wr) >> d & 1) {
                     drive = d; writing = top->sd_wr >> d & 1;
                     phase = 1; wait = 40; return;
@@ -123,7 +124,8 @@ struct SdModel {
             return;
         case 1:
             top->sd_ack = 1 << drive; top->sd_buff_addr = 0; i = 0;
-            nbytes = 512 * (drive == 3 ? top->sd_blk_cnt3 + 1 : drive == 4 ? top->sd_blk_cnt4 + 1 : 1);   // hps_io sd_blk_cnt
+            nbytes = 512 * (drive == 3 ? top->sd_blk_cnt3 + 1 : drive == 4 ? top->sd_blk_cnt4 + 1
+                            : drive == 5 ? top->sd_blk_cnt5 + 1 : 1);   // hps_io sd_blk_cnt
             phase = writing ? 3 : 2; wait = 4; return;
         case 2: {                                  // blocks -> FPGA
             uint32_t lba = lba_of(top, drive);
@@ -288,8 +290,16 @@ void board_start(Trace& t, bool& audio_trace) {
         std::fclose(f);
         sd.present[4] = true;
     }
+    // LOCKSTEP_STM=path: a digital STM source (tools/stm_source.py) in S5 (M18)
+    if (const char* stm = std::getenv("LOCKSTEP_STM")) {
+        FILE* f = std::fopen(stm, "rb");
+        if (!f) { std::perror(stm); std::exit(2); }
+        for (int ch; (ch = std::fgetc(f)) != EOF;) sd.img[5].push_back((uint8_t)ch);
+        std::fclose(f);
+        sd.present[5] = true;
+    }
     top->rst_hard = 0;
-    for (int d = 0; d < 5; d++) if (sd.present[d]) {    // the HPS mounts the images
+    for (int d = 0; d < 6; d++) if (sd.present[d]) {    // the HPS mounts the images
         top->img_mounted = 1 << d; top->img_size = sd.img[d].size(); top->img_readonly = sd.prot[d];
         board_tick();
         top->img_mounted = 0;
@@ -823,6 +833,18 @@ int main(int argc, char** argv) {
 #endif
 #ifdef BOARD
     board_screen();
+    // LOCKSTEP_POLY=path: poly memory bin 0 at the end (words 0x1000000 up of
+    // DDR3, as many as the model holds, 16 MB at most), little-endian words
+    if (const char* path = std::getenv("LOCKSTEP_POLY")) {
+        FILE* f = std::fopen(path, "wb");
+        if (!f) { std::perror(path); std::exit(2); }
+        size_t words = std::min<size_t>(ddr.mem.size() * 4, 0x1000000u + 0x800000u);
+        for (size_t w = 0x1000000u; w < words; w++) {
+            uint16_t v = ddr.word((uint32_t)w);
+            std::fputc(v & 0xFF, f); std::fputc(v >> 8, f);
+        }
+        std::fclose(f);
+    }
 #endif
     std::printf("lockstep OK: %llu instructions, %llu cycles, %llu ns simulated",
                 (unsigned long long)n, (unsigned long long)cycles, (unsigned long long)time_ns);

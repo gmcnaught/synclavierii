@@ -544,6 +544,13 @@ lists an imported file on a blank W1: (`ENTER W1:`, `CATALOG`) as `Sound`.
   words at sector 0 word 254; FC 2,3 (base 255/254); FC 10 = 3; FC 36,37;
   FC 40–43; then probes D33.
 
+**Recording (digital STM, M18).** With no sampling units (FC 52–54) SYN-5.3
+records through the interpreter's digital STM routines instead: per 256
+frames it sets the write address (`psmwrite(base, sec#, 0)`: PSC, FC 16,
+17) and calls `interp_dig_stm_do_import`, which the model answers with 256
+(mono) or 512 (stereo, interleaved) PSD writes at FC 18
+([`devices/digital-stm.md`](devices/digital-stm.md)).
+
 **(b) Loading a sound file** — `197-PAL1:336-700`, `197-PAL:833-995`,
 `POLYSOU:92-132,222-278,497-532`, `RTP/DISKREAD:37-39,782-822`
 * FC 16/17/18: block header zeroing, last-sector zeroing, data via POLYREAD,

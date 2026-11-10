@@ -3,3 +3,9 @@ __pycache__/
 *.simg
 out/
 timbres/
+*.stmb
+*.ssnd
+*.sprg
+*.IMG
+*.SST
+*.rbf

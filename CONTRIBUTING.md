@@ -18,9 +18,20 @@
   `docs/research-log.md`, with their source (see `docs/sources.md`).
 * Tag uncertain hardware claims **[STD]**, **[OBS]** or **[HYP]** as in
   `data/netlist.csv`.
-* Never commit NED disk images (`*.simg`) or other unlicensed binaries.
-  Only MIT-licensed NED material may be added, with its licence notice.
+* Never commit NED disk images (`*.simg`), timbre or sound files
+  (`*.stmb`, `*.ssnd`, `*.sprg`), images built from them (`*.IMG`,
+  `*.SST`), ROMs, board photos or other unlicensed material
+  (`tests/test_repo_hygiene.py` checks the file types). Only MIT-licensed
+  NED material may be added, with its licence notice, and recorded in
+  `docs/sources.md`.
 
 ## Licence (decision D1)
 
 Contributions are accepted under the MIT licence in [`LICENSE`](LICENSE).
+Changes to `mister/sys/` (avoid them; update from upstream instead) are
+GPL-2.0, like the rest of that directory.
+
+## Pull requests from forks
+
+Workflows of pull requests from forks wait for a maintainer's approval.
+Build RBF runs them on GitHub-hosted runners only.

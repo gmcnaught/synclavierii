@@ -3,7 +3,12 @@ name: Build RBF
 # Compiles the MiSTer core (mister/Synclavier.qpf) with Quartus Lite 17.0 in
 # the raetro/quartus:17.0 Docker image: on the self-hosted TrueNAS runner
 # (label `quartus`, mister/ci/truenas-runner.yaml) when the repository
-# variable QUARTUS_RUNNER is `truenas`, otherwise on ubuntu-latest. Runs on pull requests and pushes to main that touch the HDL or
+# variable QUARTUS_RUNNER is `truenas`, otherwise on ubuntu-latest. Pull
+# requests from forks always use ubuntu-latest (the self-hosted runner has
+# the NAS's Docker socket). This check alone is not a security boundary: a
+# fork PR can edit this file, so the repository also requires approval
+# before workflows run for outside contributors; read a fork PR's workflow
+# changes before approving it. Runs on pull requests and pushes to main that touch the HDL or
 # the MiSTer project, and on demand. The RBF and the Quartus reports are
 # uploaded as artifacts; mister/build.sh fails the job on a failed compile
 # or negative slack (after the reports are saved).
@@ -38,13 +43,13 @@ concurrency:
 jobs:
   rbf:
     name: RBF (Quartus Lite 17.0)
-    runs-on: ${{ vars.QUARTUS_RUNNER == 'truenas' && fromJSON('["self-hosted", "quartus"]') || 'ubuntu-latest' }}
+    runs-on: ${{ vars.QUARTUS_RUNNER == 'truenas' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted", "quartus"]') || 'ubuntu-latest' }}
     timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
 
       - name: Free disk space (Quartus needs ~24 GB)
-        if: ${{ vars.QUARTUS_RUNNER != 'truenas' }}
+        if: ${{ runner.environment == 'github-hosted' }}
         uses: jlumbroso/free-disk-space@main
         with:
           tool-cache: true

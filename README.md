@@ -1,89 +1,153 @@
-# NED Synclavier "Fast Processor" (ABLE Model C) — reverse engineering
+# Synclavier for MiSTer
 
-This project documents the CPU of the New England Digital Synclavier: the
-**ABLE Model C "Fast Processor"**. It is built from two cards:
+A behavioural FPGA core of the New England Digital **Synclavier** for the
+[MiSTer](https://github.com/MiSTer-devel) (DE10-Nano), with a Python
+simulator it is checked against. It runs NED's original software,
+unmodified:
+
+* **Release L** (1986) on a **Synclavier II** (ABLE Model B CPU), booting
+  from floppy images;
+* **Release 5.3** (2021, the last release) on a **3200 / 6400 / 9600**
+  (ABLE Model D CPU), booting from a SCSI hard-disk image.
+
+The project started as reverse engineering of the Model C "Fast Processor"
+CPU boards (FPRM-185 / FPSM-185); that material is kept below and in
+[`boards/`](boards/). The core does not copy the boards gate for gate: it
+implements the instruction set and the devices as NED's software uses
+them.
+
+You need your own NED disk images (Release L from
+`Synclavier/Synclavier_Distributions`, Release 5.3 from a Synclavier³
+download); none are included. See [Licence and provenance](#licence-and-provenance).
+
+## Status (November 2026)
+
+All of the following runs on a MiSTer:
+
+| Part | Status | Docs |
+|---|---|---|
+| ABLE CPU, Models B, C, D | HDL and simulator agree instruction by instruction (random programs, MONITOR, ORK-LM, SYN-5.3) | [`instruction-set.md`](docs/instruction-set.md), [`hdl.md`](docs/hdl.md) |
+| Release L | Boots from SD floppy images to `Ready >`; the real-time program ORK-LM plays FM timbres from MIDI | [`release-l-image.md`](docs/release-l-image.md) |
+| Release 5.3 | Boots MONITOR 5.3 from a W0 image and starts SYN-5.3 (Main Menu in about 6 s); timbre banks, sound files | [`release-5.3.md`](docs/release-5.3.md) |
+| FM synthesis | 8 voices, or 32 (a 9600); time-multiplexed engine; HDL output equals the simulator's sample for sample | [`fm-voice.md`](docs/fm-voice.md) |
+| Poly sampling | 32 stereo voices per poly bin, 1 bin (a 3200) or 2 (a 6400); up to 224 MB of poly memory in DDR3; sound files load over SCSI and play | [`poly-synth.md`](docs/poly-synth.md) |
+| Keyboards and panel | Original keyboard (ORK) for Release L, velocity/pressure keyboard (VPK) for 5.3; MIDI notes, velocity, pressure, wheels, pads and pots mapped to them; on-screen panel clicked with the mouse | [`devices/`](docs/devices/), [`mister/README.md`](mister/README.md) |
+| MIDI subsystem card | D70–D73: SYN-5.3 handles MIDI in (routing, recording, sync) and MIDI out over MidiLink | [`d70-midi-subsystem.md`](docs/devices/d70-midi-subsystem.md) |
+| Disks | Two floppies, SCSI W0: and W1: from SD card images, with modelled disk timing | [`hdl.md`](docs/hdl.md) |
+| Terminal | VT100 subset on the video output with a PS/2 keyboard; VT640 (Tektronix 4010) graphics and the D44 mouse for SYN-5.3's graphic screens | [`vt640-graphics-terminal.md`](docs/devices/vt640-graphics-terminal.md) |
+
+Not done yet:
+
+* **Exact sound.** DAC, envelope and mix details are modelled from NED
+  documentation and source; they have not been compared with recordings of
+  a real instrument.
+* **Launchkey defaults** for pads and pots are not checked against a
+  captured device.
+* No packaged release: build the RBF yourself or take it from a CI run.
+
+Not planned: Direct-to-Disk, sample-to-memory recording (no audio input),
+mono sampling, the Macintosh terminal.
+
+The one-page summary is [`docs/roadmap.md`](docs/roadmap.md); milestones
+M0–M15, with acceptance criteria and results, are in
+[`docs/plan.md`](docs/plan.md).
+
+## Using the core
+
+[`mister/README.md`](mister/README.md) has the build, the image tools and
+the MIDI mapping. In short, for Release 5.3:
+
+```bash
+python3 tools/w0_image.py "Synclavier³.app/Contents/Resources/W0 Disk Image.simg" out/w53
+```
+
+writes `W0-53.IMG` (the hard disk) and `W0-53.SST` (a state image that
+sets up the machine). Copy both to `games/Synclavier/` and load them with
+an MGL; options give 32 FM voices (`--fm-voices 32`), more poly memory
+(`--poly-mb`), a second poly bin (`--poly-bins 2`), the MIDI card
+(`--midi`), a VT640 (`--vt640`) or a second disk (`--w1`). Set the MiSTer
+UART to MidiLink for MIDI.
+
+Build the core with `mister/build.sh` (Quartus Lite 17.0) or take the
+`synclavier-rbf` artifact from a **Build RBF** run on `main`.
+
+## How it is checked
+
+* **Simulator** (`sim/`, Python standard library only): CPU, devices, FM
+  and poly voices. It is the reference model; see
+  [`simulator.md`](docs/simulator.md).
+* **Lockstep** (`sim/lockstep.py`, Verilator benches in `hdl/sim/`): the
+  HDL runs the same program as the simulator and every instruction,
+  device access and audio sample is compared, up to full SYN-5.3 boots of
+  about 20 million instructions.
+* **Tests** (`tests/`): run on every pull request by
+  `.github/workflows/tests.yml`; `build-rbf.yml` compiles the core and
+  fails on negative timing slack.
+* **Hardware**: each milestone is then run on a MiSTer
+  (`scripts/mister/`: load the core, type keys, send MIDI, read the screen
+  back).
+
+## Documentation
+
+| Document | Contents |
+|---|---|
+| [`docs/roadmap.md`](docs/roadmap.md) | One-page summary: what works, what is next, open gaps |
+| [`docs/plan.md`](docs/plan.md) | Project plan: architecture, milestones M0–M15, verification, risks, decisions |
+| [`docs/hdl.md`](docs/hdl.md) | The FPGA core: CPU, devices, voice engine, MiSTer top level, lockstep |
+| [`docs/simulator.md`](docs/simulator.md) | The Python simulator: use, behaviour, choices the manuals leave open |
+| [`docs/instruction-set.md`](docs/instruction-set.md) | Full ABLE instruction set with NED mnemonics and the Model C/D extensions |
+| [`docs/able-reference.md`](docs/able-reference.md) | Architecture, the 72-pin EZbuss pinout, processor models and slots |
+| [`docs/boot-and-loaders.md`](docs/boot-and-loaders.md) | Boot chain (boot ROM → `.LD-7` → MONITOR) and loader protocols |
+| [`docs/release-l-image.md`](docs/release-l-image.md), [`docs/release-5.3.md`](docs/release-5.3.md) | The two software releases: disk formats, what each needs from the hardware |
+| [`docs/realtime-program.md`](docs/realtime-program.md) | The real-time program (ORK-LM, SYN-5.3) and the devices it drives |
+| [`docs/fm-voice.md`](docs/fm-voice.md), [`docs/poly-synth.md`](docs/poly-synth.md) | FM voices and poly sampling: registers, timing, memory |
+| [`docs/devices/`](docs/devices/) | Register maps: keyboards, FM interface, control voltages, MIDI card, VT640 |
+| [`docs/timbre-libraries.md`](docs/timbre-libraries.md) | Timbre bank formats and how to load NED libraries |
+| [`docs/model-c-runtime-analysis.md`](docs/model-c-runtime-analysis.md) | Disassembly of NED's Model B/C/D runtime packages |
+| [`docs/sources.md`](docs/sources.md) | Every source, pinned by URL, commit and checksum |
+| [`docs/research-log.md`](docs/research-log.md) | How the findings were reached, including corrections |
+| [`docs/bench-checklist.md`](docs/bench-checklist.md) | What owners of real hardware could measure |
+| [`tools/`](tools/README.md) | Disassembler, NED disk lister/extractor, image builders, table generators |
+
+## Repository layout
+
+```
+docs/          specifications, plan, sources (above)
+sim/           Python simulator: cpu.py, system.py, fm.py, voice.py, lockstep.py
+  devices/     floppy, SCSI, external memory, keyboards, FM, poly, MIDI, mouse, ...
+hdl/           the core: able_cpu.sv, able_system.sv, voice_clock.sv
+  dev/         one module per device (dev_fm.sv, dev_poly.sv, dev_scsi.sv, ...)
+  core/        MiSTer-side logic: boot loader, SD disks, terminal and panel
+               display, MIDI input, mouse
+  board/       DDR3 access
+  sim/         Verilator lockstep benches and unit testbenches
+mister/        Quartus project (Template_MiSTer; sys/ is GPL-2.0), build.sh, CI runner
+tools/         able_disasm.py, ned_disk.py, w0_image.py, state_image.py, generators
+scripts/mister/  hardware test driver for a MiSTer on the network
+tests/         simulator, HDL lockstep and tool tests (stdlib only + Verilator)
+data/          CSVs: EZbuss pinout, opcode map, board netlist
+boards/        FPRM-185 and FPSM-185: BOMs, inferred netlists, block schematics
+third_party/   8x8 font (public domain)
+```
+
+## The Model C CPU boards
+
+The board-level reverse engineering the project began with. The core does
+not depend on it.
 
 | Board | Role | Folder |
 |---|---|---|
 | **FPRM-185** | Fast Processor **Register Module**. 16-bit ALU (4× 74F181 + 74S182), 16×16 register file (4× CY27S07), C/Z/M flags, memory-address and data-bus interface. Used in **Model C and Model D**. Bin slot 13. | [`boards/fprm-185/`](boards/fprm-185/README.md) |
 | **FPSM-185** | Fast Processor **Sequencer Module**. ≈28-bit pipelined microcode (SMR00–03 PROMs), next-address sequencer, opcode-dispatch PROMs, interrupt priority, delay-line timing. **Model C** only (Model D uses the DSM instead). Bin slot 14. | [`boards/fpsm-185/`](boards/fpsm-185/README.md) |
 
-Where to start:
+> **Board status: first pass.** The BOMs and chip identities are solid. The
+> block schematics and netlists are **inferred** from 822×622 photos plus
+> NED documentation. Every connection is tagged **[STD]** (standard
+> topology), **[OBS]** (seen in the photo) or **[HYP]** (hypothesis). No
+> physical hardware has been measured, no PROMs have been read, and no
+> public schematics exist as far as we could find.
 
-| Document | Contents |
-|---|---|
-| [`docs/able-reference.md`](docs/able-reference.md) | Architecture, the 72-pin EZbuss pinout, processor models and slots |
-| [`docs/instruction-set.md`](docs/instruction-set.md) | **Full ABLE instruction set** with NED mnemonics, plus the **Model C extensions** (ADC/SBB, `RPT` via D10, R12 stack) from NED's own assembler and compiler sources |
-| [`docs/model-c-runtime-analysis.md`](docs/model-c-runtime-analysis.md) | Disassembly of NED's Model B/C/D runtime packages: **D10 link register**, R12-only stack, RPT and ADC confirmed |
-| [`docs/release-l-image.md`](docs/release-l-image.md) | The Release L (1986) disk image: catalog format, `.LD-6` = three position-independent boot loaders, OS and real-time binaries compiled for Model B |
-| [`docs/boot-and-loaders.md`](docs/boot-and-loaders.md) | Boot chain (Load → boot ROM → `.LD-7` loader → MONITOR), loader entry vector, the D4567/SCSI/external-memory device protocols |
-| [`tools/`](tools/README.md) | `able_disasm.py`: ABLE disassembler, validated 541/541 against an NED assembler listing (`tests/`); `ned_disk.py`: NED disk-image lister/extractor |
-| [`docs/bench-checklist.md`](docs/bench-checklist.md) | What to do when someone has a board or bin: PROM reads, measurements, photos |
-| [`docs/sources.md`](docs/sources.md) | Pinned sources: checksums, commit IDs, page map |
-| [`docs/simulator.md`](docs/simulator.md) | **Software simulator:** how to use `sim/`, behaviour, and the choices the manual leaves open |
-| [`docs/plan.md`](docs/plan.md) | **Project plan:** scope, architecture, milestones M0–M13 with acceptance criteria, verification, risks, decisions |
-| [`docs/roadmap.md`](docs/roadmap.md) | **One-page summary:** what works, what is next, open gaps |
-| [`docs/research-log.md`](docs/research-log.md) | How we got here, including corrections and dead ends |
-| [`data/`](data/README.md) | CSVs: EZbuss pinout, opcode map, netlist (STD/OBS/HYP) |
-
-> **Status: first pass.** The BOMs and chip identities are solid. The block
-> schematics and netlists are **inferred** from 822×622 photos plus NED
-> documentation. Every connection is tagged **[STD]** (standard topology),
-> **[OBS]** (seen in the photo) or **[HYP]** (hypothesis). No physical
-> hardware has been measured, no PROMs have been read, and no public
-> schematics exist as far as we could find.
-
----
-
-## Repository layout
-
-```
-README.md                    this file: overview, status, next steps
-docs/
-  able-reference.md          architecture, 72-pin EZbuss pinout, processor models/slots
-  instruction-set.md         full ABLE instruction set (from page images of the manual)
-  bench-checklist.md         hardware tasks: PROM reads, edge/backplane maps, photos
-  sources.md                 pinned sources: checksums, commits, page map
-  model-c-runtime-analysis.md  disassembly findings (D10 link, R12 stack, RPT, ADC)
-  boot-and-loaders.md        boot chain, loader vector, D4567 / SCSI / ext-memory protocols
-  release-l-image.md         Release L disk image: format, loaders, Model B binaries
-  plan.md                    detailed project plan (milestones, verification, risks)
-  roadmap.md                 one-page summary of the plan
-  research-log.md            chronology of findings, corrections and sources
-  fm-voice.md                FM voice spec (M3); hdl.md: the FPGA core (M4)
-sim/                         software simulator (M1-M3): Model B CPU, devices, test assembler
-  cpu.py  bus.py  decode.py  asm.py  system.py  boot.py  rtp.py
-  fm.py  voice.py            FM register semantics; voice model and WAV rendering
-  lockstep.py                traces for checking the HDL CPU against the simulator
-  devices/                   D60-D63 external memory, D50/D51 terminal, D3 clock, D4567,
-                             D100 floppy, D130/D131 keyboard, D160-D165 FM interface
-hdl/                         FPGA core (M4-M5): able_cpu.sv, able_system.sv, dev/ (every
-                             Release L device, fm_voices.sv); core/ the MiSTer core (boot
-                             loader, SD floppies, terminal display, keyboard); board/ DDR3;
-                             sim/ Verilator lockstep benches
-mister/                      Quartus project (Template_MiSTer, sys/ GPL-2.0), build.sh
-tools/
-  able_disasm.py             ABLE disassembler (NED syntax, Model C aware)
-  ned_disk.py                NED .simg catalog lister / extractor
-tests/
-  test_able_disasm.py        validation against NED's SCSI.LST listing (fixture, MIT)
-  sim/                       simulator tests: decode tables, CPU, devices
-data/
-  ezbuss-pinout.csv          72-pin pinout + expected chips + columns to fill in
-  able-opcodes.csv           source/destination code map with flag effects
-  netlist.csv                board connections tagged STD / OBS / HYP
-boards/
-  fprm-185/
-    README.md                layout, inferred netlist, doc cross-check, verification plan
-    bom.csv                  BOM with a confidence rating per line
-    schematic-block.svg      block-level schematic
-  fpsm-185/
-    README.md
-    bom.csv
-    schematic-block.svg
-```
-
-## How the CPU works (short version)
+### How the CPU works (short version)
 
 ```
                  72-pin EZbuss backplane (P1 on both cards)
@@ -114,7 +178,7 @@ boards/
   Only the three flag lines are private to the CPU slots, which is why the
   two cards must sit in adjacent slots.
 
-## Processor models
+### Processor models
 
 | Model | Cards | Used in |
 |---|---|---|
@@ -122,7 +186,7 @@ boards/
 | **C** | **FPSM + FPRM** ("Fast Processor") | PSMT, Direct-to-Disk, Poly systems, some Synclavier IIs |
 | D | DSM + FPRM | 3200 / 6400 / 9600, PostPro, PostPro SD |
 
-## Open questions
+### Open questions
 
 * **PROM contents:** FPRM U18 and U28; FPSM SMR00–03, DDE (U22/U23) and
   INITROM. These hold the microcode and decode tables. No public dumps exist.
@@ -131,20 +195,20 @@ boards/
 * What the **J1 34-pin ribbons** connect to.
 * Which FPSM chips drive ADR0–7: the '153 multiplexers or U2/U3. Are U32/U33 the Model C repeat counter?
 * Whether relative or untaken transfers also update the D10 link (`ppc`). No NED software depends on it. Also the exact Model C interrupt-entry microsequence.
-* The MFC/D40Q boot ROM image (not in any source found; its *function* is known: load `MONITOR` from the F0 catalog and start it, so a re-implementation can emulate it at a high level, as NED's own Mac runtime does).
+* The MFC/D40Q boot ROM image (not in any source found). Its function is
+  known (load `MONITOR` from the F0 catalog and start it), and the core's
+  boot loader (`hdl/core/boot_loader.sv`) does that instead.
 * Exact identity of a few chips (FPRM U41 and U8; FPSM U4, U52 and U73) and of
   the PROMs under their labels.
 
-## Next steps
+### Help from hardware owners
 
-| Option | Needs hardware? | Notes |
-|---|---|---|
-| **Behavioural / instruction-level model** of the ABLE CPU (spec + test vectors, then HDL, e.g. as an FPGA core) | No | `docs/instruction-set.md` gives the full ISA including the Model C extensions; `data/able-opcodes.csv` is a ready decode table. NED's MIT-licensed assembler and XPL compiler (`jbemond/Software`) can generate test programs. |
-| **KiCad capture** of what's confirmed | No | Parts, the '181/'182 carry chain, the register file, and the EZbuss nets; guessed nets left as labelled stubs. |
-| **Read the PROMs** | Yes | The single most valuable step. Without them, a gate-accurate model of the boards isn't possible. |
-| **High-resolution photos** (≥600 dpi, both sides, square-on) | Yes | Most traces could then be followed from overlaid images. |
-| **Edge-finger and backplane continuity map** | Yes | The procedure is in `docs/bench-checklist.md` §3–4; record results in `data/ezbuss-pinout.csv`. |
-| **Community outreach** | — | Synclavier owners and repairers (see the forum thread in `docs/research-log.md`) may have spare cards, dumps or photos. |
+| Item | Why |
+|---|---|
+| **Recordings** of known timbres and sound files on a real instrument | to match the core's FM and poly output to the original |
+| **PROM reads** | the only route to a gate-accurate model of the boards |
+| **High-resolution photos** (≥600 dpi, both sides, square-on) | most traces could then be followed |
+| **Edge-finger and backplane continuity map** | procedure in [`docs/bench-checklist.md`](docs/bench-checklist.md) §3–4; results go in `data/ezbuss-pinout.csv` |
 
 ## Sources and credits
 

@@ -367,7 +367,8 @@ module synclavier_core #(
     logic        prn_state, prn_cfg, cpu_rst_q;
     always_ff @(posedge clk) begin
         cpu_rst_q <= cpu_rst;
-        if (cpu_rst && !cpu_rst_q) begin prn_state <= 1'b0; prn_cfg <= printer_osd; end
+        if (cpu_rst) prn_cfg <= printer_osd;   // its value when reset ends (the HPS sends the OSD after power-on)
+        if (cpu_rst && !cpu_rst_q) prn_state <= 1'b0;
         else if (cpu_rst && ld_dev_we && ld_dev_sel == 3'd3 && ld_dev_addr == 13'd18)
             prn_state <= ld_dev_data[0];
     end

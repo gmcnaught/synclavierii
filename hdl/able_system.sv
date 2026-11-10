@@ -11,7 +11,8 @@
 //
 // Device time is the CPU's simulated time (333 ns per bus transfer, see
 // able_cpu.sv), so device behaviour matches sim/devices/ exactly. On the
-// board a throttle will hold the CPU to that time (risk R3).
+// board a throttle holds the CPU to that time (risk R3), and with
+// rt_voices the voices run on real time instead (voice_clock.sv, M14).
 module able_system #(
     parameter longint CLK_HZ = 50_000_000
 ) (
@@ -26,6 +27,10 @@ module able_system #(
     output logic [19:0] scsi_block_ns,     // SCSI disk time per block (state load: device 3 index 11)
     output logic [25:0] scsi_seek_ns,      // SCSI seek time (state load: device 3 index 12)
     input  logic        rt_enable,         // 1: hold the CPU to real time (throttle.sv)
+    input  logic        rt_voices,         // 1: voices on real time (voice_clock.sv), not the CPU's ticks
+    input  logic        dbg_stall,         // simulation: hold the CPU before its next fetch
+    output logic        voice_tick,        // voice time (dev_fm here, dev_poly outside)
+    output logic [9:0]  voice_tick_ns,
     output logic [31:0] lag_us,            // real time given up by the throttle
     output logic [23:0] stall_us [7],      // lag_us by what the CPU waited on (STALL_* below)
 
@@ -152,7 +157,13 @@ module able_system #(
     logic [6:0]  lost_ns;
     throttle #(.CLK_HZ(CLK_HZ)) pace (.clk, .rst, .enable(rt_enable), .tick, .tick_ns, .stall(rt_stall),
                                       .lag_us, .lost_ns);
-    assign stall = rt_stall || fm_stall;
+    assign stall = rt_stall || fm_stall || dbg_stall;
+
+    // voice time: the CPU's ticks, or real time (M14)
+    voice_clock #(.CLK_HZ(CLK_HZ)) vclk (
+        .clk, .rst, .enable(rt_voices), .cpu_tick(tick), .cpu_tick_ns(tick_ns),
+        .tick(voice_tick), .tick_ns(voice_tick_ns)
+    );
 
     // Model D code fetches go through a cache (code_cache.sv) whose misses
     // share the external memory port with D60-D63 (the CPU does one or the
@@ -294,7 +305,7 @@ module able_system #(
     dev_fm fm (
         .clk, .rst, .sel(sel_fm), .rd(io_rd), .wr(io_wr), .reg_sel(io_dev[1:0]),
         .wdata(io_wdata), .rdata(fm_rdata), .ack(fm_ack), .nosyn(fm_nosyn), .strict(synth_strict),
-        .tick, .tick_ns, .stall(fm_stall),
+        .tick(voice_tick), .tick_ns(voice_tick_ns), .stall(fm_stall),
         .audio_valid, .audio_l, .audio_r,
         .ld_we(ld_dev_we && (ld_dev_sel == 3'd5 || ld_dev_sel == 3'd6)),
         .ld_wave(ld_dev_sel == 3'd6), .ld_addr(ld_dev_addr), .ld_data(ld_dev_data),

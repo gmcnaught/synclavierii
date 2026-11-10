@@ -8,6 +8,7 @@ and CATALOG.
 Run:  python3 tests/hdl/test_lockstep.py
 """
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -541,6 +542,102 @@ def test_system_voice_engine_32_voices():
     assert nonzero > 5000 and n > 100_000, (nonzero, n)
     chans = {cw & 0xFF for _, cw, _, _ in cpu.fm.log}
     assert chans == {48, 49, 54, 55, 63}, chans
+
+
+_RT = re.compile(r"rt voices: (\d+) samples .*?\(([\d.]+) expected\); stall (\d+) clocks: "
+                 r"(\d+) samples, (\d+) nonzero; (\d+) of (\d+) differ")
+_STALL = re.compile(r"stall (\d+) clocks: (\d+) samples, (\d+) nonzero")
+
+
+def _voice_clock_runs(fm_voices, chan_offset):
+    """The voice program with a 1 ms CPU stall (50,000 clocks) while the
+    note sounds, throttle on: voices on CPU time, then on real time."""
+    from sim.asm import assemble
+    from sim.system import make_system
+    prog = VOICE_PROGRAM if not chan_offset else re.sub(
+        r"IM\((\d+)\) TO D160",
+        lambda m: "PCI TO D160\n        DATA %o" % (int(m.group(1), 8) + chan_offset), VOICE_PROGRAM)
+    cpu = make_system(synth=True, fm_voices=fm_voices)
+    words, _ = assemble(prog)
+    cpu.load(words)
+    with tempfile.NamedTemporaryFile(suffix=".trace", delete=False) as f:
+        path = f.name
+    try:
+        record(cpu, path, 2_000_000, audio=True)
+        stall = (5000, 50_000)
+        cpu_time = check(path, top="system", realtime=True, stall=stall)
+        rt_stall = check(path, top="system", realtime=True, rt_voices=True, stall=stall)
+        rt_plain = check(path, top="system", realtime=True, rt_voices=True, wav=path + ".hdl.wav")
+        expected_wav(path, path + ".py.wav")
+        err, sig = _wav_rms_diff(path + ".hdl.wav", path + ".py.wav")
+    finally:
+        for p in (path, path + ".hdl.wav", path + ".py.wav"):
+            if os.path.exists(p):
+                os.unlink(p)
+    return cpu_time, rt_stall, rt_plain, (err, sig)
+
+
+def _wav_rms_diff(a_path, b_path):
+    """RMS of the difference of two 16-bit WAVs and RMS of the second."""
+    import math
+    import struct
+    import wave
+    def samples(p):
+        with wave.open(p) as w:
+            d = w.readframes(w.getnframes())
+        return struct.unpack("<%dh" % (len(d) // 2), d)
+    a, b = samples(a_path), samples(b_path)
+    n = min(len(a), len(b))
+    err = math.sqrt(sum((a[i] - b[i]) ** 2 for i in range(n)) / n)
+    sig = math.sqrt(sum(x * x for x in b[:n]) / n)
+    return err, sig
+
+
+def _check_voice_clock(fm_voices, chan_offset, exact):
+    (ok_c, text_c), (ok_s, text_s), (ok_p, text_p), (err, sig) = _voice_clock_runs(fm_voices, chan_offset)
+    # voices on CPU time: lockstep exact, silent while the CPU is held
+    assert ok_c, text_c
+    m = _STALL.search(text_c)
+    assert m and int(m.group(1)) == 50_000 and int(m.group(2)) <= 1, text_c
+    # voices on real time: the CPU's trace still matches; 1 ms of samples
+    # (192 at 192 kHz), all sounding, play during the stall, and the sample
+    # count follows real time
+    assert ok_s, text_s
+    m = _RT.search(text_s)
+    assert m, text_s
+    samples, want, stalled, st_n, st_nz = (int(m.group(1)), float(m.group(2)), int(m.group(3)),
+                                           int(m.group(4)), int(m.group(5)))
+    assert stalled == 50_000 and abs(st_n - 192) <= 1 and st_nz == st_n, text_s
+    assert abs(samples - want) <= 2, text_s
+    # no stall: real time and simulated time agree to within the throttle's
+    # slack. A register write lands at the voice time it arrives at: with 8
+    # voices that is the same side of every sample instant as in Python
+    # (sample for sample); with 32, a D160-D162 access waits for the engine
+    # (real time, no simulated time), so some writes land a sample instant
+    # later: the audio is Python's with that timing jitter
+    assert ok_p, text_p
+    m = _RT.search(text_p)
+    assert m and int(m.group(7)) > 20_000, text_p
+    if exact:
+        assert int(m.group(6)) == 0, text_p
+    assert sig > 1000 and err < 0.1 * sig, (err, sig)
+
+
+def test_system_voice_clock():
+    """M14: the voices on real time (voice_clock.sv) keep sounding while the
+    CPU is held, as on the instrument; on CPU time they stop."""
+    if not HAVE_VERILATOR:
+        print("  skip test_system_voice_clock (verilator not found)")
+        return
+    _check_voice_clock(8, 0, exact=True)
+
+
+def test_system_voice_clock_32_voices():
+    """M14 with the 32-voice engine (channels 48-63)."""
+    if not HAVE_VERILATOR:
+        print("  skip test_system_voice_clock_32_voices (verilator not found)")
+        return
+    _check_voice_clock(32, 48, exact=False)
 
 
 def _nonzero_samples(path):

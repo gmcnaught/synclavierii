@@ -486,6 +486,49 @@ info from words 34–39 relative to mark start, `BL.SRATE = log(500) −
 log(srate)`. `SETUP.POLY.INFO` turns these into the negative two-word
 values of §3.3.
 
+### 5.1 Writing a sound file (`tools/sound_import.py`, M17)
+
+The tool writes what SYN-5.3 writes for a new sound file
+(`STMMOD/STEDSOU:113-240`, after a recording `STRECSOU:1034-1077`):
+
+| Word | Value written |
+|---|---|
+| 0, 1 | compat 4, data type 1 (raw sampled data) |
+| 2–4, 6–8 | valid data = words (frames × channels), total data = `0, sectors, 0` |
+| 9–11, 26–28 | DATA.END = MARK.END = time of the last frame; 23–25 MARK.START 0 |
+| 18, 19–20 | hertz × 10 (WAV `smpl` unity note, AIFF INST base note, else 4400); octave: `061341 043702` (3.09) for 4400 [OBS], else encoded [INF, below] |
+| 21, 22 | period index `300000 / srate` (truncated, `STEDSOU:179-184`), Nyquist `srate × 50` |
+| 33 | 4 symbols: ORIGIN 0, `#` 0, `$` and END at DATA.END (names blank-padded, as in the W0 files) |
+| 34–36, 37–39 | loop: TOTAL.LENGTH = loop end (exclusive), LOOP.LENGTH, both in **words** from the file start (stereo: frames × 2); `162-TMB2:1246-1320` plays `[0, TOTAL)` then jumps back LOOP words (ONLOOP 3) |
+| 41, 42 | stereo flag, sample rate kHz × 10 |
+| 53– | file handle: the name, C string (low byte first) |
+| 127, 128– | caption byte count (≤ 256, `197-PAL:1190`) and text |
+
+Times use NED's own arithmetic [OBS `194-SAMP`, `MATHSOU:240-352`]:
+RATIOMULTIPLY truncates `num/den` to 48 fraction bits and MULTIPLY rounds
+half up. With a sample rate that is not a whole kHz the truncated ratio
+makes a product ending in exactly .5 round down, so INDEX_TO_TIME then
+TIME_TO_INDEX can lose a frame (frame 224 at 44.1 kHz → 0.005079 s → frame
+223). The tool stores the next microsecond up in that case [CHOICE; SYN-5.3
+stores INDEX_TO_TIME's value], so the loader ends on the last frame.
+
+Sample rate: kHz × 10 stores 100 Hz steps; recording allows 0.1–100 kHz
+(`STDRSOUD:388-408`). Other rates (22050, 11025, > 100 kHz) are resampled
+to the next 100 Hz step up. [INF] the octave float: the one constant in the
+source, 3.09 = `061341 043702`, fits word 0 = sign + mantissa bits 1–15,
+word 1 = mantissa bits 16–23 in the high byte and `0300 + exponent` in the
+low byte (mantissa in [0.5, 1), truncated). Only the SFM shows it; SYN-5.3
+reads hertz (`197-PAL:858`) and sets the octave only when hertz is 0.
+
+Verified in the simulator (SYN-5.3 from a W0-53 image, VPK, BANK 2 ENTRY 1
+= W0:CLARA3, key 45 held), with CLARA3 replaced by an imported file: poly
+memory holds the samples at block sector 4 (bin 0 word 11264), zeroed to
+the sector end, `BL.LEN` = data sectors + 4; a 440 Hz sine at 50 kHz plays
+at 50 000 words/s and the voice output measures 440.0 Hz; the same file
+declared as A 220 plays at 100 000 words/s, 880.0 Hz; a 44.1 kHz file with
+a `smpl` loop keeps sounding inside the loop after its 0.1 s end. MONITOR
+lists an imported file on a blank W1: (`ENTER W1:`, `CATALOG`) as `Sound`.
+
 ---
 
 ## 6. Function codes by phase

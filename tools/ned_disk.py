@@ -114,32 +114,74 @@ def add_root_file(disk, name, data, typ=3, capacity=None):
     the next catalog entry, the sectors after the last file (as MONITOR's
     CREATE places USER). capacity: the disk's sectors (default its length).
     Returns the start sector."""
-    if len(name) > 8 or len(data) % 2:
+    if "/" in name:
+        raise ValueError("name up to 8 characters, whole words")
+    return add_file(disk, name, data, typ, capacity)
+
+
+def add_file(disk, path, data, typ=3, capacity=None, replace=False):
+    """Add file `path` ('NAME' in the root catalog, or 'SUBCAT/NAME' in a
+    type-6/7 sub-catalog) to hard-disk image bytes `disk` (a bytearray,
+    changed in place): the next free catalog entry, the sectors after the
+    catalog's last file. capacity: the disk's sectors (default its length;
+    a sub-catalog's own length bounds its files). replace: an existing file
+    of that name is overwritten in place when the data fits its sectors
+    (the entry keeps its allocation, the rest zeroed, words = whole
+    sectors), else its entry becomes free space (empty name) and the file
+    is appended. Returns the absolute start sector."""
+    parts = path.strip("/").split("/")
+    name = parts[-1]
+    if not 1 <= len(name) <= 8 or len(data) % 2:
         raise ValueError("name up to 8 characters, whole words")
     W = load_bytes(disk)
-    end, slot = 0, None
-    for i in range(0, ROOT_CATALOG_SECTORS * SECTOR_WORDS, 8):
-        e = W[i:i + 8]
-        if not any(e):
-            slot = i
-            break
-        if name_of(e[0:4]) == name:
-            raise ValueError("%s is already in the catalog" % name)
-        if name_of(e[0:4]):
-            end = max(end, e[4] + e[5])
-    if slot is None:
-        raise ValueError("root catalog full")
+    if len(parts) > 1:
+        sub = "/" + "/".join(parts[:-1])
+        for p, t, start, length, words in walk(W):
+            if p == sub and t in (6, 7):
+                base, cat_sectors, limit = start, (1 if t == 7 else ROOT_CATALOG_SECTORS), length
+                break
+        else:
+            raise ValueError("no sub-catalog %s" % sub)
+    else:
+        capacity = capacity if capacity is not None else len(disk) // (2 * SECTOR_WORDS)
+        base, cat_sectors, limit = 0, ROOT_CATALOG_SECTORS, min(capacity, 0x10000)
     nwords = len(data) // 2
     length = (nwords + SECTOR_WORDS - 1) // SECTOR_WORDS
-    capacity = capacity if capacity is not None else len(disk) // (2 * SECTOR_WORDS)
-    if end + length > min(capacity, 0x10000):
-        raise ValueError("%s: %d sectors do not fit after sector %d" % (name, length, end))
     nb = (name.encode("latin-1") + bytes(8))[:8]
-    entry = [nb[k] | nb[k + 1] << 8 for k in range(0, 8, 2)] + [end, length, nwords & 0xFFFF, typ]
-    disk[slot * 2:slot * 2 + 16] = struct.pack(">8H", *entry)
-    at = end * SECTOR_WORDS * 2
+    entry_name = [nb[k] | nb[k + 1] << 8 for k in range(0, 8, 2)]
+    end, slot = cat_sectors, None
+    for i in range(0, cat_sectors * SECTOR_WORDS, 8):
+        off = (base * SECTOR_WORDS + i) * 2
+        e = W[base * SECTOR_WORDS + i:base * SECTOR_WORDS + i + 8]
+        if not any(e):
+            slot = off
+            break
+        if name_of(e[0:4]) == name:
+            if not replace:
+                raise ValueError("%s is already in the catalog" % name)
+            if length <= e[5]:
+                at = (base + e[4]) * SECTOR_WORDS * 2
+                disk[at:at + e[5] * SECTOR_WORDS * 2] = data + bytes(e[5] * SECTOR_WORDS * 2 - len(data))
+                disk[off + 12:off + 16] = struct.pack(">2H", (e[5] * SECTOR_WORDS) & 0xFFFF, typ)
+                return base + e[4]
+            disk[off:off + 8] = bytes(8)            # free space: empty name
+        if e[5]:
+            end = max(end, e[4] + e[5])
+    if slot is None:
+        raise ValueError("catalog full")
+    if end + length > limit:
+        raise ValueError("%s: %d sectors do not fit after sector %d" % (name, length, base + end))
+    disk[slot:slot + 16] = struct.pack(">8H", *(entry_name + [end, length, nwords & 0xFFFF, typ]))
+    at = (base + end) * SECTOR_WORDS * 2
     disk[at:at + length * SECTOR_WORDS * 2] = data + bytes(length * SECTOR_WORDS * 2 - len(data))
-    return end
+    return base + end
+
+
+def blank_disk(mb):
+    """Bytes of an empty NED hard-disk image of `mb` MB: an all-zero root
+    catalog (sectors 0-3) and free space after it, as a fresh W1: [INF:
+    an all-zero entry ends a catalog, so a zero disk lists empty]."""
+    return bytearray(mb * 1024 * 1024)
 
 
 def load_bytes(d):

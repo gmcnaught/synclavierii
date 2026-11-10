@@ -1,17 +1,22 @@
 """D154-D157 poly sampling synthesizer (M7.7), as Release 5.3 drives it.
 
 Specification and evidence: docs/poly-synth.md (section numbers below).
-One bin (bin 0) with `voices` voices and `sectors` sectors of 16-bit poly
-memory (default 32 voices and 65536 sectors = 32 MB, one 32 MB page: a
-3200; a 6400 has 2 such bins (5.3 manual: "move sound files from poly bin 1
-to poly bin 2"), a 9600 3 [INF]); bins 1-3 are absent (their channel numbers do not read back).
+`bins` bins (default 1), each with `voices` voices and `sectors` sectors of
+16-bit poly memory of its own (default 32 voices and 65536 sectors = 32 MB,
+one 32 MB page: a 3200; a 6400 has 2 bins (5.3 manual: "move sound files
+from poly bin 1 to poly bin 2"), a 9600 3 [INF]). Bins from `bins` up are
+absent (their channel numbers do not read back).
 
   D155 PSC  write: channel (low 8 bits latched: bin 7-6, channel 5-0).
-            read: the latched channel when it is in bin 0, else 0; bit 8
-            (new D/A controller) is 0.
+            read: the latched channel when its bin is present, else 0;
+            bit 8 (new D/A controller) is 0.
   D156 PSF  write: function code. read: the current function code.
   D157 PSD  write: data for (channel, FC), then FC moves to its successor
-            (SUCCESSOR, section 1.3). read: see `_read_data`.
+            (SUCCESSOR, section 1.3). read: see `_read_data`. Poly memory
+            reads and writes go to the bin of the latched channel [CHOICE:
+            one function code and one address counter for all bins;
+            SYN-5.3 writes PSC and the address before each transfer,
+            PSMREAD/PSMWRITE, POLYSOU:91-132].
   D154 PSX  extended data (D/A controller FCs 64/65 only): accepted.
 
 Voice model (sections 3.1-3.7) [INF, CHOICES marked]:
@@ -128,23 +133,28 @@ def _ramp(cur, dest):
 
 
 class PolySynth(Device):
-    """D154-D157 with one bin of `voices` voices and `sectors` sectors."""
+    """D154-D157 with `bins` bins of `voices` voices and `sectors` sectors.
+    Voice i is bin i // voices, channel i % voices of that bin."""
 
     numbers = (0o154, 0o155, 0o156, 0o157)
 
-    def __init__(self, voices=32, sectors=65536, sample_rate=None):
+    def __init__(self, voices=32, sectors=65536, sample_rate=None, bins=1):
         if not 4 <= voices <= 32 or voices % 4:
             raise ValueError("voices: 4..32 in steps of 4")
         if sectors % 256:
             raise ValueError("sectors: a multiple of 256 (the size probe's step)")
-        self.nvoices = voices
-        self.sectors = sectors
-        self.mem = array("H", bytes(2 * sectors * SECTOR_WORDS))
-        self.voice = [PolyVoice() for _ in range(voices)]
+        if not 1 <= bins <= 4:
+            raise ValueError("bins: 1..4")
+        self.nvoices = voices        # per bin
+        self.nbins = bins
+        self.sectors = sectors       # per bin
+        self.bin_words = sectors * SECTOR_WORDS
+        self.mem = array("H", bytes(2 * bins * self.bin_words))   # bin b from b * bin_words
+        self.voice = [PolyVoice() for _ in range(voices * bins)]
         self.channel = 0
         self.fc = 0
         self.addr_hi = 0
-        self.addr = 0                # memory address counter (bin 0)
+        self.addr = 0                # memory address counter (within the bin)
         self.time_ns = 0
         self.done_ns = 0             # voices advanced to here
         self.rate_tick = 0           # next rate-generator tick number
@@ -156,14 +166,20 @@ class PolySynth(Device):
         self.writes = 0
 
     # ------------------------------------------------------------ registers
+    def _bin(self):
+        """The latched channel's bin, or None when that bin is absent."""
+        b = self.channel >> 6
+        return b if b < self.nbins else None
+
     def _cur(self):
         # CHOICE: channels at or above the voice count ("ghost/refresh
         # channels", POLYSOU:1101) keep nothing: writes dropped, reads 0
-        return self.voice[self.channel] if self.channel < self.nvoices else None
+        b, c = self._bin(), self.channel & 63
+        return self.voice[b * self.nvoices + c] if b is not None and c < self.nvoices else None
 
     def read(self, dev):
         if dev == 0o155:
-            return self.channel if self.channel < 64 else 0
+            return self.channel if self._bin() is not None else 0
         if dev == 0o156:
             return self.fc
         if dev == 0o157:
@@ -176,7 +192,7 @@ class PolySynth(Device):
             n = self.nvoices
             return n // 4 | 0x10 | (0x20 if n > 16 else 0)
         if fc == 22:
-            v = self._mem_read(self.addr)
+            v = self._mem_read(self.addr, self._bin())
             self.addr += 1
             return v
         v = self._cur()
@@ -218,7 +234,7 @@ class PolySynth(Device):
             self.addr = two_word(self.addr_hi, value, False)
             return
         if fc == PSWMA + 2:
-            self._mem_write(self.addr, value)
+            self._mem_write(self.addr, value, self._bin())
             self.addr += 1
             return
         v = self._cur()
@@ -235,7 +251,7 @@ class PolySynth(Device):
             if value & 1 and not v.on & 1:
                 v.pos = 0
                 v.acc = 0
-                v.out = self._sample(v.ba)
+                v.out = self._sample(v.ba, self._bin())
             v.on = value & 3
             if not v.on & 1:
                 v.out = 0
@@ -244,15 +260,17 @@ class PolySynth(Device):
         elif fc == PSADEVSM:
             v.master = value & 1
 
-    def _mem_read(self, a):
-        return self.mem[a] if 0 <= a < len(self.mem) else 0
+    def _mem_read(self, a, b=0):
+        if b is None or not 0 <= a < self.bin_words:
+            return 0
+        return self.mem[b * self.bin_words + a]
 
-    def _mem_write(self, a, value):
-        if 0 <= a < len(self.mem):
-            self.mem[a] = value
+    def _mem_write(self, a, value, b=0):
+        if b is not None and 0 <= a < self.bin_words:
+            self.mem[b * self.bin_words + a] = value
 
-    def _sample(self, a):
-        s = self._mem_read(a)
+    def _sample(self, a, b):
+        s = self._mem_read(a, b)
         return s - 0x10000 if s & 0x8000 else s
 
     # ---------------------------------------------------------------- time
@@ -265,7 +283,7 @@ class PolySynth(Device):
         voices = self.voice
         for i, v in enumerate(voices):     # odd voice of an even stereo master
             v.slave = bool(i & 1 and voices[i - 1].master)
-        sounding = [v for v in voices if v.on & 1]
+        sounding = [(i, v) for i, v in enumerate(voices) if v.on & 1]
         moving = [v for v in voices if not v.settled()]
         if not sounding and not moving and self.samples is None:
             # nothing changes: skip the clocks
@@ -286,9 +304,9 @@ class PolySynth(Device):
                 self.sample_k += 1
             elif t == t_rate:
                 self.rate_tick += 1
-                for v in sounding:
+                for i, v in sounding:
                     if v.on & 1 and not v.slave:
-                        self._rate(v)
+                        self._rate(v, i // self.nvoices)
             else:
                 self.env_tick += 1
                 for v in voices:
@@ -296,7 +314,7 @@ class PolySynth(Device):
                         v.env_tick()
         self.done_ns = t_end
 
-    def _rate(self, v):
+    def _rate(self, v, b):
         inc = (v.inc_w & 0xFF) + 1
         mod = 256 - (v.mod_w & 0xFF)
         acc = v.acc + inc
@@ -314,17 +332,18 @@ class PolySynth(Device):
                 v.on &= ~1
                 v.out = 0
                 return
-        v.out = self._sample(v.ba + v.pos)
+        v.out = self._sample(v.ba + v.pos, b)
 
     def _mix(self):
         left = right = 0
-        for i in range(self.nvoices):
+        for i in range(len(self.voice)):
             v = self.voice[i]
+            b = i // self.nvoices
             if i & 1 and self.voice[i - 1].master:
                 m = self.voice[i - 1]
-                s = self._sample(m.ba + m.pos + 1) if m.on & 1 else 0
+                s = self._sample(m.ba + m.pos + 1, b) if m.on & 1 else 0
             else:
-                s = self._sample(v.ba + v.pos) if v.on & 1 else 0
+                s = self._sample(v.ba + v.pos, b) if v.on & 1 else 0
             if s == 0 or v.eval == 0:
                 continue
             e = s * v.eval
@@ -334,6 +353,8 @@ class PolySynth(Device):
 
     # ---------------------------------------------------------- host side
     def sounding(self):
-        """Channels whose on bit is set (after advancing to now)."""
+        """Channels (64 x bin + channel) whose on bit is set (after advancing
+        to now)."""
         self.advance()
-        return [i for i in range(self.nvoices) if self.voice[i].on & 1]
+        n = self.nvoices
+        return [64 * (i // n) + i % n for i in range(len(self.voice)) if self.voice[i].on & 1]

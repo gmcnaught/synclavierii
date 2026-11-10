@@ -104,7 +104,8 @@ MiSTer.
 
 | # | Milestone | What it takes | Done when |
 |---|---|---|---|
-| — | No milestone open. Candidates: second poly bin (a 6400 has 2 bins per the 5.3 manual; the model has bin 0 only: 32 of a 6400's up to 64 poly voices, D155 channels 64–127, a second poly memory); external-memory (D60–D63) waits, the last 16–18 ms of boot lag; Launchkey pad/pot numbers (M8a, needs a MIDI capture); sound against recordings (M3.3) | | |
+| M15 | Poly bins (a 6400 has 2, 5.3 manual: "move sound files from poly bin 1 to poly bin 2"): `sim/devices/poly.py` and `dev_poly.sv` with 1–4 bins of 32 voices, each with its own poly memory (channels 64 × bin + c); the mix's DDR3 reads pipelined (`ddram_word.sv` read stream) so 64 voices fit in a 48 kHz sample; `w0_image.py --poly-bins 2` | `dev_poly` = Python for 1, 2, 4 bins; board lockstep: SYN-5.3 finds 2 bins, TRACK ROUTING + timbre 2 puts CLARA3 in bin 1, its note plays on channel 95; on .62: the VPK display counts the second bin's voices, CLARA3 from bin 1 plays, 0 underruns | `hdl/dev/dev_poly.sv`, `hdl/board/ddram_word.sv` |
+| — | Candidates after M15: external-memory (D60–D63) waits, the last 16–18 ms of boot lag; Launchkey pad/pot numbers (M8a, needs a MIDI capture); sound against recordings (M3.3) | | |
 
 Lower value on MiSTer (possible, not planned): SMPTE card (D70–D73,
 subsystem 8), multichannel distributor (D32/D33, mixed to stereo),

@@ -21,7 +21,8 @@ module able_system #(
     input  logic [1:0]  cpu_model,         // 1 B, 2 C, 3 D (able_cpu.sv)
     input  logic [15:0] cpu_d57,           // Model D: D57 options
     input  logic [15:0] term_bits,         // D51 device-present bits (15-8)
-    output logic [10:0] poly_units,        // poly memory size, 128 KB units (state load: device 3 index 8)
+    output logic [10:0] poly_units,        // poly memory size per bin, 128 KB units (state load: device 3 index 8)
+    output logic [2:0]  poly_bins,         // poly bins, 1-4 (state load: device 3 index 13)
     output logic        term_vt640,        // VT640 graphics terminal (state load: device 3 index 9)
     output logic        term_mouse,        // D44/D45/D54 mouse (state load: device 3 index 10)
     output logic [19:0] scsi_block_ns,     // SCSI disk time per block (state load: device 3 index 11)
@@ -259,6 +260,10 @@ module able_system #(
     always_ff @(posedge clk) begin
         rst_d <= rst;
         // poly memory size: 32 MB (a 3200) unless the state load says
+        // poly bins: 1 (a 3200) unless the state load says (a 6400: 2)
+        if (rst && !rst_d) poly_bins <= 3'd1;
+        else if (rst && ld_dev_we && ld_dev_sel == 3'd3 && ld_dev_addr == 13'd13)
+            poly_bins <= ld_dev_data[2:0];
         if (rst && !rst_d) poly_units <= 11'd256;
         else if (rst && ld_dev_we && ld_dev_sel == 3'd3 && ld_dev_addr == 13'd8)
             poly_units <= ld_dev_data[10:0];

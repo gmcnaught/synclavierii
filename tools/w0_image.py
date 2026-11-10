@@ -2,7 +2,8 @@
 """Make the MiSTer files for Release 5.3 (docs/release-5.3.md) from a W0
 image (Synclavier3's "W0 Disk Image.simg", not redistributable):
 
-    w0_image.py W0IMAGE OUTDIR [--mb 30] [--newdata FILE] [--midi] [--fm-voices N] [--poly-mb N] [--w1] [--vt640]
+    w0_image.py W0IMAGE OUTDIR [--mb 30] [--newdata FILE] [--midi] [--fm-voices N] [--poly-mb N]
+                [--poly-bins N] [--w1] [--vt640]
                 [--disk-us N]
 
   OUTDIR/W0-53.IMG   the W0 disk padded to --mb megabytes, with a USER
@@ -29,7 +30,11 @@ image (Synclavier3's "W0 Disk Image.simg", not redistributable):
                      gets -FM<N>, e.g. W0-53-FM32.SST, W0-53-MIDI-FM32.SST.
   --poly-mb N        poly memory (default 32, a 3200; up to 224 in the core's
                      256 MB of DDR3): the name gets -P<N>, e.g. W0-53-P224.SST.
-                     The core clears it after reset.
+                     The core clears it after reset. Per bin with --poly-bins.
+  --poly-bins N      poly bins (default 1, a 3200; 2 = a 6400, 32 more poly
+                     voices with their own memory; up to 4, SYN-5.3's limit):
+                     N x --poly-mb at most 224; the name gets -BIN<N>, e.g.
+                     W0-53-FM32-BIN2.SST.
   --w1               a second SCSI disk, W1: (target 4, mounted as S4): the
                      device table keeps W0, F0 and W1; the name gets -W1.
                      MONITOR then expects a disk in S4.
@@ -97,7 +102,9 @@ def main(argv=None):
     ap.add_argument("--fm-voices", type=int, default=8, choices=(8, 16, 24, 32),
                     help="FM voices installed (32: a 9600)")
     ap.add_argument("--poly-mb", type=int, default=32, choices=range(32, 225, 32),
-                    metavar="{32,64,...,224}", help="poly memory in MB")
+                    metavar="{32,64,...,224}", help="poly memory in MB (per bin)")
+    ap.add_argument("--poly-bins", type=int, default=1, choices=(1, 2, 3, 4),
+                    help="poly bins (2: a 6400)")
     ap.add_argument("--w1", action="store_true", help="W1: at SCSI target 4 (S4)")
     ap.add_argument("--disk-us", type=int, default=500, help="SCSI disk time per block (us)")
     ap.add_argument("--seek-us", type=int, default=25000, help="SCSI seek time (us; with --disk-us)")
@@ -105,6 +112,8 @@ def main(argv=None):
     ap.add_argument("--ork", action="store_true",
                     help="state image with the original keyboard instead of the velocity keyboard")
     a = ap.parse_args(argv)
+    if a.poly_mb * a.poly_bins > 224:
+        ap.error("--poly-mb x --poly-bins: at most 224 MB (the core's DDR3)")
     os.makedirs(a.outdir, exist_ok=True)
     newdata = a.newdata
     if newdata is None:
@@ -120,7 +129,7 @@ def main(argv=None):
     poly = None
     if not a.no_poly:
         from sim.devices.poly import PolySynth
-        poly = PolySynth(sectors=a.poly_mb * 2048)
+        poly = PolySynth(sectors=a.poly_mb * 2048, bins=a.poly_bins)
     midi = None
     if a.midi:
         from sim.devices.midi import MidiSubsystem
@@ -130,7 +139,8 @@ def main(argv=None):
                           terminal="vt640" if a.vt640 else None, mouse=a.vt640,
                           scsi_block_ns=a.disk_us * 1000, scsi_seek_ns=a.seek_us * 1000)
     name = ("W0-53" + ("-MIDI" if a.midi else "") + ("-FM%d" % a.fm_voices if a.fm_voices != 8 else "")
-            + ("-P%d" % a.poly_mb if a.poly_mb != 32 else "") + ("-W1" if a.w1 else "") + ("-VT640" if a.vt640 else ""))
+            + ("-P%d" % a.poly_mb if a.poly_mb != 32 else "")
+            + ("-BIN%d" % a.poly_bins if a.poly_bins != 1 else "") + ("-W1" if a.w1 else "") + ("-VT640" if a.vt640 else ""))
     sst = os.path.join(a.outdir, name + ".SST")
     data = state_bytes(cpu)
     open(sst, "wb").write(data)

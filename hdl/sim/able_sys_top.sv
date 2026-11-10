@@ -127,6 +127,7 @@ module able_sys_top (
     logic [7:0]  vpk_chars [32];
     logic [7:0]  vpk_dp [4];
     logic [10:0] poly_units;           // poly memory size (not used here)
+    logic [2:0]  poly_bins;            // poly bins (not used here)
     logic        term_vt640, term_mouse;
     logic [19:0] scsi_block_ns;
     logic [25:0] scsi_seek_ns;

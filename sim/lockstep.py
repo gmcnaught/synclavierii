@@ -21,9 +21,10 @@ Trace format v2 (little-endian):
           device 0 D3 (0 elapsed ns, 1 pending), 1 D4567 (0 D4, 1 D5),
           2 D60 (0 sector, 1 word), 3 D50 (0 baud index, 1 rx char,
           2 char_rdy, 3 rx_wait ns, 4 tx_busy ns, 5 xmit_irq; 8 poly
-          memory size in 128 KB units, to able_system; 9 VT640 graphics
-          terminal, to term_display; 10 D44/D45/D54 mouse; 11 SCSI
-          disk time, ns per block), 4 D100
+          memory size per bin in 128 KB units, to able_system; 9 VT640
+          graphics terminal, to term_display; 10 D44/D45/D54 mouse; 11 SCSI
+          disk time, ns per block; 12 SCSI seek ns; 13 poly bins, when
+          more than 1), 4 D100
           (fields as hdl/dev/dev_floppy.sv's state load), 5 D160 (as
           dev_fm.sv; 16 FM voices present), 6 wave memory byte (index = memory x 256 + point),
           7 D130 (as dev_keyboard.sv; index 30 = velocity keyboard
@@ -206,6 +207,8 @@ def _device_header(cpu):
         out += struct.pack("<cBHI", b"V", 3, 10, 1)
     if isinstance(getattr(cpu, "poly", None), PolySynth):   # poly memory size, 128 KB units
         out += struct.pack("<cBHI", b"V", 3, 8, cpu.poly.sectors // 256)
+        if cpu.poly.nbins != 1:                             # poly bins (a 6400: 2)
+            out += struct.pack("<cBHI", b"V", 3, 13, cpu.poly.nbins)
     for dev, idx, v in ((0, 0, rtc.elapsed), (0, 1, rtc.pending),
                         (1, 0, md.d4), (1, 1, md.d5),
                         (2, 0, xm.sector), (2, 1, xm.word),
@@ -680,6 +683,28 @@ def w0_vpk_actions(cpu):
     return acts
 
 
+def w0_bin_actions(cpu, b=1):
+    """Before w0_vpk_actions on a system with more than one poly bin: hold
+    TRACK ROUTING and press timbre button b + 1, which makes bin b the
+    keyboard timbre's poly bin (175-PRF5:135-149, THD.POLY of track 0), so
+    the sound file the recall loads (CLARA3) goes into bin b and its notes
+    play on bin b's voices (198-SYN2 ALLOC.SUB). With w0_vpk_actions' key 45
+    it also holds 8 more keys, so 9 voices of bin b sound together (9 poly
+    memory reads per 48 kHz mix, several in flight on DDR3)."""
+    from .devices.synth import vpk_button_number as B
+    kb = cpu.keyboard
+    ms = 1_000_000
+    t = "timb.%d" % b
+    acts = [(10_300 * ms, lambda c: kb.press_button(B("trrout"))),
+            (10_380 * ms, lambda c: kb.press_button(B(t))),
+            (10_440 * ms, lambda c: kb.press_button(B(t), False)),
+            (10_500 * ms, lambda c: kb.press_button(B("trrout"), False))]
+    for k in (36, 38, 40, 41, 43, 47, 48, 50):
+        acts += [(16_000 * ms, lambda c, k=k: kb.press_key(k, velocity=90)),
+                 (16_600 * ms, lambda c, k=k: kb.press_key(k, False))]
+    return acts
+
+
 def w0_midi_actions(cpu):
     """MIDI card actions for a W0 boot with the velocity keyboard and the
     MIDI card (cpu.midi): BANK 1, ENTRY 2 on the VPK panel (SIMPLE FM SINE),
@@ -767,7 +792,8 @@ def main(argv=None):
     ap.add_argument("--midi", action="store_true",
                     help="w0boot: with the MIDI card (sim/devices/midi.py; with --poly --vpk: "
                          "w0_midi_actions)")
-    ap.add_argument("--poly-mb", type=int, default=32, help="w0boot --poly: poly memory in MB")
+    ap.add_argument("--poly-mb", type=int, default=32, help="w0boot --poly: poly memory in MB (per bin)")
+    ap.add_argument("--poly-bins", type=int, default=1, help="w0boot --poly: poly bins (a 6400: 2)")
     ap.add_argument("--type", help="w0boot: terminal input typed at 11 s (e.g. F: SYN-5.3's "
                                    "graphic timbre display)")
     ap.add_argument("--vt640", action="store_true",
@@ -804,7 +830,7 @@ def main(argv=None):
         poly = None
         if a.poly:
             from .devices.poly import PolySynth
-            poly = PolySynth(sectors=a.poly_mb * 2048)
+            poly = PolySynth(sectors=a.poly_mb * 2048, bins=a.poly_bins)
         midi = None
         if a.midi:
             from .devices.midi import MidiSubsystem
@@ -844,6 +870,8 @@ def main(argv=None):
         actions = (w0_midi_actions(cpu) if a.midi and a.vpk else
                    w0_chord_actions(cpu) if a.vpk and a.fm_voices > 8 else
                    w0_vpk_actions(cpu) if a.vpk else w0_poly_actions(cpu))
+        if a.vpk and a.poly_bins > 1 and not a.midi and a.fm_voices == 8:
+            actions = w0_bin_actions(cpu) + actions        # CLARA3 into bin 1
     if a.mode == "w0boot" and a.type:
         text = a.type.encode("latin-1")
         actions.append((11_000_000_000, lambda c: c.terminal.feed(text)))

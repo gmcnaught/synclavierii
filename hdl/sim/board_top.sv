@@ -112,6 +112,9 @@ module board_top (
     logic [26:0] xr_addr;
     logic        xr_rd, xr_wr, xr_wide, xr_ack;
     logic [15:0] xr_wdata, xr_rdata;
+    logic [26:0] xs_addr;
+    logic        xs_rd, xs_ack, xs_rvalid;
+    logic [15:0] xs_rdata;
 
     assign dev_rd = 1'b0;
     assign dev_wr = 1'b0;
@@ -124,6 +127,7 @@ module board_top (
         .img_mounted, .img_readonly, .img_size, .sd_lba0, .sd_lba1, .sd_lba2, .sd_lba3, .sd_lba4, .sd_rd, .sd_wr, .sd_blk_cnt3, .sd_blk_cnt4, .sd_ack,
         .sd_buff_addr, .sd_buff_dout, .sd_buff_din, .sd_buff_wr,
         .xr_addr, .xr_rd, .xr_wr, .xr_wide, .xr_wdata, .xr_rdata, .xr_ack,
+        .xs_addr, .xs_rd, .xs_ack, .xs_rvalid, .xs_rdata,
         .ce_pix, .vga_r, .vga_g, .vga_b, .vga_hs, .vga_vs, .vga_hblank, .vga_vblank,
         .audio_l(), .audio_r(),
         .midi_rxd(1'b1), .midi_txd(), .mouse_host_we, .mouse_host_buttons, .mouse_host_dxy, .midi_card_we, .midi_card_byte, .kb_host_we, .kb_host_panel, .kb_host_index, .kb_host_value,
@@ -140,6 +144,7 @@ module board_top (
     ddram_word ext_memory (
         .clk, .rst(rst_hard),
         .addr(xr_addr), .rd(xr_rd), .wr(xr_wr), .wide(xr_wide), .wdata(xr_wdata), .rdata(xr_rdata), .ack(xr_ack),
+        .s_addr(xs_addr), .s_rd(xs_rd), .s_ack(xs_ack), .s_rvalid(xs_rvalid), .s_rdata(xs_rdata),
         .DDRAM_BUSY, .DDRAM_BURSTCNT, .DDRAM_ADDR, .DDRAM_DOUT, .DDRAM_DOUT_READY, .DDRAM_RD,
         .DDRAM_DIN, .DDRAM_BE, .DDRAM_WE
     );

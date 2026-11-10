@@ -307,16 +307,17 @@ def test_dev_scsi():
     _testbench("dev_scsi", "hdl/dev/dev_scsi.sv")
 
 
-def poly_stimulus(path, seed=1, ops=6000):
+def poly_stimulus(path, seed=1, ops=6000, bins=1, sectors=65536):
     """Stimulus for hdl/sim/dev_poly_tb.sv from sim/devices/poly.py: POLY.CHECK-
     style init, poly memory writes/reads, voices (loops, stereo master,
     PSWL rewrites, restarts), envelopes and volume ramps, random time steps,
-    register reads and mixes, each with the model's answer."""
+    register reads and mixes, each with the model's answer. With bins > 1
+    each bin gets its own tables and voices (channel 64 x bin + c)."""
     import math
     import random
     from sim.devices.poly import PolySynth
     rng = random.Random(seed)
-    p = PolySynth()
+    p = PolySynth(sectors=sectors, bins=bins)
     end = p.sectors * 256
     out = []
 
@@ -351,31 +352,36 @@ def poly_stimulus(path, seed=1, ops=6000):
     for ch in (1, 65, 129, 193):
         w(1, ch); w(1, ch); rd(1)
     fc(0, 12); rd(3); rd(3); rd(2)
-    for ch in range(64):
-        fc(ch, 0, 0xFFFF, 0xFFFF, 0, 255, 0xFFFF, 0xFFFF, 0, 0, 255, 0, 0)
-        if ch < 32:
-            fc(ch, 33, 4095, 4095, 1, 4095, 4095, 0, 0)
-            fc(ch, 40, 0, 0, 0, 0)
-    # poly memory: tables at word 1000 (mono) and 9000 (stereo frames)
-    fc(0, 16, *two(1000))
-    for i in range(3000):
-        w(3, int(20000 * math.sin(i / 7.0)))
-    fc(0, 16, *two(9000))
-    for i in range(2000):
-        w(3, (i * 37) & 0xFFFF)
-    fc(0, 20, *two(995))
-    for _ in range(12):
+    for b in range(bins):
+        for ch in range(64 * b, 64 * b + 64):
+            fc(ch, 0, 0xFFFF, 0xFFFF, 0, 255, 0xFFFF, 0xFFFF, 0, 0, 255, 0, 0)
+            if ch % 64 < 32:
+                fc(ch, 33, 4095, 4095, 1, 4095, 4095, 0, 0)
+                fc(ch, 40, 0, 0, 0, 0)
+    # poly memory of each bin: tables at word 1000 (mono) and 9000 (stereo
+    # frames), different in each bin; the next bin up (absent) drops writes
+    for b in range(min(bins + 1, 4)):
+        fc(64 * b, 16, *two(1000))
+        for i in range(3000):
+            w(3, int((20000 - 3000 * b) * math.sin(i / (7.0 + b))))
+        fc(64 * b, 16, *two(9000))
+        for i in range(2000):
+            w(3, (i * (37 + b)) & 0xFFFF)
+        fc(64 * b, 20, *two(995))
+        for _ in range(12):
+            rd(3)
+        fc(64 * b, 16, *two(end - 2), 1 + b, 2, 3)  # crosses the end of the bin
+        fc(64 * b, 20, *two(end - 2))
+        for _ in range(3):
+            rd(3)
+        fc(64 * b, 20, *two(1 << 25))               # page 2: no memory
         rd(3)
-    fc(0, 16, *two(end - 2), 1, 2, 3)               # crosses the end
-    fc(0, 20, *two(end - 2))
-    for _ in range(3):
-        rd(3)
-    fc(0, 20, *two(1 << 25))                        # page 2: no memory
-    rd(3)
     t(1000)
     for n in range(ops):
         op = rng.random()
+        b = rng.randrange(bins)
         ch = rng.randrange(32) if rng.random() < 0.9 else rng.randrange(32, 70)
+        ch = (64 * b + ch) & 0xFF if rng.random() < 0.98 else rng.randrange(256)
         if op < 0.05:                               # start a voice
             length = rng.choice([50, 300, 2900, 1999])
             loop = rng.choice([0, 0, 40, 250])
@@ -427,9 +433,12 @@ def test_dev_poly():
     with tempfile.NamedTemporaryFile(suffix=".stim", delete=False) as f:
         path = f.name
     try:
-        poly_stimulus(path)
-        out = _testbench("dev_poly", "hdl/dev/dev_poly.sv", args=["+stim=" + path])
-        print("  " + out.strip().splitlines()[-1])
+        # a 3200 (1 bin, 32 MB); a 6400 (2 bins); 4 bins (the most SYN-5.3 looks for)
+        for bins, units in ((1, 256), (2, 128), (4, 64)):
+            poly_stimulus(path, bins=bins, sectors=units * 256)
+            out = _testbench("dev_poly", "hdl/dev/dev_poly.sv",
+                             args=["+stim=" + path, "+bins=%d" % bins, "+units=%d" % units])
+            print("  %d bin(s): %s" % (bins, [ln for ln in out.splitlines() if "dev_poly OK" in ln][0]))
     finally:
         os.unlink(path)
 

@@ -142,6 +142,48 @@ def test_on_demand_equals_continuous():
     assert run(333) == run(30_000_000)
 
 
+def test_two_bins():
+    """A 6400: bins 0 and 1 (channels 0-63, 64-127), each with its own voices
+    and poly memory; bins 2-3 absent."""
+    p = PolySynth(32, 256, bins=2)
+    for ch, want in ((1, 1), (65, 65), (129, 0), (193, 0)):
+        p.write(PSC, ch)
+        p.write(PSC, ch)
+        assert p.read(PSC) & 255 == want
+    p.write(PSC, 64)
+    p.write(PSF, PSNUMV)
+    assert p.read(PSD) == 0x38                           # 32 voices in bin 1 too
+    p.write(PSC, 0)
+    _fc(p, PSWMA, 0, 10, 111)                            # bin 0, word 10
+    p.write(PSC, 64)
+    _fc(p, PSWMA, 0, 10, 222)                            # bin 1, word 10
+    p.write(PSC, 128)
+    _fc(p, PSWMA, 0, 10, 333)                            # bin 2: absent, dropped
+    _fc(p, PSRMA, 0, 10)
+    assert p.read(PSD) == 0
+    p.write(PSC, 0)
+    _fc(p, PSRMA, 0, 10)
+    assert p.read(PSD) == 111
+    p.write(PSC, 70)
+    _fc(p, PSRMA, 0, 10)
+    assert p.read(PSD) == 222
+    # voice 3 of each bin plays word 10 of its own bin's memory
+    for ch in (3, 67):
+        _voice(p, ch, 100, 10)
+        p.write(PSC, ch)
+        _fc(p, PSEMOD, 4095, 4095, 4095, 4095, 4095, 4095, 4095)   # EVAL 4095
+        _fc(p, PSRCVOL, 4095, 4095, 4095, 4095)
+    assert p.voice[3].eval == 4095 and p.voice[35].eval == 4095
+    assert p.sounding() == [3, 67]
+    l, r = p._mix()
+    e = 4095 * 4095
+    assert l == (111 * e >> 24) + (222 * e >> 24) and r == l
+    p.write(PSC, 67)
+    p.write(PSF, PSON)
+    p.write(PSD, 0)
+    assert p.sounding() == [3]
+
+
 def test_ghost_channels():
     p = PolySynth(8, 256)
     p.write(PSC, 40)

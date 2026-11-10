@@ -15,31 +15,24 @@ FPRM/FPSM boards is not required.
 | ABLE CPU, Models B, C, D | Simulator and HDL agree instruction by instruction (random programs, MONITOR, ORK-LM, SYN-5.3) | [`instruction-set.md`](instruction-set.md), [`hdl.md`](hdl.md) |
 | Release L | Boots from SD floppies to `Ready >`; ORK-LM plays FM timbres from MIDI on a MiSTer | [`release-l-image.md`](release-l-image.md) |
 | Release 5.3 | Boots from a SCSI W0 image; SYN-5.3 Main Menu, timbre banks (`.NEWDATA`), FM notes from MIDI on a MiSTer | [`release-5.3.md`](release-5.3.md) |
-| FM voices | 8 voices; register semantics decoded, pitch verified; HDL = Python sample for sample | [`fm-voice.md`](fm-voice.md) |
+| FM voices | 8 or 32 voices (a 9600); register semantics decoded, pitch verified; HDL = Python sample for sample | [`fm-voice.md`](fm-voice.md) |
 | Poly sampling | 32 stereo voices, 32 MB poly memory in DDR3 (a 3200); sound files load over SCSI and play | [`poly-synth.md`](poly-synth.md) |
 | Keyboard and panel | ORK (Release L) and velocity/pressure keyboard (Release 5.3); MIDI notes → keys with velocity, Launchkey pads/pots → panel buttons and knob, program change → timbre recall; on-screen panel with mouse | `hdl/core/midi_in.sv`, `hdl/core/midi_vpk.sv`, [`devices/`](devices/) |
 | MIDI card | D70–D73 MIDI subsystem card: SYN-5.3 reads MIDI itself (routing, recording, sync) and sends MIDI out on the UART (state image `W0-53-MIDI.SST`) | [`devices/d70-midi-subsystem.md`](devices/d70-midi-subsystem.md) |
 | Terminal | VT100 subset on the video output, PS/2 keyboard, PF keys | `hdl/core/term_display.sv` |
 
-## Done in HDL, waiting for a hardware test
+## Verified on hardware since the last summary
 
-Each verified in the simulator and by board lockstep (the whole core
-against the Python model); PRs #35-#40, stacked.
-
-| # | Item | State image option (`tools/w0_image.py`) |
-|---|---|---|
-| M8b | MIDI subsystem card (D70-D73): SYN-5.3's own MIDI in, MIDI out | `--midi` |
-| M9 | Up to 32 FM voices (9600), serial voice engine | `--fm-voices 32` |
-| M10 | Poly memory up to 224 MB | `--poly-mb 224` |
-| M11 | SCSI disk read 32 blocks per SD request (sound files load without audio gaps) | (always) |
-| M12 | Second SCSI disk, W1: | `--w1` (OSD S4) |
-| M13 | VT640 graphics terminal and D44 mouse | `--vt640` |
+On a MiSTer (.62, 2026-11-09): MIDI card (M8b), 32 FM voices
+(M9, `--fm-voices 32`), poly memory up to 224 MB (M10, `--poly-mb 224`),
+SCSI load time (M11: sound files load with 0 underruns), W1: (M12, `--w1`),
+VT640 graphics and mouse (M13, `--vt640`); FM and poly voices on real time
+(M14, `hdl/voice_clock.sv`: a CPU wait no longer stops the audio).
 
 ## Next
 
 | Item | Needs |
 |---|---|
-| Hardware tests of the above on a MiSTer | the MiSTer on the network |
 | Launchkey pad and pot numbers (M8a) | a MIDI capture from the user's Launchkey |
 | FM and poly sound against a real instrument (M3.3) | recordings |
 
@@ -54,8 +47,8 @@ terminal.
 
 1. **Exact sound:** FM and poly DAC, envelope and mix details are model
    choices until recordings of a real machine are available.
-2. **FPGA resources:** 62 % of ALMs used; 32 FM voices need a
-   time-multiplexed voice engine.
+2. **FPGA resources:** about 50 % of ALMs used with 32 FM voices (a
+   time-multiplexed engine) and the 50 MHz core clock.
 3. **Distribution:** Release L and Synclavier³ images are not
    redistributable; users supply them.
 

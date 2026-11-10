@@ -38,6 +38,25 @@ lockstep runs are unchanged with it on (`check --realtime`): the voice
 test program ends 74 ns and MONITOR's boot (1.04 s) 551 ns from real
 time. Credit when the CPU falls behind is capped at 10 µs.
 
+**Voice time (M14).** On the instrument the FM and poly voices run on their
+own clocks, and a disk load stops the CPU's main loop but not the voices
+([`research-log.md`](research-log.md) §26). With `rt_voices` (OSD "Voice
+clock: Real time", the default while real-time pacing is on)
+`hdl/voice_clock.sv` gives `dev_fm` and `dev_poly` a 333 ns tick every
+333 ns of the clock instead of the CPU's ticks, so a CPU wait (SD block,
+DDR3) no longer stops the audio: their 192 kHz sample instants come at
+exactly the rate `audio_fifo` plays. Register writes land at the voice
+time they arrive at, and reads of voice state (D160 bit 0, D157) see voice
+time, so hardware runs no longer repeat sample for sample. Lockstep runs
+keep `rt_voices` off and stay exact. Check (`test_system_voice_clock`, 8
+and 32 voices): the voice program with a 1 ms CPU stall (50,000 clocks)
+during a note; on CPU time no samples come during the stall; on real time
+192 samples come, all sounding, and the sample count follows real time to
+within 1; without a stall the 8-voice audio equals Python's sample for
+sample, and the 32-voice audio differs by 4 % RMS (a D160-D162 access
+waits up to 40 clocks for the engine, real time without simulated time, so
+some writes land one sample instant later).
+
 **Time.** As `sim/cpu.py`: an instruction costs 333 ns per bus transfer
 (fetch; source unless immediate; destination unless a transfer not
 taken), and a read the device holds (`io_hold`, Python's `BUS_WAIT`)
@@ -253,7 +272,9 @@ DDR3 and the video/audio outputs.
 | Audio | core | `pcm_out.sv`'s 48 kHz samples held on `AUDIO_L/R` (signed). |
 
 OSD: F0 and F1 image slots, text colour, aspect ratio, real-time pacing
-(the throttle; off runs as fast as the clock allows), status line, reset.
+(the throttle; off runs as fast as the clock allows), status line, voice
+clock (real time or CPU time, see Voice time; CPU time when pacing is off),
+reset.
 "Status line: Lag by cause" replaces the health fields with the lag split
 by what the CPU was waiting on when the throttle gave up the time
 (`able_system.sv`, microseconds in hex since reset): `Fch` a code fetch
@@ -315,6 +336,7 @@ bitstream combines it with this project's MIT code.
 | 4.5 | Terminal (D50/D51) | done: 80 × 24 display and PS/2 keyboard, checked in board simulation |
 | — | D3, D4567 | done, lockstep-checked |
 | — | Real-time throttle | done (`hdl/throttle.sv`), checked in lockstep |
+| M14 | Voices on real time | done (`hdl/voice_clock.sv`), checked with a stalled CPU in the system bench |
 | 4.6 | Disk images from SD (D100 floppy) | done: F0/F1 images over hps_io (`sd_floppy.sv`), boot loader; checked in board simulation |
 | — | Synthesis and timing (Quartus) | CI (`build-rbf.yml`); results in the PR |
 | — | On MiSTer hardware: boot to `Ready >`, `CATALOG` | needs a board |

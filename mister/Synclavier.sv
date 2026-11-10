@@ -55,6 +55,7 @@ localparam CONF_STR = {
 	"O[3],Real-time pacing,On,Off;",
 	"O[4],VT640: panel strip,Hidden,Over bottom;",
 	"O[5],Status line,Health,Lag by cause;",
+	"O[6],Voice clock,Real time,CPU time;",
 	"-;",
 	"T[0],Reset;",
 	"R[0],Reset and close OSD;",
@@ -141,6 +142,7 @@ synclavier_core #(.CLK_HZ(50_000_000), .VID_CE_DIV(1)) core
 	.rst_hard(rst_hard),
 	.rst(rst_user),
 	.rt_enable(~status[3]),
+	.rt_voices(~status[3] & ~status[6]),
 
 	.ps2_key(ps2_key),
 	.ps2_mouse(ps2_mouse),

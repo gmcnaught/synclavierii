@@ -388,6 +388,13 @@ int main(int argc, char** argv) {
     Verilated::randReset(2);
 #endif
     top = new Top;
+    // LOCKSTEP_RT_VOICES=1 (system): the voices on real time (voice_clock.sv,
+    // M14): audio is counted against real time instead of compared.
+    // LOCKSTEP_STALL=n,c (system): hold the CPU for c clocks before it
+    // fetches instruction n (as an SD or DDR3 wait does on the board).
+    bool rt_voices = false;
+    uint64_t stall_at = ~0ull, stall_clocks = 0, stalled = 0;
+    bool in_stall = false;
 #ifdef BOARD
     bool realtime = false, audio_trace = false;
     board_start(t, audio_trace);
@@ -399,6 +406,14 @@ int main(int argc, char** argv) {
     // change, and simulated time must track 20 ns clocks (50 MHz)
     bool realtime = std::getenv("LOCKSTEP_REALTIME") != nullptr;
     top->rt_enable = realtime;
+    rt_voices = std::getenv("LOCKSTEP_RT_VOICES") != nullptr;
+    top->rt_voices = rt_voices;
+    top->dbg_stall = 0;
+    if (const char* st = std::getenv("LOCKSTEP_STALL")) {
+        unsigned long long a, c;
+        if (std::sscanf(st, "%llu,%llu", &a, &c) != 2) { std::fprintf(stderr, "LOCKSTEP_STALL=n,clocks\n"); return 2; }
+        stall_at = a; stall_clocks = c;
+    }
 #endif
     top->dev_ack = top->dev_nosyn = top->dev_hold = top->halt_req = 0;
     top->dev_irq = 0;
@@ -519,7 +534,8 @@ int main(int argc, char** argv) {
     uint16_t snap[16]; uint8_t snap_flags = 0; uint64_t snap_time = 0;
     std::deque<uint8_t> rx;            // terminal input still to push
     std::deque<std::pair<int64_t, int64_t>> want_audio;   // Python samples not yet matched
-    uint64_t samples = 0;
+    uint64_t samples = 0, stall_samples = 0, stall_nonzero = 0, rt_compared = 0, rt_differ = 0;
+    std::vector<std::pair<int64_t, int64_t>> rt_audio;   // HDL samples with the voices on real time
     std::vector<int16_t> pcm;          // 48 kHz stereo from pcm_out (LOCKSTEP_WAV)
     char buf[64];
 #ifdef SYSTEM_DEVICES
@@ -532,6 +548,16 @@ int main(int argc, char** argv) {
         int64_t l = top->audio_l, r = top->audio_r;
         if (l & (1ll << 39)) l -= 1ll << 40;          // 40-bit signed
         if (r & (1ll << 39)) r -= 1ll << 40;
+        if (in_stall) {
+            stall_samples++;
+            if (l || r) stall_nonzero++;
+        }
+        if (rt_voices) {                               // voice time is not simulated time
+            if (at == ~0ull) return;
+            samples++;
+            rt_audio.emplace_back(l, r);               // compared with Python's at the end
+            return;
+        }
         if (want_audio.empty()) {
             if (at == ~0ull) return;                   // after the trace: extra samples
             fail(at, "HDL audio sample %llu with none expected", (unsigned long long)samples);
@@ -710,6 +736,12 @@ int main(int argc, char** argv) {
                 check_snapshot = true;
             }
         }
+#ifdef SYSTEM
+        in_stall = n >= stall_at && stalled < stall_clocks;
+        top->dbg_stall = in_stall;
+        if (in_stall) stalled++;
+        top->eval();
+#endif
         bool was_held = top->io_held, was_tick = top->tick, done = top->instr_done;
         uint16_t ns = top->tick_ns;
         top->clk = 1; top->eval();
@@ -720,7 +752,7 @@ int main(int argc, char** argv) {
 #ifdef BOARD
         if (top->poly_clearing) clear_cycles++;    // the poly memory clear holds poly accesses
 #endif
-        if (cycles > 64 * (n + 1000) + 64ull * held + time_ns / 10 + clear_cycles || held > 10'000'000)
+        if (cycles > 64 * (n + 1000) + 64ull * held + time_ns / 10 + clear_cycles + stalled || held > 10'000'000)
             fail(n, "HDL stuck (state does not advance)");
     }
 #ifdef SYSTEM_DEVICES
@@ -734,7 +766,7 @@ int main(int argc, char** argv) {
         audio_check(~0ull);
         top->clk = 1; top->eval();
     }
-    if (!want_audio.empty())
+    if (!want_audio.empty() && !rt_voices)
         fail(n, "%zu Python audio samples not produced by the HDL", want_audio.size());
     if (const char* wav = std::getenv("LOCKSTEP_WAV")) {       // 16-bit stereo WAV
         FILE* w = std::fopen(wav, "wb");
@@ -751,9 +783,30 @@ int main(int argc, char** argv) {
 #endif
 #ifdef SYSTEM_DEVICES
     if (realtime) {
-        double real = cycles * 20.0, drift = (double)time_ns - real;
-        std::printf("real time %.0f ns, simulated - real = %.0f ns\n", real, drift);
+        // a stall longer than the throttle's catch-up (200 us) is lag for good
+        double lag = stalled * 20.0 > 200000 ? stalled * 20.0 - 200000 : 0;
+        double real = cycles * 20.0, drift = (double)time_ns - (real - lag);
+        std::printf("real time %.0f ns, simulated - real = %.0f ns (lag %.0f ns)\n", real, drift, lag);
         if (drift > 2000 || drift < -210000) fail(n, "throttle drift %.0f ns", drift);   // CATCHUP_NS + 10 us
+    }
+    if (rt_voices && audio_trace) {
+        // sample k against Python's sample k (they differ once a register
+        // write lands on another side of a sample instant)
+        for (size_t i = 0; i < rt_audio.size() && i < want_audio.size(); i++) {
+            rt_compared++;
+            if (rt_audio[i] != want_audio[i]) rt_differ++;
+        }
+        // 192 kHz sample instants in the real time since reset
+        double real = cycles * 20.0, want = real * 192000.0 / 1e9;
+        std::printf("rt voices: %llu samples in %.0f ns of real time (%.1f expected); "
+                    "stall %llu clocks: %llu samples, %llu nonzero; %llu of %llu differ from Python\n",
+                    (unsigned long long)samples, real, want, (unsigned long long)stalled,
+                    (unsigned long long)stall_samples, (unsigned long long)stall_nonzero,
+                    (unsigned long long)rt_differ, (unsigned long long)rt_compared);
+        if (samples + 2 < want || samples > want + 2) fail(n, "voice time does not track real time");
+    } else if (stalled) {
+        std::printf("stall %llu clocks: %llu samples, %llu nonzero\n", (unsigned long long)stalled,
+                    (unsigned long long)stall_samples, (unsigned long long)stall_nonzero);
     }
 #endif
 #ifdef BOARD

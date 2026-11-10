@@ -3,6 +3,7 @@ set_global_assignment -name SEARCH_PATH ../hdl/core
 set_global_assignment -name SYSTEMVERILOG_FILE ../hdl/able_cpu.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../hdl/code_cache.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../hdl/throttle.sv
+set_global_assignment -name SYSTEMVERILOG_FILE ../hdl/voice_clock.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../hdl/able_system.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../hdl/dev/dev_rtc.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../hdl/dev/dev_muldiv.sv

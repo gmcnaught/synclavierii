@@ -7,6 +7,8 @@ module able_sys_top (
     input  logic        clk,
     input  logic        rst,
     input  logic        rt_enable,
+    input  logic        rt_voices,         // voices on real time (voice_clock.sv)
+    input  logic        dbg_stall,         // hold the CPU (the bench's LOCKSTEP_STALL)
     input  logic [1:0]  cpu_model,
     input  logic [15:0] cpu_d57,
     input  logic [15:0] term_bits,
@@ -128,6 +130,8 @@ module able_sys_top (
     logic        term_vt640, term_mouse;
     logic [19:0] scsi_block_ns;
     logic [25:0] scsi_seek_ns;
+    logic        voice_tick;
+    logic [9:0]  voice_tick_ns;
 
     able_system sys (.*);
 endmodule

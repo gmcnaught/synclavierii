@@ -499,7 +499,7 @@ SYSTEM_RTL = ["hdl/able_cpu.sv", "hdl/code_cache.sv", "hdl/dev/dev_rtc.sv", "hdl
               "hdl/dev/dev_extmem.sv", "hdl/dev/dev_terminal.sv",
               "hdl/dev/dev_floppy.sv", "hdl/dev/dev_keyboard.sv", "hdl/dev/dev_vpk.sv",
               "hdl/dev/dev_fm.sv",
-              "hdl/dev/pcm_out.sv", "hdl/throttle.sv", "hdl/able_system.sv"]
+              "hdl/dev/pcm_out.sv", "hdl/throttle.sv", "hdl/voice_clock.sv", "hdl/able_system.sv"]
 CORE_RTL = ["hdl/core/sd_floppy.sv", "hdl/dev/dev_scsi.sv", "hdl/dev/dev_poly.sv", "hdl/dev/dev_midi.sv", "hdl/dev/dev_mouse.sv",
             "hdl/core/boot_loader.sv", "hdl/core/term_display.sv", "hdl/core/tek_plane.sv",
             "hdl/core/ps2_ascii.sv", "hdl/core/midi_in.sv", "hdl/core/midi_vpk.sv", "hdl/core/midi_card_feed.sv",
@@ -538,13 +538,16 @@ def build(top="cpu", force=False):
 
 
 def check(path, max_instructions=None, top="cpu", wav=None, realtime=False, frame=None,
-          state=None, w0=None, w1=None):
+          state=None, w0=None, w1=None, rt_voices=False, stall=None):
     """Run a trace on the HDL. Returns (ok, output text). wav: write the
     system's 48 kHz PCM output (pcm_out.sv) to this WAV file. realtime:
     run the system with the throttle on (50 MHz); behaviour must not change
     and simulated time must track the clock. frame (board): write a video
     frame (PGM) taken after the run. state (board): a state image
-    (tools/state_image.py) to boot from instead of F0."""
+    (tools/state_image.py) to boot from instead of F0. rt_voices (system,
+    with realtime): the voices on real time (voice_clock.sv, M14); audio is
+    counted instead of compared. stall (system): (instruction, clocks), hold
+    the CPU that long before it fetches that instruction."""
     cmd = [build(top), path] + ([str(max_instructions)] if max_instructions else [])
     env = dict(os.environ)
     if frame:
@@ -559,6 +562,10 @@ def check(path, max_instructions=None, top="cpu", wav=None, realtime=False, fram
         env["LOCKSTEP_WAV"] = wav
     if realtime:
         env["LOCKSTEP_REALTIME"] = "1"
+    if rt_voices:
+        env["LOCKSTEP_RT_VOICES"] = "1"
+    if stall:
+        env["LOCKSTEP_STALL"] = "%d,%d" % stall
     p = subprocess.run(cmd, capture_output=True, text=True, env=env)
     return p.returncode == 0, p.stdout + p.stderr
 

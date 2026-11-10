@@ -265,6 +265,8 @@ void board_start(Trace& t, bool& audio_trace) {
     top->hw_cfg = 0;
     for (int i = 0; i < 8; i++) board_tick();
     top->hw_cfg = std::getenv("LOCKSTEP_HWCFG") ? std::atoi(std::getenv("LOCKSTEP_HWCFG")) : 0;
+    // LOCKSTEP_OUTPUTS=n: the OSD Outputs item (M19, distributor output pair n; 0 the stereo mix)
+    top->out_pair = std::getenv("LOCKSTEP_OUTPUTS") ? std::atoi(std::getenv("LOCKSTEP_OUTPUTS")) : 0;
     // LOCKSTEP_STATE=path: a state image (tools/state_image.py) in S2, which
     // the boot loader then loads instead of booting MONITOR from F0
     if (const char* st = std::getenv("LOCKSTEP_STATE")) {

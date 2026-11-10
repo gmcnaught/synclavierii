@@ -24,7 +24,9 @@ Trace format v2 (little-endian):
           memory size per bin in 128 KB units, to able_system; 9 VT640
           graphics terminal, to term_display; 10 D44/D45/D54 mouse; 11 SCSI
           disk time, ns per block; 12 SCSI seek ns; 13 poly bins, when
-          more than 1), 4 D100
+          more than 1; 14 voices in the last poly bin, when not 32; 16
+          D32/D33 multichannel distributor outputs (8/16), when there is
+          one, M19), 4 D100
           (fields as hdl/dev/dev_floppy.sv's state load), 5 D160 (as
           dev_fm.sv; 16 FM voices present), 6 wave memory byte (index = memory x 256 + point),
           7 D130 (as dev_keyboard.sv; index 30 = velocity keyboard
@@ -188,6 +190,11 @@ def _device_header(cpu):
     ds = getattr(cpu, "dig_stm", None)
     if ds is not None and not ds.idle():
         raise ValueError("digital STM state is not the power-on state (dig_stm.sv has no load port)")
+    mc = getattr(cpu, "multi", None)
+    if mc is not None:                                      # D32/D33 distributor (M19)
+        if mc.select or mc.last or any(o is not None for o in mc.route):
+            raise ValueError("distributor state is not the power-on state (dev_multi.sv has no load port)")
+        out += struct.pack("<cBHI", b"V", 3, 16, mc.outputs)
     card = getattr(cpu, "midi", None)
     if card is not None and (card.sel or card.mcha or card.fifo):
         raise ValueError("MIDI card state is not the power-on state (dev_midi.sv has no load port)")
@@ -232,13 +239,14 @@ class _Audio:
     """A live sim/voice.py FMSynth fed from the FM interface's log, sampled
     at the render instants start + k x 1e9 // 192000 (start = trace start)."""
 
-    def __init__(self, fm):
+    def __init__(self, fm, multi=None):
         from .voice import FMSynth
         if len(fm.log) >= fm.log_len:
             raise ValueError("FM log was truncated; cannot rebuild the voice state")
         self.fm = fm
         fm.log_len = 1 << 62
         self.synth = FMSynth(fm.voices)
+        self.synth.multi = multi            # M19: an output pair, if multi.pair
         for e in fm.log:
             self.synth.write(*e)
         self.n = len(fm.log)
@@ -289,7 +297,7 @@ def record(cpu, path, instructions, snapshot_every=256, max_steps=None, max_wait
                            term.device_bits if term else 0, cpu.page, cpu.ppc,
                            cpu.rpt_next, cpu.rpt_left, cpu.rpt_word, cpu.rpt_pc, cpu.d2,
                            cpu.int_shadow)
-    aud = _Audio(cpu.fm) if audio else None
+    aud = _Audio(cpu.fm, getattr(cpu, "multi", None)) if audio else None
     if aud:
         out += aud.header()
     out += b"B"
@@ -384,6 +392,7 @@ def record(cpu, path, instructions, snapshot_every=256, max_steps=None, max_wait
             rbus.in_psw = False
     cpu.read_psw = psw
     n = steps = waits = 0
+    i_end = None                  # end of the last instruction's 'I' (its snapshot goes there)
     max_steps = max_steps or 50 * instructions + 1_000_000
     try:
         with open(path, "wb") as f:
@@ -420,19 +429,28 @@ def record(cpu, path, instructions, snapshot_every=256, max_steps=None, max_wait
                 ev += struct.pack("<cHH", b"I", pc, word)
                 n += 1
                 snap_at_mark = n % snapshot_every == 0
+                i_end = None
                 if snap_at_mark:
                     ev += snapshot()
+                else:
+                    i_end = len(ev)
                 if aud:
                     aud.samples(ev)
-                if len(ev) > 1 << 20:
+                if len(ev) > 1 << 20 and n < instructions and running:
                     f.write(ev)
                     del ev[:]
+                    i_end = None
                 mark = len(ev)
                 if not running:
                     break
             del ev[mark:]             # input fed while a read is still held at the end
             if not snap_at_mark:
-                ev += snapshot(t_done)
+                # right after the last 'I', before its audio samples, where
+                # the bench looks for a snapshot (as for the periodic ones)
+                if i_end is not None:
+                    ev[i_end:i_end] = snapshot(t_done)
+                else:
+                    ev += snapshot(t_done)
             ev += b"E"
             f.write(ev)
     finally:
@@ -508,7 +526,7 @@ SYSTEM_RTL = ["hdl/able_cpu.sv", "hdl/code_cache.sv", "hdl/dev/dev_rtc.sv", "hdl
               "hdl/dev/dev_floppy.sv", "hdl/dev/dev_keyboard.sv", "hdl/dev/dev_vpk.sv",
               "hdl/dev/dev_fm.sv",
               "hdl/dev/pcm_out.sv", "hdl/throttle.sv", "hdl/voice_clock.sv", "hdl/able_system.sv"]
-CORE_RTL = ["hdl/core/sd_floppy.sv", "hdl/dev/dev_scsi.sv", "hdl/dev/dev_poly.sv", "hdl/dev/dev_midi.sv", "hdl/dev/dev_mouse.sv",
+CORE_RTL = ["hdl/core/sd_floppy.sv", "hdl/dev/dev_scsi.sv", "hdl/dev/dev_poly.sv", "hdl/dev/dev_midi.sv", "hdl/dev/dev_mouse.sv", "hdl/dev/dev_multi.sv",
             "hdl/core/boot_loader.sv", "hdl/core/term_display.sv", "hdl/core/tek_plane.sv",
             "hdl/core/ps2_ascii.sv", "hdl/core/midi_in.sv", "hdl/core/midi_vpk.sv", "hdl/core/midi_card_feed.sv",
             "hdl/core/panel_mouse.sv", "hdl/core/audio_fifo.sv", "hdl/core/dig_stm.sv",
@@ -574,7 +592,7 @@ def hw_cfg(voices=None, mono=False, mb=None, fm=None):
 
 def check(path, max_instructions=None, top="cpu", wav=None, realtime=False, frame=None,
           state=None, w0=None, w1=None, rt_voices=False, stall=None, cfg=0, stm=None,
-          poly_dump=None):
+          poly_dump=None, outputs=0):
     """Run a trace on the HDL. Returns (ok, output text). wav: write the
     system's 48 kHz PCM output (pcm_out.sv) to this WAV file. realtime:
     run the system with the throttle on (50 MHz); behaviour must not change
@@ -587,7 +605,8 @@ def check(path, max_instructions=None, top="cpu", wav=None, realtime=False, fram
     OSD Hardware page (hw_cfg), applied to the state image as it loads.
     stm (board): a digital STM source (tools/stm_source.py) in S5 (M18).
     poly_dump (board): write poly memory (bin 0, up to 16 MB, little-endian
-    words) to this file at the end."""
+    words) to this file at the end. outputs (board): the OSD Outputs item (M19): 0 the stereo mix, n the
+    distributor's output pair 2n - 1, 2n."""
     cmd = [build(top), path] + ([str(max_instructions)] if max_instructions else [])
     env = dict(os.environ)
     if frame:
@@ -612,6 +631,8 @@ def check(path, max_instructions=None, top="cpu", wav=None, realtime=False, fram
         env["LOCKSTEP_STALL"] = "%d,%d" % stall
     if cfg:
         env["LOCKSTEP_HWCFG"] = str(cfg)
+    if outputs:
+        env["LOCKSTEP_OUTPUTS"] = str(outputs)
     p = subprocess.run(cmd, capture_output=True, text=True, env=env)
     return p.returncode == 0, p.stdout + p.stderr
 
@@ -805,6 +826,28 @@ def w0_stm_actions(cpu, record_ms=15_600, stop_ms=17_000, stereo=False):
     return [(t * ms, lambda c, k=k: c.terminal.feed(k)) for t, k in keys]
 
 
+def w0_multi_actions(cpu):
+    """Velocity keyboard actions for a W0 boot with a multichannel
+    distributor (M19): BANK 1, ENTRY 2 (SIMPLE FM SINE), then TRACK ROUTING
+    and TRACK VOLUME held while track button 3 is pressed, which routes the
+    keyboard to outputs 3 (left) and 4 (right) (174-PRF4:506-512), then key
+    45 held for 0.6 s from 14.5 s and key 52 from 15.3 s with the routing
+    back on outputs 1-2 (TRACK ROUTING + TRACK VOLUME + track button 1)."""
+    from .devices.synth import vpk_button_number as B
+    kb = cpu.keyboard
+    acts = []
+    for t, name in ((10_600, "bankb"), (10_900, "timb.0"), (12_500, "entryb"), (12_800, "timb.1")):
+        acts += [(t * ms, lambda c, n=name: kb.press_button(B(n))),
+                 ((t + 100) * ms, lambda c, n=name: kb.press_button(B(n), False))]
+    for t, trak in ((13_500, "trak.2"), (15_150, "trak.0")):
+        for dt, name, down in ((0, "trrout", True), (60, "trvol", True), (120, trak, True),
+                               (180, trak, False), (240, "trvol", False), (300, "trrout", False)):
+            acts.append(((t + dt) * ms, lambda c, n=name, d=down: kb.press_button(B(n), d)))
+    acts += [(14_500 * ms, lambda c: kb.press_key(45, velocity=100)),
+             (15_100 * ms, lambda c: kb.press_key(45, False)),
+             (15_600 * ms, lambda c: kb.press_key(52, velocity=100)),
+             (16_200 * ms, lambda c: kb.press_key(52, False))]
+    return acts
 def syn53_cpu(image, skip=0):
     """Release 5.3 from a W0 image (sim.boot.boot_from_w0, 30 MB disk): boot
     to Ready, CREATE USER, SET RTP SYN-5.3, PLAY, then `skip` instructions."""
@@ -888,6 +931,12 @@ def main(argv=None):
     ap.add_argument("--vpk", action="store_true",
                     help="w0boot: the velocity keyboard instead of the ORK (with --poly: "
                          "w0_vpk_actions)")
+    ap.add_argument("--multi", type=int, choices=(8, 16),
+                    help="w0boot: a D32/D33 multichannel distributor with this many outputs "
+                         "(sim/devices/multi.py; with --poly --vpk: w0_multi_actions)")
+    ap.add_argument("--outputs", type=int, default=0,
+                    help="w0boot --audio / check: the output pair heard (M19 OSD Outputs: "
+                         "0 stereo mix, n outputs 2n-1, 2n)")
     a = ap.parse_args(argv)
     if a.mode == "check":
         kw = {}
@@ -895,7 +944,8 @@ def main(argv=None):
             k, _, v = item.partition("=")
             kw[k] = True if not v else (v if v == "max" else int(v))
         ok, text = check(a.args[0], top=a.top, wav=a.wav, realtime=a.realtime, state=a.state,
-                         w0=a.w0, w1=a.w1, cfg=hw_cfg(**kw), stm=a.dig_stm)
+                         w0=a.w0, w1=a.w1, cfg=hw_cfg(**kw), stm=a.dig_stm,
+                         outputs=a.outputs)
         print(text, end="")
         return 0 if ok else 1
     t = time.time()
@@ -925,7 +975,10 @@ def main(argv=None):
                               dig_stm=dig_stm,
                               fm_voices=a.fm_voices, w1=a.w1, mono=a.mono,
                               terminal="vt640" if a.vt640 else None, mouse=a.mouse,
-                              scsi_block_ns=a.disk_us * 1000, scsi_seek_ns=a.seek_us * 1000)
+                              scsi_block_ns=a.disk_us * 1000, scsi_seek_ns=a.seek_us * 1000,
+                              multi=a.multi)
+        if cpu.multi is not None:
+            cpu.multi.pair = a.outputs
         path = a.args[1]
         if a.commands:
             lines = [c.strip() + "\r" for c in a.commands.split(";")]
@@ -954,10 +1007,11 @@ def main(argv=None):
     if a.mode == "ork-lm-note":
         actions = ork_lm_note_actions(cpu, dbg, a.args[0])
     if a.mode == "w0boot" and a.poly and not a.dig_stm:
-        actions = (w0_midi_actions(cpu) if a.midi and a.vpk else
+        actions = (w0_multi_actions(cpu) if a.multi and a.vpk else
+                   w0_midi_actions(cpu) if a.midi and a.vpk else
                    w0_chord_actions(cpu) if a.vpk and a.fm_voices > 8 else
                    w0_vpk_actions(cpu) if a.vpk else w0_poly_actions(cpu))
-        if a.vpk and a.poly_bins > 1 and not a.midi and a.fm_voices == 8:
+        if a.vpk and a.poly_bins > 1 and not a.midi and not a.multi and a.fm_voices == 8:
             actions = w0_bin_actions(cpu) + actions        # CLARA3 into bin 1
     if a.mode == "w0boot" and a.dig_stm:
         actions += w0_stm_actions(cpu, stereo=cpu.dig_stm.source.channels == 2)

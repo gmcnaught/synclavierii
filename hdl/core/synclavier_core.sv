@@ -17,6 +17,10 @@
 //   dig_stm       the digital sample-to-memory input (M18): native routines
 //                 64-76 with an audio file on SD drive 5 (S5) as the source,
 //                 when D57 has bit 0x4000 (the state image's, or dig_stm_on).
+//   dev_multi     D32/D33 multichannel distributor when the state image has
+//                 D51 bit 0x0800 (M19): routing tags for dev_fm and dev_poly,
+//                 which mix the output pair `out_pair` (OSD) instead of the
+//                 stereo mix when it is not 0.
 // External memory (D60-D63: EXT_SECTORS sectors for a floppy boot, a
 // state image's own size otherwise, at most 4096) is a word port (xr_*):
 // DDR3 on MiSTer (hdl/board/ddram_word.sv), a model in simulation.
@@ -43,6 +47,7 @@ module synclavier_core #(
     input  logic        stall_view,      // status line: lag by stall cause instead of health
     input  logic [13:0] hw_cfg,          // OSD Hardware page (M16): card complement, taken at reset
     input  logic        dig_stm_on,      // OSD (M18): digital STM input (D57 bit 0x4000), taken at reset
+    input  logic [3:0]  out_pair,        // OSD Outputs (M19): 0 stereo mix, n distributor outputs 2n-1, 2n
 
     input  logic [5:0]  img_mounted,
     input  logic        img_readonly,
@@ -256,10 +261,18 @@ module synclavier_core #(
     logic        stm_rd, stm_own, stm_pwr;
     logic [15:0] stm_pdata;
 
+    // M19 distributor (dev_multi, below) <-> dev_fm (in able_system), dev_poly
+    wire         multi = term_bits[11];                                    // D51: D32 exists
+    logic        rt_we, rt_fm, rt_side, q_fm, q_side, fm_q_live, poly_q_live, fm_busy;
+    logic [6:0]  rt_voice, q_voice;
+    logic [4:0]  rt_tag;
+    wire  [3:0]  pair = multi ? out_pair : 4'd0;
     able_system #(.CLK_HZ(CLK_HZ)) sys (
         .clk, .rst(cpu_rst), .rt_enable, .lag_us, .stall_us,
         .rt_voices, .dbg_stall(1'b0), .voice_tick, .voice_tick_ns,
         .cpu_model, .cpu_d57(d57), .term_bits, .hw_cfg, .poly_units, .poly_bins, .poly_last, .term_vt640, .term_mouse, .scsi_block_ns, .scsi_seek_ns,
+        .out_pair(pair), .fm_rt_we(rt_we && rt_fm), .fm_rt_voice(rt_voice[4:0]), .fm_rt_side(rt_side),
+        .fm_rt_tag(rt_tag), .fm_q_voice(q_voice[4:0]), .fm_q_side(q_side), .fm_q_live, .fm_busy,
         .dev_rd, .dev_wr, .dev_num, .dev_wdata,
         .dev_rdata, .dev_ack, .dev_nosyn, .dev_hold(scsi_hold),           // SCSI disk time
         .dev_irq(12'(mouse_irq) << 6),                // PSW bit 10: D54 (mouse)
@@ -298,8 +311,8 @@ module synclavier_core #(
     //     writes accepted, reads 0 ([HYP] SYN-5.3 writes D155 without checking D51's poly bit;
     //     sim/devices/stubs.py PolyNoVoices)
     // Any other device: no SYN (the CPU halts, as the real machine hangs).
-    logic [15:0] dev_rdata, scsi_rdata, midi_rdata, mouse_rdata;
-    logic        dev_ack, dev_nosyn, scsi_ack, midi_ack, mouse_ack, mouse_irq;
+    logic [15:0] dev_rdata, scsi_rdata, midi_rdata, mouse_rdata, multi_rdata;
+    logic        dev_ack, dev_nosyn, scsi_ack, midi_ack, mouse_ack, mouse_irq, multi_ack;
     // D44/D45/D54 mouse (dev_mouse.sv) from the PS/2 mouse, when the state
     // image has one (SYN-5.3 configured for it)
     logic        ps_q, m_we;
@@ -334,6 +347,7 @@ module synclavier_core #(
                       (dev_num == 7'o044 || dev_num == 7'o045 || dev_num == 7'o054);
     wire  card     = term_bits[8];                                         // D51: D70 exists
     wire  sel_midi = (dev_rd || dev_wr) && dev_num[6:2] == 5'b01110 && card; // 070-073
+    wire  sel_multi = (dev_rd || dev_wr) && dev_num[6:1] == 6'b001101 && multi; // 032-033
     dev_scsi #(.TARGET(4'd5), .TARGET1(4'd4)) scsi (
         .clk, .rst(cpu_rst), .tick, .tick_ns, .block_ns(scsi_block_ns), .hold(scsi_hold),
         .seek_ns(scsi_seek_ns), .hint(scsi_hint), .hint_blk(scsi_hint_blk),
@@ -365,7 +379,19 @@ module synclavier_core #(
         .m_ack(p_ack),
         .s_addr(p_saddr), .s_rd(xs_rd), .s_ack(xs_ack), .s_rvalid(xs_rvalid), .s_rdata(xs_rdata),
         .mix_in_valid(pcm_valid), .mix_in_l(pcm_l), .mix_in_r(pcm_r),
-        .mix_out_valid(mix_valid), .mix_out_l(mix_l), .mix_out_r(mix_r)
+        .mix_out_valid(mix_valid), .mix_out_l(mix_l), .mix_out_r(mix_r),
+        .out_pair(pair), .rt_we(rt_we && !rt_fm), .rt_voice, .rt_side, .rt_tag,
+        .q_voice, .q_side, .q_live(poly_q_live)
+    );
+
+    // D32/D33 multichannel distributor (dev_multi.sv, M19); without it the
+    // OSD's output pair is ignored (the stereo mix)
+    dev_multi distributor (
+        .clk, .rst(cpu_rst), .sel(sel_multi), .rd(dev_rd), .wr(dev_wr), .reg_sel(dev_num[0]),
+        .wdata(dev_wdata), .rdata(multi_rdata), .ack(multi_ack), .fm_busy,
+        .ld_we(ld_dev_we && ld_dev_sel == 3'd3), .ld_addr(ld_dev_addr), .ld_data(ld_dev_data),
+        .rt_we, .rt_fm, .rt_voice, .rt_side, .rt_tag,
+        .q_fm, .q_voice, .q_side, .fm_live(fm_q_live), .poly_live(poly_q_live)
     );
 
     // Digital STM (M18): native routines 64-76 with the source on SD drive 5.
@@ -387,6 +413,7 @@ module synclavier_core #(
         else if (sel_poly) begin dev_rdata = poly_rdata; dev_ack = poly_ack && !stm_pwr; end
         else if (sel_midi) begin dev_rdata = midi_rdata; dev_ack = midi_ack; end
         else if (sel_mouse) begin dev_rdata = mouse_rdata; dev_ack = mouse_ack; end
+        else if (sel_multi) begin dev_rdata = multi_rdata; dev_ack = multi_ack; end
         else               dev_nosyn = dev_rd || dev_wr;
     end
 

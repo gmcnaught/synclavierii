@@ -307,13 +307,16 @@ def test_dev_scsi():
     _testbench("dev_scsi", "hdl/dev/dev_scsi.sv")
 
 
-def poly_stimulus(path, seed=1, ops=6000, bins=1, sectors=65536, last_voices=32, mono=False):
+def poly_stimulus(path, seed=1, ops=6000, bins=1, sectors=65536, last_voices=32, mono=False,
+                  multi=False):
     """Stimulus for hdl/sim/dev_poly_tb.sv from sim/devices/poly.py: POLY.CHECK-
     style init, poly memory writes/reads, voices (loops, stereo master,
     PSWL rewrites, restarts), envelopes and volume ramps, random time steps,
     register reads and mixes, each with the model's answer. With bins > 1
     each bin gets its own tables and voices (channel 64 x bin + c).
-    last_voices: voices in the last bin (M16); mono: mono voice cards."""
+    last_voices: voices in the last bin (M16); mono: mono voice cards.
+    multi: also a 16-output distributor (M19, sim/devices/multi.py): routing
+    tags, output pair changes and level detector questions."""
     import math
     import random
     from sim.devices.poly import PolySynth
@@ -321,6 +324,10 @@ def poly_stimulus(path, seed=1, ops=6000, bins=1, sectors=65536, last_voices=32,
     p = PolySynth(sectors=sectors, bins=bins, last_voices=last_voices, mono=mono)
     end = p.sectors * 256
     out = []
+    dist = None
+    if multi:
+        from sim.devices.multi import Distributor, poly_input
+        dist = p.multi = Distributor(16, poly=p)
 
     def t(ns):
         p.tick(ns)
@@ -414,6 +421,19 @@ def poly_stimulus(path, seed=1, ops=6000, bins=1, sectors=65536, last_voices=32,
             fc(ch, 10, rng.randrange(4))
         elif op < 0.19:
             fc(ch, rng.choice([8, 9]), rng.randrange(256))
+        elif dist is not None and op < 0.25:        # M19: routing, pair, detector
+            v, side = rng.randrange(min(96, 32 * bins)), rng.randrange(2)
+            m = poly_input(v, side)
+            k = rng.random()
+            if k < 0.5:
+                o, on = rng.randrange(18), rng.random() < 0.8
+                dist.route[m] = o if on and o < 16 else None
+                out.append("D %d %d %d" % (v, side, (16 | o & 15) if dist.route[m] is not None else o & 15))
+            elif k < 0.6:
+                dist.pair = rng.choice([0, 0, 1, 2, 3, 4, 5, 6, 7, 8])
+                out.append("P %d" % dist.pair)
+            else:
+                out.append("L %d %d %d" % (v, side, dist.live(m)))
         elif op < 0.45:                             # reads
             f = rng.choice([11, 11, 37, 36, 40, 41, 42, 43, 32, 34, 0, 3, 7, 8, 9, 10, 12, 50])
             w(1, ch); w(2, f); rd(3); rd(2)
@@ -438,14 +458,18 @@ def test_dev_poly():
     try:
         # a 3200 (1 bin, 32 MB); a 6400 (2 bins); 4 bins (the most SYN-5.3 looks for);
         # M16: a part-filled last bin (4, 8, 20 voices), mono voice cards
-        for bins, units, last, mono in ((1, 256, 32, False), (2, 128, 32, False),
-                                        (4, 64, 32, False), (1, 32, 4, True),
-                                        (3, 64, 8, False), (2, 96, 20, True)):
-            poly_stimulus(path, bins=bins, sectors=units * 256, last_voices=last, mono=mono)
+        # M19: with a distributor (routing, output pairs, level detector)
+        for bins, units, last, mono, multi in ((1, 256, 32, False, False), (2, 128, 32, False, False),
+                                               (4, 64, 32, False, False), (1, 32, 4, True, False),
+                                               (3, 64, 8, False, False), (2, 96, 20, True, False),
+                                               (3, 64, 32, False, True), (1, 64, 12, True, True)):
+            poly_stimulus(path, bins=bins, sectors=units * 256, last_voices=last, mono=mono,
+                          multi=multi)
             out = _testbench("dev_poly", "hdl/dev/dev_poly.sv",
                              args=["+stim=" + path, "+bins=%d" % bins, "+units=%d" % units,
                                    "+last=%d" % last, "+mono=%d" % mono])
-            print("  %d bin(s), last %d%s: %s" % (bins, last, ", mono" if mono else "",
+            print("  %d bin(s), last %d%s%s: %s" % (bins, last, ", mono" if mono else "",
+                  ", distributor" if multi else "",
                   [ln for ln in out.splitlines() if "dev_poly OK" in ln][0]))
     finally:
         os.unlink(path)

@@ -33,6 +33,17 @@ module able_system #(
     input  logic        rt_voices,         // 1: voices on real time (voice_clock.sv), not the CPU's ticks
     input  logic        dbg_stall,         // simulation: hold the CPU before its next fetch
     output logic        voice_tick,        // voice time (dev_fm here, dev_poly outside)
+    // M19 multichannel distributor (dev_multi.sv, outside): routing tags and
+    // the level detector's question for the FM voices; the output pair heard
+    input  logic [3:0]  out_pair,          // 0 the stereo mix, n outputs 2n-1, 2n
+    input  logic        fm_rt_we,
+    input  logic [4:0]  fm_rt_voice,
+    input  logic        fm_rt_side,
+    input  logic [4:0]  fm_rt_tag,
+    input  logic [4:0]  fm_q_voice,
+    input  logic        fm_q_side,
+    output logic        fm_q_live,
+    output logic        fm_busy,
     output logic [9:0]  voice_tick_ns,
     output logic [31:0] lag_us,            // real time given up by the throttle
     output logic [23:0] stall_us [7],      // lag_us by what the CPU waited on (STALL_* below)
@@ -357,6 +368,8 @@ module able_system #(
         .tick(voice_tick), .tick_ns(voice_tick_ns), .stall(fm_stall),
         .audio_valid, .audio_l, .audio_r,
         .nvoices_ovr({cfg_q[13:11], 3'd0}),
+        .busy_o(fm_busy), .out_pair, .rt_we(fm_rt_we), .rt_voice(fm_rt_voice), .rt_side(fm_rt_side),
+        .rt_tag(fm_rt_tag), .q_voice(fm_q_voice), .q_side(fm_q_side), .q_live(fm_q_live),
         .ld_we(ld_dev_we && (ld_dev_sel == 3'd5 || ld_dev_sel == 3'd6)),
         .ld_wave(ld_dev_sel == 3'd6), .ld_addr(ld_dev_addr), .ld_data(ld_dev_data),
         .ld_voice_we, .ld_voice_addr, .ld_voice_data

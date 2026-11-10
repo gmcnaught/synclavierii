@@ -45,6 +45,15 @@
 // engine has work (no simulated time passes); the CPU itself waits
 // (`stall`) only if a sample instant arrives while the last is still being
 // done.
+//
+// Multichannel distributor (M19, dev_multi.sv, sim/devices/multi.py): each
+// voice side has a routing tag {connected, output} (rt_*, small RAMs read
+// in the mix); with an output pair selected (out_pair = n, outputs 2n - 2
+// and 2n - 1, 0-based) a voice side is summed into the pair's left or
+// right where its tag says, instead of the stereo mix. For the
+// distributor's level detector (q_*: q_live) four bits per voice follow the
+// CPU's writes: volume and envelope limit non-zero, pan not all right
+// (252), not all left (0).
 (* multstyle = "logic" *)       // small multiplies: keep the DSP blocks for sys/
 module dev_fm #(
     parameter int MAXV = 32
@@ -69,6 +78,15 @@ module dev_fm #(
     output logic signed [39:0] audio_r,
 
     input  logic [5:0]  nvoices_ovr,  // OSD Hardware page (M16): voices present, 0 = the state image's
+    output logic        busy_o,       // a sample instant or catch-up is being done (dev_multi waits)
+    input  logic [3:0]  out_pair,     // M19: 0 the stereo mix, n distributor outputs 2n-2, 2n-1
+    input  logic        rt_we,        // M19: voice rt_voice's side rt_side switched to rt_tag
+    input  logic [4:0]  rt_voice,
+    input  logic        rt_side,
+    input  logic [4:0]  rt_tag,       //   {connected, output[3:0]}
+    input  logic [4:0]  q_voice,      // M19 level detector: does this voice side sound?
+    input  logic        q_side,
+    output logic        q_live,
     input  logic        ld_we,        // state load (simulation, state images), sim/lockstep.py:
     input  logic        ld_wave,      //   device 5 (ld_wave = 0) or 6 (wave memory byte)
     input  logic [12:0] ld_addr,
@@ -194,6 +212,7 @@ module dev_fm #(
 
     wire   busy = clearing || running || pend_s || settle != 2'd0;
     assign stall = running && pend_s;
+    assign busy_o = busy;
 
     // ------------------------------------------------------------ CPU side
     wire pitch_fn = function_ == 16'o0 || function_ == 16'o1 || function_ == 16'o2;
@@ -327,6 +346,28 @@ module dev_fm #(
     wire signed [39:0] h_add_r = 40'(h_s) * $signed({32'd0, h_pan});
     wire signed [39:0] h_add_l = 40'(h_s) * $signed(40'd256 - {32'd0, h_pan});
 
+    // ------------------------------------------- multichannel routing (M19)
+    // tags read at F (q at G); the pair's four routes {rr, rl, lr, ll} at G
+    logic [VB-1:0] e_va, f_va;
+    logic [4:0]    tag_q [2];
+    genvar gs;
+    generate for (gs = 0; gs < 2; gs++) begin : g_tag
+        fm_ram #(.W(5), .A(VB)) t (.clk, .we(clearing || (rt_we && rt_side == 1'(gs))),
+                                   .wa(clearing ? clr_a[VB-1:0] : VB'(rt_voice)),
+                                   .wd(clearing ? 5'd0 : rt_tag), .ra(f_va), .q(tag_q[gs]));
+    end endgenerate
+    wire [3:0] pa = {3'(out_pair - 4'd1), 1'b0}, pb = {3'(out_pair - 4'd1), 1'b1};
+    wire [3:0] g_rb = out_pair == 4'd0 ? 4'b1001 :
+                      {tag_q[1] == {1'b1, pb}, tag_q[1] == {1'b1, pa},
+                       tag_q[0] == {1'b1, pb}, tag_q[0] == {1'b1, pa}};
+    logic [3:0] p_rb, h_rb;
+    logic signed [39:0] i_l, i_r;
+    logic       vi_ok;
+    // detector bits per voice
+    logic [MAXV-1:0] vol_nz, lim_nz, pan_l, pan_r;
+    assign q_live = {1'b0, q_voice} < nvoices && vol_nz[q_voice[VB-1:0]] && lim_nz[q_voice[VB-1:0]]
+                    && (q_side ? pan_r[q_voice[VB-1:0]] : pan_l[q_voice[VB-1:0]]);
+
     // --------------------------------------------------- RAM write ports
     wire ld_ch  = rst && ld_we && !ld_wave && ld_addr >= 13'd32;
     wire [5:0] ld_c = 6'((ld_addr - 13'd32) >> 4);
@@ -430,7 +471,7 @@ module dev_fm #(
             running <= 1'b0; pend_s <= 1'b0; icount <= '0;
             settle <= '0; caught <= 1'b0; g <= '0;
             vb_ok <= 1'b0; lok <= '0; ve_ok <= 1'b0;
-            vf_ok <= 1'b0; vg_ok <= 1'b0; vp_ok <= 1'b0; vh_ok <= 1'b0;
+            vf_ok <= 1'b0; vg_ok <= 1'b0; vp_ok <= 1'b0; vh_ok <= 1'b0; vi_ok <= 1'b0;
             if (ld_we && ld_wave) wave[ld_addr] <= ld_data[7:0];
             else if (ld_we && ld_addr < 13'd32) case (ld_addr[4:0])
                 5'd0: channel_word <= ld_data[15:0];
@@ -445,6 +486,16 @@ module dev_fm #(
                 default: if (ld_addr[4:3] == 2'd1) adc[ld_addr[2:0]] <= ld_data[15:0];
             endcase
             if (nvoices_ovr != 6'd0) nvoices <= nvoices_ovr;   // OSD (M16): its value when reset ends
+            if (!rst_d) begin
+                vol_nz <= '0; lim_nz <= '0; pan_l <= '1; pan_r <= '0;
+            end else if (ld_ch && {1'b0, ld_c} < 7'(2 * MAXV)) begin
+                if (ld_k == 4'd2 && ld_c[0]) lim_nz[ld_c[VB:1]] <= ld_data[7:0] != 8'd0;
+                if (ld_k == 4'd8 && ld_c[0]) vol_nz[ld_c[VB:1]] <= ld_data[7:0] != 8'd0;
+                if (ld_k == 4'd8 && !ld_c[0]) begin
+                    pan_l[ld_c[VB:1]] <= ld_data[7:2] != 6'o77;
+                    pan_r[ld_c[VB:1]] <= ld_data[7:2] != 6'o00;
+                end
+            end
             if (ld_voice_we && ld_voice_addr == 6'd32) rr <= ld_voice_data[39:0];
             if (ld_voice_we && ld_voice_addr == 6'd33) {phase, to_next} <= ld_voice_data[15:0];
         end else begin
@@ -461,6 +512,12 @@ module dev_fm #(
                 endcase
             end else if (settle != 2'd0 && !running) settle <= settle - 2'd1;
             if (ack) caught <= 1'b0;
+            if (cpu_w && function_ == 16'o13 && cb) vol_nz[ca] <= wdata[7:0] != 8'd0;
+            if (cpu_w && function_ == 16'o12 && cb) lim_nz[ca] <= wdata[7:0] != 8'd0;
+            if (cpu_w && function_ == 16'o13 && !cb) begin
+                pan_l[ca] <= wdata[7:2] != 6'o77;
+                pan_r[ca] <= wdata[7:2] != 6'o00;
+            end
 
             // ---- passes
             vb_ok <= 1'b0;
@@ -478,7 +535,8 @@ module dev_fm #(
                     issue_v <= issue_v + 1'b1;
                     vb_ok <= 1'b1;
                     vb_a <= issue_v[VB-1:0];
-                end else if (!vb_ok && lok == '0 && !ve_ok && !vf_ok && !vg_ok && !vp_ok && !vh_ok) begin
+                end else if (!vb_ok && lok == '0 && !ve_ok && !vf_ok && !vg_ok && !vp_ok && !vh_ok
+                             && !vi_ok) begin
                     running <= 1'b0;
                     settle <= 2'd2;
                     if (mode == M_CATCH) caught <= 1'b1;
@@ -575,12 +633,13 @@ module dev_fm #(
             ve_ok <= vd_ok && mix;
             e_pm <= dn_pt[0]; e_pk <= dn_pt[1];
             e_vm <= d_vm; e_vk <= d_vk; e_f13m <= d_f13m; e_f13k <= d_f13k; e_timk <= d_timk;
+            e_va <= vd_a;
 
             // ---- E -> F: modulator sine
             vf_ok <= ve_ok;
             f_sine <= sine_rom(e_pm);
             f_pk <= e_pk; f_vm <= e_vm; f_vk <= e_vk; f_f13m <= e_f13m; f_f13k <= e_f13k;
-            f_timk <= e_timk;
+            f_timk <= e_timk; f_va <= e_va;
 
             // ---- F -> G: wave read (wave_addr from F)
             vg_ok <= vf_ok;
@@ -588,14 +647,18 @@ module dev_fm #(
 
             // ---- G -> P -> H: sample
             vp_ok <= vg_ok;
-            p_p <= g_p; p_vol <= g_vol; p_pan <= g_pan;
+            p_p <= g_p; p_vol <= g_vol; p_pan <= g_pan; p_rb <= g_rb;
             vh_ok <= vp_ok;
-            h_s <= p_s; h_pan <= p_pan;
+            h_s <= p_s; h_pan <= p_pan; h_rb <= p_rb;
 
-            // ---- H: accumulate
-            if (vh_ok) begin
-                sum_l <= sum_l + h_add_l;
-                sum_r <= sum_r + h_add_r;
+            // ---- H: each side to the output's left/right (the stereo mix:
+            // left to left, right to right); I: accumulate
+            vi_ok <= vh_ok;
+            i_l <= (h_rb[0] ? h_add_l : 40'sd0) + (h_rb[2] ? h_add_r : 40'sd0);
+            i_r <= (h_rb[1] ? h_add_l : 40'sd0) + (h_rb[3] ? h_add_r : 40'sd0);
+            if (vi_ok) begin
+                sum_l <= sum_l + i_l;
+                sum_r <= sum_r + i_r;
             end
         end
         wave_q <= wave[wave_addr];

@@ -11,6 +11,7 @@ module board_top (
     input  logic        rst,
     input  logic        rt_enable,
     input  logic [13:0] hw_cfg,          // OSD Hardware page (LOCKSTEP_HWCFG)
+    input  logic [3:0]  out_pair,        // OSD Outputs, M19 (LOCKSTEP_OUTPUTS)
 
     input  logic [10:0] ps2_key,
     input  logic [24:0] ps2_mouse,
@@ -126,7 +127,7 @@ module board_top (
 
     // one clock in simulation: the video runs at clk / 2
     synclavier_core core (
-        .clk, .rst_hard, .rst, .rt_enable, .rt_voices(rt_enable), .clk_vid(clk), .ps2_key, .ps2_mouse, .color(2'd0), .panel_over(1'b0), .stall_view(1'b0), .hw_cfg, .dig_stm_on(1'b0),
+        .clk, .rst_hard, .rst, .rt_enable, .rt_voices(rt_enable), .clk_vid(clk), .ps2_key, .ps2_mouse, .color(2'd0), .panel_over(1'b0), .stall_view(1'b0), .hw_cfg, .dig_stm_on(1'b0), .out_pair,
         .img_mounted, .img_readonly, .img_size, .sd_lba0, .sd_lba1, .sd_lba2, .sd_lba3, .sd_lba4, .sd_lba5, .sd_rd, .sd_wr, .sd_blk_cnt3, .sd_blk_cnt4, .sd_blk_cnt5, .sd_ack,
         .sd_buff_addr, .sd_buff_dout, .sd_buff_din, .sd_buff_wr,
         .xr_addr, .xr_rd, .xr_wr, .xr_wide, .xr_wdata, .xr_rdata, .xr_ack,

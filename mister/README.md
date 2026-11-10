@@ -159,6 +159,18 @@ sets), `--poly-bins N`; the name says which, e.g. `W0-53-V72-MONO.SST`,
 `W0-53-FM8-P224.SST`. The poly memory is cleared after reset in DDR3
 bursts (estimated 0.6 s for 224 MB; not yet measured).
 
+**Multichannel outputs (D32/D33 distributor).** `tools/w0_image.py
+--multi 16` (or `--multi 8`) writes a state image with the multichannel
+distributor (`W0-53-MC16.SST`; `docs/devices/d32-multichannel.md`). At
+start-up SYN-5.3 shows "Analyzing Multi-Channel Connections..." and then
+offers 16 (or 8) outputs for track routing (hold TRACK ROUTING and TRACK
+VOLUME and press a track button: that output and the next; or the routing
+screen). The MiSTer has two outputs: the OSD item **Outputs
+(multichannel)** plays the instrument's stereo mix (default; routing does
+not change it) or one output pair, 1-2 … 13-14, as if headphones were
+plugged into those two jacks. It takes effect at once; without the
+distributor it does nothing.
+
 **A second SCSI disk (W1:).** `tools/w0_image.py --w1` keeps W1 (SCSI
 target 4) in MONITOR's device table (`W0-53-W1.SST`); mount the second
 disk image as S4 (`<file delay="2" type="s" index="4" path="W1.IMG"/>`

@@ -175,6 +175,9 @@ class PolySynth(Device):
         self.samples = [] if sample_rate else None
         self.sample_k = 0
         self.writes = 0
+        #: M19: a devices.multi.Distributor; with its `pair` set the mix is
+        #: that output pair (devices.multi.route_pair)
+        self.multi = None
 
     # ------------------------------------------------------------ registers
     def _bin(self):
@@ -348,6 +351,8 @@ class PolySynth(Device):
 
     def _mix(self):
         left = right = 0
+        multi = self.multi
+        pair = multi.pair if multi is not None else 0
         for i in range(len(self.voice)):
             v = self.voice[i]
             b = i // self.nvoices
@@ -359,9 +364,16 @@ class PolySynth(Device):
             if s == 0 or v.eval == 0:
                 continue
             e = s * v.eval
+            if pair:
+                from .multi import route_pair
+                tags = multi.poly_tags(32 * b + i % self.nvoices)
+                sl, sr = route_pair(e * v.lcur >> 24, e * v.rcur >> 24, tags, pair, self.mono)
+                left += sl
+                right += sr
+                continue
             left += e * v.lcur >> 24
             right += e * v.rcur >> 24
-        if self.mono:
+        if self.mono and not pair:
             return right, right
         return left, right
 

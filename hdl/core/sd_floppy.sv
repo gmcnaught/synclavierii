@@ -22,7 +22,10 @@
 // for a background read to finish); the write of a block's last word (255)
 // writes that block back at once. Waiting costs no simulated time
 // (dev_floppy holds floppy accesses while it copies; dev_scsi waits for
-// its ack).
+// its ack). `hint` (dev_scsi, at a READ) asks for the line holding
+// (hint_drive, hint_blk) in place of any background read not yet started,
+// so it arrives during the READ's seek time; `probe_hit` says (a clock
+// late) whether the line holding (probe_drive, probe_blk) is buffered.
 module sd_floppy (
     input  logic        clk,
     input  logic        rst,
@@ -58,7 +61,13 @@ module sd_floppy (
     input  logic [13:0] sd_buff_addr,
     input  logic [7:0]  sd_buff_dout,
     output logic [7:0]  sd_buff_din,
-    input  logic        sd_buff_wr
+    input  logic        sd_buff_wr,
+    input  logic        hint,
+    input  logic [2:0]  hint_drive,
+    input  logic [15:0] hint_blk,
+    input  logic [2:0]  probe_drive,
+    input  logic [15:0] probe_blk,
+    output logic        probe_hit
 );
     localparam logic [2:0] S_IDLE = 3'd0, S_RD = 3'd1, S_RDING = 3'd2, S_WR = 3'd3, S_WRING = 3'd4;
     logic [2:0]  state;                 // the SD side
@@ -85,6 +94,14 @@ module sd_floppy (
     wire        hit1  = v[1] && drv[1] == drive && base[1] == lbase;
     wire        hit   = hit0 || hit1;
     wire        hb    = hit1;           // the hit buffer
+    wire [15:0] hbase = {hint_blk[15:5], 5'd0};
+    wire        h_have = (v[0] && drv[0] == hint_drive && base[0] == hbase) ||
+                         (v[1] && drv[1] == hint_drive && base[1] == hbase) ||
+                         ((state == S_RD || state == S_RDING) && drv[fb] == hint_drive && base[fb] == hbase);
+    wire [15:0] pbase = {probe_blk[15:5], 5'd0};
+    always_ff @(posedge clk)
+        probe_hit <= (v[0] && drv[0] == probe_drive && base[0] == pbase) ||
+                     (v[1] && drv[1] == probe_drive && base[1] == pbase);
     wire        req   = (rd || wr) && !ack;
     wire        sd_rding = state == S_RD || state == S_RDING;
     wire        sd_wbing = state == S_WR || state == S_WRING;
@@ -242,6 +259,11 @@ module sd_floppy (
                 end
             default: state <= S_IDLE;
             endcase
+            // a READ's first line, ahead of any background read not started
+            // (after the SD side, which may have just taken pf)
+            if (hint && hint_drive >= 3'd3 && !h_have) begin
+                pf <= 1'b1; pf_drive <= hint_drive; pf_base <= hbase;
+            end
         end
     end
 endmodule

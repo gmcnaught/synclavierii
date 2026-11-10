@@ -20,6 +20,15 @@
 // (i + 1) x block_ns of simulated time after the command; until the block
 // under the read position has arrived REQ is low on D25 and a D26/D27 read
 // is held (`hold`: the CPU retries while time runs). block_ns = 0: at once.
+// Seek time (seek_ns, with disk time; sim/devices/scsi.py): a READ that
+// does not start where the last READ or WRITE ended, or goes to the other
+// disk, first costs seek_ns. Each READ asks sd_floppy for its first line
+// (`hint`), which the SD card delivers during the seek. Paced to real time
+// (`line_wait`, the throttle on: the MiSTer), a block whose line is not yet
+// buffered (`line_ok`, sd_floppy's probe of `probe_blk`) is also not ready,
+// so the CPU polls with time running instead of waiting for the SD card
+// with time stopped. Unpaced (simulation, lockstep) the access waits for
+// its ack at no simulated time, so the run does not depend on SD latency.
 // Two disks: TARGET (W0, sd_floppy drive 3) and TARGET1 (W1, drive 4),
 // each answering selection only while its image is mounted; `d_unit` says
 // which one the word port is for. A disk is 512-byte blocks of 256
@@ -34,6 +43,12 @@ module dev_scsi #(
     input  logic        tick,
     input  logic [9:0]  tick_ns,
     input  logic [19:0] block_ns,     // disk time per block (0: none)
+    input  logic [25:0] seek_ns,      // seek time of a non-sequential READ (0: none)
+    output logic        hint,         // a READ starts: fetch the line of hint_blk
+    output logic [15:0] hint_blk,
+    output logic [15:0] probe_blk,    // the block under the read position
+    input  logic        line_ok,      // its line is buffered (a clock late)
+    input  logic        line_wait,    // hold for line_ok (paced to real time)
     output logic        hold,
     input  logic        sel,
     input  logic        rd,
@@ -174,7 +189,14 @@ module dev_scsi #(
     // disk time
     logic        timed;
     logic [39:0] elapsed, due;
-    wire ready = !timed || phase != P_DATA_IN || elapsed >= due;
+    wire ready = !timed || phase != P_DATA_IN || (elapsed >= due && (!line_wait || line_ok));
+    assign probe_blk = want_blk[15:0];
+
+    // where the last READ or WRITE ended
+    logic        head_ok, head_t;
+    logic [31:0] head_lba;
+    wire ex_read = ex_op == 8'h08 || ex_op == 8'h28;
+    wire ex_seek = ex_read && block_ns != 20'd0 && !(head_ok && head_t == tsel && head_lba == ex_lba);
     // only before an access starts (its own bytes move pos on while it runs)
     assign hold = sel && rd && reg_sel[1] && phase == P_DATA_IN && !ready && q == Q_IDLE && !ack;
 
@@ -187,6 +209,7 @@ module dev_scsi #(
 
     always_ff @(posedge clk) begin
         ack <= 1'b0;
+        hint <= 1'b0;
         if (tick && timed && elapsed < 40'hFF_FFFF_FFFF - 40'd1024) elapsed <= elapsed + 40'(tick_ns);
         if (rst) begin
             timed <= 1'b0;
@@ -196,6 +219,7 @@ module dev_scsi #(
             select_bits <= '0; data_out <= '0; sig_out <= '0; acked <= 1'b0;
             cdb_n <= '0; status <= '0; sense_key <= '0; last_sense <= '0;
             cw_ok <= 1'b0; len <= '0; pos <= '0; out_disk <= 1'b0; tsel <= 1'b0;
+            head_ok <= 1'b0; head_t <= 1'b0; head_lba <= '0;
         end else case (q)
         Q_IDLE: if (start) begin
             case (reg_sel)
@@ -331,6 +355,9 @@ module dev_scsi #(
                     status <= 8'h02; sense_key <= 8'h07;
                 end else if (ex_n != 17'd0) begin
                     lba <= ex_lba[16:0];
+                    head_ok <= 1'b1; head_t <= tsel; head_lba <= ex_lba + {15'd0, ex_n};
+                    if (ex_seek) due <= 40'(block_ns) + 40'(seek_ns);
+                    if (ex_read) begin hint <= 1'b1; hint_blk <= ex_lba[15:0]; end
                     len <= {ex_n[15:0], 9'd0};
                     src <= G_DISK;
                     out_disk <= 1'b1;

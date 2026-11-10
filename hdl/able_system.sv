@@ -24,6 +24,7 @@ module able_system #(
     output logic        term_vt640,        // VT640 graphics terminal (state load: device 3 index 9)
     output logic        term_mouse,        // D44/D45/D54 mouse (state load: device 3 index 10)
     output logic [19:0] scsi_block_ns,     // SCSI disk time per block (state load: device 3 index 11)
+    output logic [25:0] scsi_seek_ns,      // SCSI seek time (state load: device 3 index 12)
     input  logic        rt_enable,         // 1: hold the CPU to real time (throttle.sv)
     output logic [31:0] lag_us,            // real time given up by the throttle
     output logic [23:0] stall_us [7],      // lag_us by what the CPU waited on (STALL_* below)
@@ -253,6 +254,9 @@ module able_system #(
         if (rst && !rst_d) scsi_block_ns <= '0;
         else if (rst && ld_dev_we && ld_dev_sel == 3'd3 && ld_dev_addr == 13'd11)
             scsi_block_ns <= ld_dev_data[19:0];
+        if (rst && !rst_d) scsi_seek_ns <= '0;
+        else if (rst && ld_dev_we && ld_dev_sel == 3'd3 && ld_dev_addr == 13'd12)
+            scsi_seek_ns <= ld_dev_data[25:0];
         if (rst && !rst_d) term_mouse <= 1'b0;
         else if (rst && ld_dev_we && ld_dev_sel == 3'd3 && ld_dev_addr == 13'd10)
             term_mouse <= ld_dev_data[0];

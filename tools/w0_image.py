@@ -37,6 +37,11 @@ image (Synclavier3's "W0 Disk Image.simg", not redistributable):
                      about 1 MB/s like a disk of the time; 0: instant). Reads
                      take simulated time, so the machine keeps running (and
                      playing) while a sound file loads, as on the instrument.
+  --seek-us N        SCSI seek time (default 25000): a READ that does not
+                     continue the last READ or WRITE first costs N us, a
+                     drive's access time. The core reads the line from the
+                     SD card meanwhile, so the CPU polls with time running
+                     instead of stopping while the SD card answers.
   --vt640            SYN-5.3 configured for a VT640 graphics terminal and a
                      D44 mouse (MONITOR configuration words 18 = 021400 and
                      17 | 0100; Synclavier3's W0 says Macintosh): the core
@@ -95,6 +100,7 @@ def main(argv=None):
                     metavar="{32,64,...,224}", help="poly memory in MB")
     ap.add_argument("--w1", action="store_true", help="W1: at SCSI target 4 (S4)")
     ap.add_argument("--disk-us", type=int, default=500, help="SCSI disk time per block (us)")
+    ap.add_argument("--seek-us", type=int, default=25000, help="SCSI seek time (us; with --disk-us)")
     ap.add_argument("--vt640", action="store_true", help="VT640 graphics terminal")
     ap.add_argument("--ork", action="store_true",
                     help="state image with the original keyboard instead of the velocity keyboard")
@@ -122,7 +128,7 @@ def main(argv=None):
     cpu, _ = boot_from_w0(w0, poly=poly, keyboard="ork" if a.ork else "vpk", midi=midi,
                           fm_voices=a.fm_voices, devices=3 if a.w1 else 2,
                           terminal="vt640" if a.vt640 else None, mouse=a.vt640,
-                          scsi_block_ns=a.disk_us * 1000)
+                          scsi_block_ns=a.disk_us * 1000, scsi_seek_ns=a.seek_us * 1000)
     name = ("W0-53" + ("-MIDI" if a.midi else "") + ("-FM%d" % a.fm_voices if a.fm_voices != 8 else "")
             + ("-P%d" % a.poly_mb if a.poly_mb != 32 else "") + ("-W1" if a.w1 else "") + ("-VT640" if a.vt640 else ""))
     sst = os.path.join(a.outdir, name + ".SST")

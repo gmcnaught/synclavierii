@@ -216,6 +216,15 @@ Everything follows [`instruction-set.md`](instruction-set.md). In short:
   is consistent with the minimum. The model counts a held read in 333 ns
   steps (the real bus waits continuously); interrupts are taken only
   between instructions in both.
+* **Disk time and seek time** (`scsi_block_ns`, `scsi_seek_ns`; state image
+  device 3 indices 11 and 12; `tools/w0_image.py --disk-us 500 --seek-us
+  25000`): a READ's block i arrives (i + 1) × block_ns after the command,
+  plus seek_ns first when the READ does not start where the target's last
+  READ or WRITE ended. SYN-5.3's driver polls D25 for REQ meanwhile, with
+  interrupts running, as NED's `SCSICODE` does on the instrument. In the
+  core the seek is when the SD card delivers the READ's first 16 KB line
+  (`dev_scsi` asks `sd_floppy` for it at the command), so a load no
+  longer stops simulated time while the SD card answers.
 * **Speed:** about 1.6 million instructions per second on a current PC, so
   roughly real time for the original machine (risk R4).
 

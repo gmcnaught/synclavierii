@@ -191,10 +191,14 @@ def _device_header(cpu):
     if getattr(term, "vt640", False):                       # VT640 graphics terminal
         out += struct.pack("<cBHI", b"V", 3, 9, 1)
     sc = getattr(cpu, "scsi", None)
+    if sc is not None:
+        sc.head = None          # dev_scsi.sv starts with no head position (no load port)
     if sc is not None and sc.block_ns:                      # SCSI disk time per block
         if sc.timed or sc.phase != 0:
             raise ValueError("SCSI host mid-command (dev_scsi.sv has no load port)")
         out += struct.pack("<cBHI", b"V", 3, 11, sc.block_ns)
+        if sc.seek_ns:                                      # SCSI seek time
+            out += struct.pack("<cBHI", b"V", 3, 12, sc.seek_ns)
     m = getattr(cpu, "mouse", None)
     if m is not None:                                       # D44/D45/D54 mouse
         if m.dx or m.dy or m.out or m.ready or m.enables or m.buttons:
@@ -763,6 +767,9 @@ def main(argv=None):
                     help="w0boot: configure a VT640 graphics terminal (MONITOR word 18)")
     ap.add_argument("--disk-us", type=int, default=0,
                     help="w0boot: SCSI disk time, microseconds per block read (0: instant)")
+    ap.add_argument("--seek-us", type=int, default=0,
+                    help="w0boot: with --disk-us, SCSI seek time of a READ that does not "
+                         "continue the last one (us)")
     ap.add_argument("--mouse", action="store_true",
                     help="w0boot: a D44/D45/D54 mouse (sim/devices/mouse.py; MONITOR word 17)")
     ap.add_argument("--commands", help="w0boot: MONITOR commands typed at each wait for "
@@ -798,7 +805,7 @@ def main(argv=None):
         cpu, _ = boot_from_w0(a.args[0], poly=poly, keyboard="vpk" if a.vpk else "ork", midi=midi,
                               fm_voices=a.fm_voices, w1=a.w1,
                               terminal="vt640" if a.vt640 else None, mouse=a.mouse,
-                              scsi_block_ns=a.disk_us * 1000)
+                              scsi_block_ns=a.disk_us * 1000, scsi_seek_ns=a.seek_us * 1000)
         path = a.args[1]
         if a.commands:
             lines = [c.strip() + "\r" for c in a.commands.split(";")]

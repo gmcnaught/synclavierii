@@ -101,13 +101,13 @@ uint16_t reg(int i) { return (top->regs_flat[i / 2] >> ((i & 1) * 16)) & 0xFFFF;
 // HPS side of hps_io's SD block interface: one 512-byte block per request.
 uint32_t lba_of(Top* top, int d) {
     return d == 0 ? top->sd_lba0 : d == 1 ? top->sd_lba1 : d == 2 ? top->sd_lba2
-         : d == 3 ? top->sd_lba3 : d == 4 ? top->sd_lba4 : top->sd_lba5;
+         : d == 3 ? top->sd_lba3 : d == 4 ? top->sd_lba4 : d == 5 ? top->sd_lba5 : top->sd_lba6;
 }
 
 struct SdModel {
-    std::vector<uint8_t> img[6];                 // F0, F1, state image, W0, W1 (SCSI), STM source
-    bool present[6] = {false, false, false, false, false, false},
-         prot[6] = {false, false, true, false, false, true};
+    std::vector<uint8_t> img[7];                 // F0, F1, state image, W0, W1 (SCSI), STM source, printer capture
+    bool present[7] = {false, false, false, false, false, false, false},
+         prot[7] = {false, false, true, false, false, true, false};
     int drive = -1, phase = 0, wait = 0, i = 0, nbytes = 512;
     bool writing = false;
     uint64_t reads = 0, writes = 0;
@@ -116,7 +116,7 @@ struct SdModel {
         if (wait > 0) { wait--; return; }
         switch (phase) {
         case 0:                                    // idle: pick a request
-            for (int d = 0; d < 6; d++)
+            for (int d = 0; d < 7; d++)
                 if ((top->sd_rd | top->sd_wr) >> d & 1) {
                     drive = d; writing = top->sd_wr >> d & 1;
                     phase = 1; wait = 40; return;
@@ -141,7 +141,7 @@ struct SdModel {
         case 5: {
             uint32_t lba = lba_of(top, drive);
             size_t off = (size_t)lba * 512 + i;
-            if (off < img[drive].size()) img[drive][off] = top->sd_buff_din;
+            if (off < img[drive].size()) img[drive][off] = drive == 6 ? top->sd_buff_din6 : top->sd_buff_din;
             if (++i == 512) { phase = 4; writes++; } else phase = 3;
             return; }
         case 4:
@@ -198,6 +198,8 @@ void models() {
     if (top->rst_hard) return;                     // HPS and DDR3 idle in reset
     sd.step(top); ddr.step(top);
 }
+
+const char* print_path = nullptr;              // LOCKSTEP_PRINT
 
 void board_tick() {
     top->clk = 0; top->eval();
@@ -300,8 +302,23 @@ void board_start(Trace& t, bool& audio_trace) {
         std::fclose(f);
         sd.present[5] = true;
     }
+    // LOCKSTEP_PRINT=path: the printer's capture file in S6 (read now if it
+    // exists, else a blank 1 MB one), written back at the end
+    print_path = std::getenv("LOCKSTEP_PRINT");
+    if (print_path) {
+        if (FILE* f = std::fopen(print_path, "rb")) {
+            for (int ch; (ch = std::fgetc(f)) != EOF;) sd.img[6].push_back((uint8_t)ch);
+            std::fclose(f);
+        }
+        if (sd.img[6].empty()) {
+            sd.img[6].assign(1 << 20, 0);
+            std::memcpy(sd.img[6].data(), "SYNCPRNT\0\1", 10);
+        }
+        sd.present[6] = true;
+    }
+    top->printer_osd = std::getenv("LOCKSTEP_PRINTER_OSD") != nullptr;
     top->rst_hard = 0;
-    for (int d = 0; d < 6; d++) if (sd.present[d]) {    // the HPS mounts the images
+    for (int d = 0; d < 7; d++) if (sd.present[d]) {    // the HPS mounts the images
         top->img_mounted = 1 << d; top->img_size = sd.img[d].size(); top->img_readonly = sd.prot[d];
         board_tick();
         top->img_mounted = 0;
@@ -853,6 +870,16 @@ int main(int argc, char** argv) {
             std::fputc(v & 0xFF, f); std::fputc(v >> 8, f);
         }
         std::fclose(f);
+    }
+    if (print_path) {           // let the capture reach the file (idle flush), then save it
+        uint64_t k = 0;
+        while (top->prn_busy && k++ < 100'000'000) board_tick();
+        for (int i = 0; i < 64; i++) board_tick();
+        FILE* f = std::fopen(print_path, "wb");
+        if (!f) { std::perror(print_path); std::exit(2); }
+        std::fwrite(sd.img[6].data(), 1, sd.img[6].size(), f);
+        std::fclose(f);
+        std::printf("printer: %u bytes captured in S6 -> %s\n", top->prn_count, print_path);
     }
 #endif
     std::printf("lockstep OK: %llu instructions, %llu cycles, %llu ns simulated",

@@ -50,6 +50,7 @@ localparam CONF_STR = {
 	"S3,IMG,SCSI disk W0;",
 	"S4,IMG,SCSI disk W1;",
 	"S5,STM,Digital STM source;",
+	"S6,PRN,Printer capture;",
 	"-;",
 	"O[2:1],Text color,Green,Amber,White;",
 	"O[122:121],Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
@@ -66,10 +67,12 @@ localparam CONF_STR = {
 	"P1O[20:18],FM voices,From image,8,16,24,32;",
 	"P1O[21],Digital STM input (S5),From image,On;",
 	"P1O[27],SMPTE reader (MTC in),From image,On;",
+	"P1O[29],Printer (D40),From image,On;",
 	"O[34:31],Outputs (multichannel),Stereo mix,1-2,3-4,5-6,7-8,9-10,11-12,13-14,15-16;",
 	"-;",
 	"T[0],Reset;",
 	"R[0],Reset and close OSD;",
+	"I,Printout saved in S6,Printer: no file in S6 (lost),Printer: S6 file is full;",
 	"v,0;",
 	"V,v",`BUILD_DATE
 };
@@ -79,17 +82,19 @@ wire [127:0] status;
 wire  [10:0] ps2_key;
 wire  [24:0] ps2_mouse;
 
-wire  [5:0] img_mounted;
+wire  [6:0] img_mounted;
 wire        img_readonly;
 wire [63:0] img_size;
-wire [31:0] sd_lba0, sd_lba1, sd_lba2, sd_lba3, sd_lba4, sd_lba5;
-wire  [5:0] sd_rd, sd_wr, sd_ack;
+wire [31:0] sd_lba0, sd_lba1, sd_lba2, sd_lba3, sd_lba4, sd_lba5, sd_lba6;
+wire  [6:0] sd_rd, sd_wr, sd_ack;
 wire [13:0] sd_buff_addr;
 wire  [5:0] sd_blk_cnt3, sd_blk_cnt4, sd_blk_cnt5;
-wire  [7:0] sd_buff_dout, sd_buff_din;
+wire  [7:0] sd_buff_dout, sd_buff_din, sd_buff_din6;
 wire        sd_buff_wr;
+wire  [1:0] prn_note;
+wire        prn_note_valid;
 
-hps_io #(.CONF_STR(CONF_STR), .VDNUM(6)) hps_io
+hps_io #(.CONF_STR(CONF_STR), .VDNUM(7)) hps_io
 (
 	.clk_sys(clk_sys),
 	.HPS_BUS(HPS_BUS),
@@ -106,15 +111,18 @@ hps_io #(.CONF_STR(CONF_STR), .VDNUM(6)) hps_io
 	.img_mounted(img_mounted),
 	.img_readonly(img_readonly),
 	.img_size(img_size),
-	.sd_lba('{sd_lba0, sd_lba1, sd_lba2, sd_lba3, sd_lba4, sd_lba5}),
-	.sd_blk_cnt('{6'd0, 6'd0, 6'd0, sd_blk_cnt3, sd_blk_cnt4, sd_blk_cnt5}),   // SCSI disks, STM source: 32-block reads
+	.sd_lba('{sd_lba0, sd_lba1, sd_lba2, sd_lba3, sd_lba4, sd_lba5, sd_lba6}),
+	.sd_blk_cnt('{6'd0, 6'd0, 6'd0, sd_blk_cnt3, sd_blk_cnt4, sd_blk_cnt5, 6'd0}),   // SCSI disks, STM source: 32-block reads
 	.sd_rd(sd_rd),
 	.sd_wr(sd_wr),
 	.sd_ack(sd_ack),
 	.sd_buff_addr(sd_buff_addr),
 	.sd_buff_dout(sd_buff_dout),
-	.sd_buff_din('{sd_buff_din, sd_buff_din, sd_buff_din, sd_buff_din, sd_buff_din, sd_buff_din}),
-	.sd_buff_wr(sd_buff_wr)
+	.sd_buff_din('{sd_buff_din, sd_buff_din, sd_buff_din, sd_buff_din, sd_buff_din, sd_buff_din, sd_buff_din6}),
+	.sd_buff_wr(sd_buff_wr),
+
+	.info_req(prn_note_valid),       // print capture: saved / lost / full (CONF_STR "I," 1-3)
+	.info({6'd0, prn_note})
 );
 
 ///////////////////////   CLOCKS   ///////////////////////////////
@@ -167,6 +175,8 @@ synclavier_core #(.CLK_HZ(50_000_000), .VID_CE_DIV(1)) core
 	.dig_stm_on(status[21]),
 	.smpte_osd(status[27]),
 	.out_pair(status[34:31]),
+	.printer_osd(status[29]),
+	.readback_en(1'b1),
 
 	.img_mounted(img_mounted),
 	.img_readonly(img_readonly),
@@ -177,6 +187,7 @@ synclavier_core #(.CLK_HZ(50_000_000), .VID_CE_DIV(1)) core
 	.sd_lba3(sd_lba3),
 	.sd_lba4(sd_lba4),
 	.sd_lba5(sd_lba5),
+	.sd_lba6(sd_lba6),
 	.sd_rd(sd_rd),
 	.sd_wr(sd_wr),
 	.sd_blk_cnt3(sd_blk_cnt3),
@@ -186,6 +197,11 @@ synclavier_core #(.CLK_HZ(50_000_000), .VID_CE_DIV(1)) core
 	.sd_buff_addr(sd_buff_addr),
 	.sd_buff_dout(sd_buff_dout),
 	.sd_buff_din(sd_buff_din),
+	.sd_buff_din6(sd_buff_din6),
+	.prn_note(prn_note),
+	.prn_note_valid(prn_note_valid),
+	.prn_count(),
+	.prn_busy(),
 	.sd_buff_wr(sd_buff_wr),
 
 	.xr_addr(xr_addr),

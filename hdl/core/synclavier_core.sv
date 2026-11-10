@@ -23,7 +23,11 @@
 //   dev_multi     D32/D33 multichannel distributor when the state image has
 //                 D51 bit 0x0800 (M19): routing tags for dev_fm and dev_poly,
 //                 which mix the output pair `out_pair` (OSD) instead of the
-//                 stereo mix when it is not 0.
+//                 stereo mix when it is not 0;
+//   dev_printer   D40/D41 printer port when the state image (device 3
+//                 index 18) or the OSD (printer_osd) has one (M21), its
+//                 bytes appended to a capture file on SD drive 6 by
+//                 print_capture.
 // External memory (D60-D63: EXT_SECTORS sectors for a floppy boot, a
 // state image's own size otherwise, at most 4096) is a word port (xr_*):
 // DDR3 on MiSTer (hdl/board/ddram_word.sv), a model in simulation.
@@ -52,8 +56,11 @@ module synclavier_core #(
     input  logic        dig_stm_on,      // OSD (M18): digital STM input (D57 bit 0x4000), taken at reset
     input  logic        smpte_osd,       // OSD: SMPTE reader on (M20), taken at reset; or the state image's
     input  logic [3:0]  out_pair,        // OSD Outputs (M19): 0 stereo mix, n distributor outputs 2n-1, 2n
+    input  logic        printer_osd,     // OSD Hardware page (M21): a printer on D40, taken at reset
+    input  logic        readback_en,     // VT640 read-back replies (0: the board bench, whose
+                                         // traces carry Python's as terminal input)
 
-    input  logic [5:0]  img_mounted,
+    input  logic [6:0]  img_mounted,
     input  logic        img_readonly,
     input  logic [63:0] img_size,
     output logic [31:0] sd_lba0,
@@ -62,16 +69,22 @@ module synclavier_core #(
     output logic [31:0] sd_lba3,
     output logic [31:0] sd_lba4,
     output logic [31:0] sd_lba5,
-    output logic [5:0]  sd_rd,
-    output logic [5:0]  sd_wr,
+    output logic [31:0] sd_lba6,         // drive 6: the printer's capture file (print_capture)
+    output logic [6:0]  sd_rd,
+    output logic [6:0]  sd_wr,
     output logic [5:0]  sd_blk_cnt3,     // drives 3, 4 (SCSI disks), 5 (STM source): blocks - 1 per request
     output logic [5:0]  sd_blk_cnt4,
     output logic [5:0]  sd_blk_cnt5,
-    input  logic [5:0]  sd_ack,
+    input  logic [6:0]  sd_ack,
     input  logic [13:0] sd_buff_addr,
     input  logic [7:0]  sd_buff_dout,
-    output logic [7:0]  sd_buff_din,
+    output logic [7:0]  sd_buff_din,     // drives 0-4
+    output logic [7:0]  sd_buff_din6,    // drive 6
     input  logic        sd_buff_wr,
+    output logic [1:0]  prn_note,        // print_capture: 1 saved, 2 bytes lost, 3 file full
+    output logic        prn_note_valid,
+    output logic [31:0] prn_count,       //   bytes in the capture file
+    output logic        prn_busy,        //   bytes not yet written to it
 
     output logic [26:0] xr_addr,         // words; poly memory from 0x1000000 (up to 224 MB)
     output logic        xr_rd,
@@ -171,6 +184,10 @@ module synclavier_core #(
     logic        scsi_hint, scsi_line_ok;            // dev_scsi <-> sd_floppy (seek time)
     logic [15:0] scsi_hint_blk, scsi_probe_blk;
     logic        scsi_unit;
+    logic [5:0]  media_rd, media_wr;
+    logic        prn_rd, prn_wr;
+    assign sd_rd = {prn_rd, media_rd};
+    assign sd_wr = {prn_wr, media_wr};
     sd_floppy media (
         .clk, .rst(rst_hard),
         .addr(m_addr), .rd(m_rd), .wr(m_wr), .wdata(m_wdata), .rdata(m_rdata), .ack(m_ack),
@@ -178,8 +195,8 @@ module synclavier_core #(
         .blocks2(state_blocks), .protect3(w0_protect), .blocks3(w0_blocks),
         .protect4(w1_protect), .blocks4(w1_blocks), .blocks5(stm_blocks),
         .active(led_disk),
-        .img_mounted, .img_readonly, .img_size, .sd_lba0, .sd_lba1, .sd_lba2, .sd_lba3, .sd_lba4,
-        .sd_lba5, .sd_rd, .sd_wr, .sd_blk_cnt3, .sd_blk_cnt4, .sd_blk_cnt5, .sd_ack,
+        .img_mounted(img_mounted[5:0]), .img_readonly, .img_size, .sd_lba0, .sd_lba1, .sd_lba2, .sd_lba3, .sd_lba4,
+        .sd_lba5, .sd_rd(media_rd), .sd_wr(media_wr), .sd_blk_cnt3, .sd_blk_cnt4, .sd_blk_cnt5, .sd_ack(sd_ack[5:0]),
         .sd_buff_addr, .sd_buff_dout, .sd_buff_din, .sd_buff_wr,
         .hint(scsi_hint), .hint_drive(scsi_unit ? 3'd4 : 3'd3), .hint_blk(scsi_hint_blk),
         .probe_drive(scsi_unit ? 3'd4 : 3'd3), .probe_blk(scsi_probe_blk), .probe_hit(scsi_line_ok)
@@ -207,7 +224,7 @@ module synclavier_core #(
     boot_loader boot (
         .clk, .rst, .f0_present(fd_present[0]), .state_present(sd_present[2]),
         .floppy_ext_sectors(EXT_SECTORS), .ext_sectors, .cpu_model, .cpu_d57, .term_bits,
-        .mono(hw_cfg[6]), .pvoice(poly_mono),
+        .mono(hw_cfg[6]), .pvoice(poly_mono), .printer(printer_osd),
         .cpu_rst, .error(boot_error),
         .ld_dev_we, .ld_dev_sel, .ld_dev_addr, .ld_dev_data,
         .ld_voice_we, .ld_voice_addr, .ld_voice_data,
@@ -281,7 +298,7 @@ module synclavier_core #(
         .fm_rt_tag(rt_tag), .fm_q_voice(q_voice[4:0]), .fm_q_side(q_side), .fm_q_live, .fm_busy,
         .dev_rd, .dev_wr, .dev_num, .dev_wdata,
         .dev_rdata, .dev_ack, .dev_nosyn, .dev_hold(scsi_hold),           // SCSI disk time
-        .dev_irq(12'(mouse_irq) << 6),                // PSW bit 10: D54 (mouse)
+        .dev_irq(12'(mouse_irq || prn_irq) << 6),     // PSW bit 10: D54 (mouse, printer)
         .ext_sectors,
         .xm_addr(s_xm_addr), .xm_rd(s_xm_rd), .xm_wr(s_xm_wr), .xm_wdata(s_xm_wdata),
         .xm_rdata(xr_rdata), .xm_ack(s_xm_ack),
@@ -299,8 +316,8 @@ module synclavier_core #(
         .audio_valid, .audio_l(audio_sum_l), .audio_r(audio_sum_r),
         .pcm_valid, .pcm_l, .pcm_r,
         .ld_voice_we, .ld_voice_addr, .ld_voice_data,
-        .term_rx_valid(kb_rx_valid || sim_rx_valid),
-        .term_rx_data(sim_rx_valid ? sim_rx_data : kb_rx_data),
+        .term_rx_valid(kb_rx_valid || sim_rx_valid || rb_valid),
+        .term_rx_data(sim_rx_valid ? sim_rx_data : rb_valid ? rb_data : kb_rx_data),
         .term_tx_valid, .term_tx_data,
         .halt_req(1'b0), .halted, .halt_reason,
         .ld_mem_we, .ld_mem_addr, .ld_mem_data, .dbg_we, .dbg_addr, .dbg_wdata,
@@ -317,8 +334,8 @@ module synclavier_core #(
     //     writes accepted, reads 0 ([HYP] SYN-5.3 writes D155 without checking D51's poly bit;
     //     sim/devices/stubs.py PolyNoVoices)
     // Any other device: no SYN (the CPU halts, as the real machine hangs).
-    logic [15:0] dev_rdata, scsi_rdata, midi_rdata, mouse_rdata, multi_rdata;
-    logic        dev_ack, dev_nosyn, scsi_ack, midi_ack, mouse_ack, mouse_irq, multi_ack;
+    logic [15:0] dev_rdata, scsi_rdata, midi_rdata, mouse_rdata, multi_rdata, prn_rdata;
+    logic        dev_ack, dev_nosyn, scsi_ack, midi_ack, mouse_ack, mouse_irq, multi_ack, prn_ack, prn_irq;
     // D44/D45/D54 mouse (dev_mouse.sv) from the PS/2 mouse, when the state
     // image has one (SYN-5.3 configured for it)
     logic        ps_q, m_we;
@@ -344,6 +361,33 @@ module synclavier_core #(
         .wdata(dev_wdata), .rdata(mouse_rdata), .ack(mouse_ack), .irq(mouse_irq),
         .host_we(m_we && term_mouse), .host_dx(m_dx), .host_dy(m_dy), .host_buttons(m_btn)
     );
+    // D40/D41 printer port (dev_printer.sv) and its capture file on SD
+    // drive 6 (print_capture.sv); D54 is shared with the mouse: each keeps
+    // its own interrupt enable, reads OR their pending bits
+    logic        prn_state, prn_cfg, cpu_rst_q;
+    always_ff @(posedge clk) begin
+        cpu_rst_q <= cpu_rst;
+        if (cpu_rst && !cpu_rst_q) begin prn_state <= 1'b0; prn_cfg <= printer_osd; end
+        else if (cpu_rst && ld_dev_we && ld_dev_sel == 3'd3 && ld_dev_addr == 13'd18)
+            prn_state <= ld_dev_data[0];
+    end
+    wire  prn_on = prn_state || prn_cfg;
+    logic        prn_tx_valid;
+    logic [7:0]  prn_tx_data;
+    dev_printer printer_port (
+        .clk, .rst(cpu_rst), .tick, .tick_ns,
+        .sel(sel_prn), .rd(dev_rd), .wr(dev_wr),
+        .reg_sel(dev_num == 7'o040 ? 2'd0 : dev_num == 7'o041 ? 2'd1 : 2'd2),
+        .wdata(dev_wdata), .rdata(prn_rdata), .ack(prn_ack), .irq(prn_irq),
+        .tx_valid(prn_tx_valid), .tx_data(prn_tx_data)
+    );
+    print_capture #(.IDLE_CLKS(CLK_HZ / 4)) capture (
+        .clk, .rst(rst_hard), .in_valid(prn_tx_valid), .in_data(prn_tx_data),
+        .img_mounted(img_mounted[6]), .img_readonly, .img_size,
+        .sd_lba(sd_lba6), .sd_rd(prn_rd), .sd_wr(prn_wr), .sd_ack(sd_ack[6]),
+        .sd_buff_addr, .sd_buff_dout, .sd_buff_din(sd_buff_din6), .sd_buff_wr,
+        .count(prn_count), .busy(prn_busy), .note(prn_note), .note_valid(prn_note_valid)
+    );
     logic [23:0] scsi_addr;
     logic        scsi_rd, scsi_wr;
     logic [15:0] scsi_wdata;
@@ -351,6 +395,8 @@ module synclavier_core #(
     wire  sel_poly = (dev_rd || dev_wr) && dev_num[6:2] == 5'b11011;        // 154-157
     wire  sel_mouse = (dev_rd || dev_wr) && term_mouse &&
                       (dev_num == 7'o044 || dev_num == 7'o045 || dev_num == 7'o054);
+    wire  sel_prn   = (dev_rd || dev_wr) && prn_on &&
+                      (dev_num == 7'o040 || dev_num == 7'o041 || dev_num == 7'o054);
     wire  card     = term_bits[8];                                         // D51: D70 exists
     wire  sel_midi = (dev_rd || dev_wr) && dev_num[6:2] == 5'b01110 && card; // 070-073
     wire  sel_multi = (dev_rd || dev_wr) && dev_num[6:1] == 6'b001101 && multi; // 032-033
@@ -418,7 +464,10 @@ module synclavier_core #(
         if (sel_scsi)      begin dev_rdata = scsi_rdata; dev_ack = scsi_ack; end
         else if (sel_poly) begin dev_rdata = poly_rdata; dev_ack = poly_ack && !stm_pwr; end
         else if (sel_midi) begin dev_rdata = midi_rdata | smpte_rdata; dev_ack = midi_ack; end
-        else if (sel_mouse) begin dev_rdata = mouse_rdata; dev_ack = mouse_ack; end
+        else if (sel_mouse || sel_prn) begin
+            dev_rdata = (sel_mouse ? mouse_rdata : 16'd0) | (sel_prn ? prn_rdata : 16'd0);
+            dev_ack = (sel_mouse && mouse_ack) || (sel_prn && prn_ack);
+        end
         else if (sel_multi) begin dev_rdata = multi_rdata; dev_ack = multi_ack; end
         else               dev_nosyn = dev_rd || dev_wr;
     end
@@ -609,6 +658,8 @@ module synclavier_core #(
 
     // ------------------------------------------------------ terminal, video
     logic keypad_app;
+    logic        rb_valid;               // VT640 read-back reply bytes (tek_plane)
+    logic [7:0]  rb_data;
     ps2_ascii keys (.clk, .rst, .ps2_key, .keypad_app, .valid(kb_rx_valid), .ascii(kb_rx_data));
 
     term_display #(.CE_DIV(VID_CE_DIV)) display (
@@ -617,6 +668,7 @@ module synclavier_core #(
         .in_data(cpu_rst ? msg_data : term_tx_data),
         .color, .lights(kb_lights), .display(kb_display),
         .vpk(kb_vpk), .vpk_lights, .vpk_chars, .vt640(term_vt640), .panel_over,
+        .tick, .tick_ns, .rb_en(readback_en), .rb_valid, .rb_data,
         .ptr_on, .ptr_x, .ptr_y, .lag_us, .underruns, .overruns, .stall_view, .stall_us,
         .midi_count, .midi_last, .midi_errs, .midi_alt,
         .ce_pix, .r(vga_r), .g(vga_g), .b(vga_b), .hs(vga_hs), .vs(vga_vs),

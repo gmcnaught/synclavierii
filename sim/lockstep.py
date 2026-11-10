@@ -26,7 +26,7 @@ Trace format v2 (little-endian):
           disk time, ns per block; 12 SCSI seek ns; 13 poly bins, when
           more than 1; 14 voices in the last poly bin, when not 32; 16
           D32/D33 multichannel distributor outputs (8/16), when there is
-          one, M19), 4 D100
+          one, M19; 18 D40/D41 printer port, M21), 4 D100
           (fields as hdl/dev/dev_floppy.sv's state load), 5 D160 (as
           dev_fm.sv; 16 FM voices present), 6 wave memory byte (index = memory x 256 + point),
           7 D130 (as dev_keyboard.sv; index 30 = velocity keyboard
@@ -222,6 +222,11 @@ def _device_header(cpu):
         if m.dx or m.dy or m.out or m.ready or m.enables or m.buttons:
             raise ValueError("mouse state is not the power-on state (dev_mouse.sv has no load port)")
         out += struct.pack("<cBHI", b"V", 3, 10, 1)
+    p = getattr(cpu, "printer", None)
+    if p is not None:                                       # D40/D41 printer port
+        if p.tx_busy > 0 or p.xmit_irq or p.enables or p.baud is not None:
+            raise ValueError("printer state is not the power-on state (dev_printer.sv has no load port)")
+        out += struct.pack("<cBHI", b"V", 3, 18, 1)
     if isinstance(getattr(cpu, "poly", None), PolySynth):   # poly memory size, 128 KB units
         out += struct.pack("<cBHI", b"V", 3, 8, cpu.poly.sectors // 256)
         if cpu.poly.nbins != 1:                             # poly bins (a 6400: 2)
@@ -543,6 +548,7 @@ SYSTEM_RTL = ["hdl/able_cpu.sv", "hdl/code_cache.sv", "hdl/dev/dev_rtc.sv", "hdl
               "hdl/dev/dev_fm.sv",
               "hdl/dev/pcm_out.sv", "hdl/throttle.sv", "hdl/voice_clock.sv", "hdl/able_system.sv"]
 CORE_RTL = ["hdl/core/sd_floppy.sv", "hdl/dev/dev_scsi.sv", "hdl/dev/dev_poly.sv", "hdl/dev/dev_midi.sv", "hdl/dev/dev_smpte.sv", "hdl/dev/dev_mouse.sv", "hdl/dev/dev_multi.sv",
+            "hdl/dev/dev_printer.sv", "hdl/core/print_capture.sv",
             "hdl/core/boot_loader.sv", "hdl/core/term_display.sv", "hdl/core/tek_plane.sv",
             "hdl/core/ps2_ascii.sv", "hdl/core/midi_in.sv", "hdl/core/midi_vpk.sv", "hdl/core/midi_card_feed.sv",
             "hdl/core/panel_mouse.sv", "hdl/core/audio_fifo.sv", "hdl/core/dig_stm.sv",
@@ -608,7 +614,7 @@ def hw_cfg(voices=None, mono=False, mb=None, fm=None):
 
 def check(path, max_instructions=None, top="cpu", wav=None, realtime=False, frame=None,
           state=None, w0=None, w1=None, rt_voices=False, stall=None, cfg=0, stm=None,
-          poly_dump=None, outputs=0):
+          poly_dump=None, outputs=0, printer_osd=False, print_file=None):
     """Run a trace on the HDL. Returns (ok, output text). wav: write the
     system's 48 kHz PCM output (pcm_out.sv) to this WAV file. realtime:
     run the system with the throttle on (50 MHz); behaviour must not change
@@ -622,7 +628,11 @@ def check(path, max_instructions=None, top="cpu", wav=None, realtime=False, fram
     stm (board): a digital STM source (tools/stm_source.py) in S5 (M18).
     poly_dump (board): write poly memory (bin 0, up to 16 MB, little-endian
     words) to this file at the end. outputs (board): the OSD Outputs item (M19): 0 the stereo mix, n the
-    distributor's output pair 2n - 1, 2n."""
+    distributor's output pair 2n - 1, 2n.
+    printer_osd (board): the OSD's printer item on (M21). print_file (board):
+    the capture file for SD slot S6 (started blank, written at the end); if
+    the trace has a TRACE.prn (w0boot --printer: what Python printed), the
+    captured bytes must equal it."""
     cmd = [build(top), path] + ([str(max_instructions)] if max_instructions else [])
     env = dict(os.environ)
     if frame:
@@ -649,8 +659,26 @@ def check(path, max_instructions=None, top="cpu", wav=None, realtime=False, fram
         env["LOCKSTEP_HWCFG"] = str(cfg)
     if outputs:
         env["LOCKSTEP_OUTPUTS"] = str(outputs)
+    if printer_osd:
+        env["LOCKSTEP_PRINTER_OSD"] = "1"
+    if print_file:
+        if os.path.exists(print_file):
+            os.remove(print_file)
+        env["LOCKSTEP_PRINT"] = print_file
     p = subprocess.run(cmd, capture_output=True, text=True, env=env)
-    return p.returncode == 0, p.stdout + p.stderr
+    ok, text = p.returncode == 0, p.stdout + p.stderr
+    if ok and print_file and os.path.exists(path + ".prn"):
+        from tools.print_render import read_capture
+        want = open(path + ".prn", "rb").read()
+        got = read_capture(open(print_file, "rb").read())
+        if got == want:
+            text += "printer: capture = Python's %d bytes\n" % len(want)
+        else:
+            k = next((i for i, (a, b) in enumerate(zip(got, want)) if a != b), min(len(got), len(want)))
+            ok = False
+            text += "printer: capture differs from Python's at byte %d (%d bytes, Python %d)\n" % (
+                k, len(got), len(want))
+    return ok, text
 
 
 def expected_wav(trace_path, wav_path):
@@ -954,7 +982,13 @@ def main(argv=None):
     ap.add_argument("--mono", action="store_true",
                     help="w0boot: mono poly voice cards (o#pvoice, a 3200's)")
     ap.add_argument("--osd", default="",
-                    help="check --top board: OSD Hardware page, e.g. 'voices=72,mono,mb=8,fm=32'")
+                    help="check --top board: OSD Hardware page, e.g. 'voices=72,mono,mb=8,fm=32' "
+                         "('printer': the printer item on)")
+    ap.add_argument("--printer", nargs="?", const="prism", default=None,
+                    help="w0boot: a D40/D41 printer (sim/devices/printer.py; MONITOR words 17, 19; "
+                         "default type prism); TRACE.prn gets what it printed")
+    ap.add_argument("--print", dest="print_file",
+                    help="check --top board: printer capture file for S6 (compared with TRACE.prn)")
     ap.add_argument("--type", help="w0boot: terminal input typed at 11 s (e.g. F: SYN-5.3's "
                                    "graphic timbre display)")
     ap.add_argument("--vt640", action="store_true",
@@ -992,9 +1026,10 @@ def main(argv=None):
         for item in filter(None, a.osd.split(",")):
             k, _, v = item.partition("=")
             kw[k] = True if not v else (v if v == "max" else int(v))
+        posd = bool(kw.pop("printer", False))
         ok, text = check(a.args[0], top=a.top, wav=a.wav, realtime=a.realtime, state=a.state,
                          w0=a.w0, w1=a.w1, cfg=hw_cfg(**kw), stm=a.dig_stm,
-                         outputs=a.outputs)
+                         outputs=a.outputs, printer_osd=posd, print_file=a.print_file)
         print(text, end="")
         return 0 if ok else 1
     t = time.time()
@@ -1025,6 +1060,7 @@ def main(argv=None):
                               dig_stm=dig_stm,
                               fm_voices=a.fm_voices, w1=a.w1, mono=a.mono,
                               terminal="vt640" if a.vt640 else None, mouse=a.mouse,
+                              printer=a.printer,
                               scsi_block_ns=a.disk_us * 1000, scsi_seek_ns=a.seek_us * 1000,
                               multi=a.multi)
         if cpu.multi is not None:
@@ -1077,6 +1113,9 @@ def main(argv=None):
     if a.mode == "w0boot" and a.dig_stm:
         print("digital STM calls: %s" % ", ".join("%d x%d" % kv for kv in sorted(cpu.dig_stm.calls.items())),
               file=sys.stderr)
+    if a.mode == "w0boot" and a.printer:
+        open(path + ".prn", "wb").write(cpu.printer.out)
+        print("printed %d bytes -> %s.prn" % (len(cpu.printer.out), path), file=sys.stderr)
     print("recorded %d instructions in %.1f s -> %s%s" % (
         n, time.time() - t, path, " (halted: %s)" % (cpu.halted,) if cpu.halted else ""),
         file=sys.stderr)

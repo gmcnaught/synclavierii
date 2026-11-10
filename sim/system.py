@@ -9,7 +9,7 @@ from .devices.terminal import D24_EXISTS, D32_EXISTS, D57_EXISTS, D60_EXISTS, D7
 
 def make_system(ext_sectors=1024, baud=9600, rtc_hz=200, output=None, floppy=False,
                 synth=False, strict=True, scsi=None, model="B", poly=None, keyboard="ork", midi=None, fm_voices=8, mouse=None,
-                scsi_block_ns=0, scsi_seek_ns=0, multi=None):
+                scsi_block_ns=0, scsi_seek_ns=0, multi=None, printer=None):
     """Return a CPU with D3, D4567, D50/D51 and (if ext_sectors) D60-D63.
 
     The devices are reachable as cpu.rtc, cpu.muldiv, cpu.terminal and
@@ -27,6 +27,8 @@ def make_system(ext_sectors=1024, baud=9600, rtc_hz=200, output=None, floppy=Fal
     midi: a devices.midi.MidiSubsystem for D70-D73 (cpu.midi; D51 bit 8 set).
     fm_voices: FM voices installed (8 on a Synclavier II; up to 32 on a 9600).
     mouse: a devices.mouse.Mouse on D44/D45/D54 (cpu.mouse).
+    printer: a devices.printer.Printer on D40/D41/D54 (cpu.printer); with a
+    mouse too, D54 is shared (devices.printer.D54).
     scsi_block_ns: SCSI disk time, simulated ns per block read (0: instant).
     scsi_seek_ns: with disk time, simulated ns of a READ that does not continue
     the last one (sim/devices/scsi.py).
@@ -51,7 +53,17 @@ def make_system(ext_sectors=1024, baud=9600, rtc_hz=200, output=None, floppy=Fal
     cpu.cv = bus.attach(ControlVoltages()) if synth else None
     cpu.poly = bus.attach(poly) if poly is not None else None
     cpu.midi = bus.attach(midi) if midi is not None else None
-    cpu.mouse = bus.attach(mouse) if mouse is not None else None
+    if mouse is not None and printer is not None:
+        from .devices.printer import D54
+        bus.attach(mouse, (0o44, 0o45))
+        bus.attach(printer, (0o40, 0o41))
+        bus.attach(D54(printer, mouse))
+    elif mouse is not None:
+        bus.attach(mouse)
+    elif printer is not None:
+        bus.attach(printer)
+    cpu.mouse = mouse
+    cpu.printer = printer
     cpu.multi = None
     if multi:
         from .devices.multi import Distributor

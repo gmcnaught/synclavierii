@@ -251,6 +251,33 @@ board's frame of SYN-5.3's graphic timbre display equals it pixel for
 pixel. The mouse is D44/D45/D54 (`hdl/dev/dev_mouse.sv`, PSW bit 10) fed by
 the MiSTer PS/2 mouse.
 
+`tek_plane` also answers the VT640 read-back `ESC " 0 ; y ; n c` (M21,
+SYN-5.3's screen hardcopy; [`devices/d40-printer.md`](devices/d40-printer.md)
+§4): it reads the line's words through its drawing port, codes n 5-pixel
+groups as `tools/vt100.py readback_reply` into a 512-byte buffer (about 6
+clocks a group) and, 2 ms of simulated time later, sends them into the
+terminal's input (`dev_terminal`'s FIFO is 512 deep for it). The board
+bench turns this off (`readback_en`), since its traces carry Python's
+replies as input; `term_display_tb.sv +rbout` checks the replies.
+
+## Printer (`hdl/dev/dev_printer.sv`, `hdl/core/print_capture.sv`, M21)
+
+D40/D41 and D54 bit 0 as `sim/devices/printer.py`
+([`devices/d40-printer.md`](devices/d40-printer.md)): a byte written to
+D40 goes out at once; the transmitter is busy 10 µs (or a character time
+at a baud rate written to D41), then raises the transmit interrupt (PSW
+bit 10 when D54 bit 0 is set; D54 is shared with the mouse, each keeping
+its enable bit, reads ORed). On when the state image says so (device 3
+index 18, `tools/w0_image.py --printer`) or the OSD's "Printer (D40)" is
+On at reset (the boot loader then also sets `o#d40` and word 19 in the
+staged MONITOR). `print_capture` appends the bytes to the capture file in
+SD slot 6 (hps_io `VDNUM` 7; S5 is not used by this core yet): header
+block 0, data from block 1, one 512-byte half of a 1 KB buffer written as
+it fills, the rest and the header 0.25 s after the last byte; it reads an
+existing capture file's header at mount and appends. OSD notes (hps_io
+`info`): saved, lost (no file), full. One M10K for the capture buffer, one
+for the read-back buffer.
+
 ## MiSTer core (`hdl/core/`, `hdl/board/`, `mister/`)
 
 Framework: **Template_MiSTer** (decision D4). JTFRAME was considered and

@@ -163,11 +163,50 @@ def set_terminal(program, terminal, mouse=False):
     return program
 
 
+READBACK_NS = 2_000_000     # VT640 read-back: the reply starts this long after the command
+
+
+def attach_screen(cpu):
+    """Put a VT640 (tools/vt100.py Terminal(vt640=True), cpu.screen) on the
+    terminal's output, so its graphics plane can be read back: the reply to
+    ESC " 0;y;n c arrives READBACK_NS later [CHOICE: after the command's
+    last character has gone out; SYN-5.3 discards input that arrives before
+    its tty_wait returns, D40SOU read_screen]."""
+    from tools.vt100 import Terminal as Screen
+    term = cpu.terminal
+    screen = Screen(vt640=True, reply=lambda d: term.feed_later(READBACK_NS, d))
+    out = term.output
+
+    def output(b):
+        out(b)
+        screen.byte(b & 0x7F)
+    term.output = output
+    cpu.screen = screen
+    return screen
+
+
 O_PVOICE = 0o200            # options: mono (3200) poly voice cards (-XPL/SYSLITS)
+O_D40 = 0o20                # options: D40 (printer) is in system (-XPL/SYSLITS o#d40)
+C_STYPE = 19                # configuration table: printer information (type << 8 | nulls)
+PRINTER_TYPES = {"decIII": 9, "la34": 10, "printronix": 11, "prism": 12, "diablo": 13}
+
+
+def set_printer(program, ptype="prism"):
+    """Copy of an XPL program configured with a printer on D40 (as
+    CONFIGUR's printer field would set it, UTILCAT/CONFIGUR:383-410): the
+    options word gets o#d40 and configuration word 19 the printer type
+    (PRINTER_TYPES, SYSLITS p#...) shifted left 8, no nulls. SYN-5.3 tests
+    only o#d40; its screen hardcopy is for an IDS Paper Tiger/Prism
+    (-XPL/PLOTLIB #hardcopy), hence the default."""
+    program = list(program)
+    c = config_pointer(program)
+    program[c + C_CMOPT] |= O_D40
+    program[c + C_STYPE] = PRINTER_TYPES[ptype] << 8
+    return program
 
 
 def boot_from_w0(image, ext_sectors=8192, target=5, devices=2, disk_mb=None, poly=None,
-                 w1=None, terminal=None, mouse=False, mono=False, dig_stm=None, **system_kw):
+                 w1=None, terminal=None, mouse=False, mono=False, dig_stm=None, printer=None, **system_kw):
     """Return (cpu, layout) ready to boot MONITOR from a Release 5.3-style W0:
     image (a hard-disk .simg, e.g. Synclavier3's "W0 Disk Image.simg").
 
@@ -181,12 +220,17 @@ def boot_from_w0(image, ext_sectors=8192, target=5, devices=2, disk_mb=None, pol
     disk image at SCSI target 4 (W1:; the device table then keeps 3 entries:
     W0, F0, W1), as cpu.w1. terminal: None keeps the image's terminal type
     (Synclavier3's: Macintosh); "vt640" configures a VT640 graphics terminal
-    (cpu.terminal.vt640 set: the core draws Tektronix graphics). mouse: a
+    (cpu.terminal.vt640 set: the core draws Tektronix graphics; cpu.screen,
+    a tools/vt100.py VT640 on the output, answers read-back requests:
+    attach_screen). mouse: a
     D44/D45/D54 mouse (devices.mouse.Mouse, cpu.mouse) and the configuration
     bit that tells SYN-5.3 it is there. mono: mono poly voice cards (a
     3200's): MONITOR's options word gets o#pvoice, which the loader copies
     into SYN-5.3, and the PolySynth sends its right sum to both outputs.
-    cpu.cmopt_xaddr is the external-memory word address of that options
+    printer: a printer type (sim.boot.PRINTER_TYPES, e.g. "prism"): a
+    D40/D41 printer port (devices.printer.Printer, cpu.printer; what is
+    printed collects in cpu.printer.out) and MONITOR's configuration
+    (set_printer). cpu.cmopt_xaddr is the external-memory word address of that options
     word (MONITOR is staged at sector 0); the state image records it so the
     core's OSD can set the bit at load. Writes go
     to the in-memory copies of the
@@ -210,6 +254,10 @@ def boot_from_w0(image, ext_sectors=8192, target=5, devices=2, disk_mb=None, pol
     if mouse:
         from .devices.mouse import Mouse
         system_kw["mouse"] = Mouse()
+    if printer:
+        from .devices.printer import Printer
+        program = set_printer(program, printer)
+        system_kw["printer"] = Printer()
     ld7 = read_file(W, ".SYSTEM/.LD-7")
     slot = ld7[LD7_SCSI_SLOT * LD7_SLOT_WORDS:(LD7_SCSI_SLOT + 1) * LD7_SLOT_WORDS]
     disk = ScsiDisk.from_file(image)
@@ -229,6 +277,9 @@ def boot_from_w0(image, ext_sectors=8192, target=5, devices=2, disk_mb=None, pol
     cpu.d57 = 0o7
     cpu.w0 = disk
     cpu.terminal.vt640 = terminal == "vt640"
+    cpu.screen = None
+    if terminal == "vt640":
+        attach_screen(cpu)
     cpu.cmopt_xaddr = config_pointer(program) + C_CMOPT
     if dig_stm is not None:
         from .devices.digstm import D57_DIG_STM

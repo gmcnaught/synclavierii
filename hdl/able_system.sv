@@ -395,7 +395,7 @@ module able_system #(
         .xm_addr(x_addr), .xm_rd(x_rd), .xm_wr(x_wr), .xm_wdata(x_wdata), .xm_rdata, .xm_ack(x_ack),
         .ld_we(ld_dev_we && ld_dev_sel == 3'd2), .ld_addr(ld_dev_addr[3:0]), .ld_data(ld_dev_data)
     );
-    dev_terminal terminal (
+    dev_terminal #(.FIFO_BITS(9)) terminal (      // 512: a VT640 read-back reply fits
         .clk, .rst, .device_bits(term_bits), .sel(sel_term), .rd(io_rd), .wr(io_wr), .reg_sel(io_dev[0]),
         .wdata(io_wdata), .rdata(term_rdata), .ack(term_ack), .hold(term_hold),
         .tick, .tick_ns, .irq(term_irq),

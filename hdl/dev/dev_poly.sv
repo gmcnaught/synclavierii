@@ -31,6 +31,15 @@
 // read per sounding voice, its data back in order (s_rvalid), so 64-128
 // voices fit in a 48 kHz sample whatever the DDR3 latency.
 //
+// Multichannel distributor (M19, dev_multi.sv, sim/devices/multi.py): each
+// voice side has a routing tag {connected, output} (rt_*; voice = 32 x bin
+// + channel, the first 96 have inputs); with an output pair selected
+// (out_pair = n: outputs 2n - 2, 2n - 1, 0-based) each read in flight
+// carries where its left and right go, so the mix sums that pair instead of
+// the stereo mix (mono cards: no left side). For the level detector (q_*:
+// q_live) three bits per voice follow the CPU's writes: envelope limit,
+// right and left destination volume non-zero.
+//
 // After reset the device clears its block RAM rows and all poly memory
 // (E_MCLR).
 //
@@ -79,7 +88,16 @@ module dev_poly #(
     input  logic signed [15:0] mix_in_r,
     output logic        mix_out_valid,
     output logic signed [15:0] mix_out_l,
-    output logic signed [15:0] mix_out_r
+    output logic signed [15:0] mix_out_r,
+
+    input  logic [3:0]  out_pair,     // M19: 0 the stereo mix, n distributor outputs 2n-2, 2n-1
+    input  logic        rt_we,        // M19: voice rt_voice's side rt_side switched to rt_tag
+    input  logic [6:0]  rt_voice,
+    input  logic        rt_side,
+    input  logic [4:0]  rt_tag,       //   {connected, output[3:0]}
+    input  logic [6:0]  q_voice,      // M19 level detector: does this voice side sound?
+    input  logic        q_side,
+    output logic        q_live
 );
     localparam logic [47:0] RATE_NS = 48'd9900, ENV_NS = 48'd40000;
     localparam logic [6:0] FC_NUMV = 7'd12, FC_WMA = 7'd16, FC_RMA = 7'd20, FC_MDATA_W = 7'd18,
@@ -272,18 +290,37 @@ module dev_poly #(
                            && x_bp < {2'd0, limit};
     // factors of each read in flight {EVAL, L cur, R cur}, in issue order;
     // the data comes back in the same order: a 3-stage multiply-accumulate
-    logic [35:0] fq [128];
-    logic [35:0] fq_q;
+    logic [39:0] fq [128];
+    logic [39:0] fq_q;
     logic [7:0]  fq_wp, fq_rp;
     wire         fq_we = es == E_MIX_Q && x_fetch;
     wire  [7:0]  fq_rp_n = s_rvalid ? fq_rp + 8'd1 : fq_rp;
     always_ff @(posedge clk) begin
-        if (fq_we) fq[fq_wp[6:0]] <= {er_q[60 +: 12], er_q[108 +: 12], er_q[84 +: 12]};
+        if (fq_we) fq[fq_wp[6:0]] <= {x_rb, er_q[60 +: 12], er_q[108 +: 12], er_q[84 +: 12]};
         fq_q <= fq[fq_rp_n[6:0]];
     end
+    // M19: routing tags (read with the row, q at E_MIX_Q) and detector bits
+    logic [4:0]  tag_l [128], tag_r [128];
+    logic [4:0]  tag_q [2];
+    wire         tag_clr = es == E_CLEAR && cnt < 11'd128;
+    wire  [6:0]  tag_wa = tag_clr ? cnt[6:0] : rt_voice;
+    wire  [4:0]  tag_wd = tag_clr ? 5'd0 : rt_tag;
+    always_ff @(posedge clk) begin
+        if (tag_clr || (rt_we && !rt_side)) tag_l[tag_wa] <= tag_wd;
+        if (tag_clr || (rt_we && rt_side)) tag_r[tag_wa] <= tag_wd;
+        tag_q[0] <= tag_l[pv];
+        tag_q[1] <= tag_r[pv];
+    end
+    wire  [3:0]  pa = {3'(out_pair - 4'd1), 1'b0}, pb = {3'(out_pair - 4'd1), 1'b1};
+    wire  [3:0]  x_rb = out_pair == 4'd0 ? 4'b1001 :
+                        {tag_q[1] == {1'b1, pb}, tag_q[1] == {1'b1, pa},
+                         !mono && tag_q[0] == {1'b1, pb}, !mono && tag_q[0] == {1'b1, pa}};
+    logic [127:0] elim_nz, rdest_nz, ldest_nz;
+    assign q_live = elim_nz[q_voice] && (q_side ? rdest_nz[q_voice] : ldest_nz[q_voice] && !mono);
     logic        a1, a2;                         // stage valid
     logic signed [15:0] x_s;
     logic [11:0] x_eval, x_lcur, x_rcur, y_lcur, y_rcur;
+    logic [3:0]  x_rb_q, y_rb;                   // {rr, rl, lr, ll} of the read
     logic signed [28:0] y_e;
     wire signed [28:0] x_e = x_s * $signed({1'b0, x_eval});
     wire signed [41:0] x_pl = y_e * $signed({1'b0, y_lcur});
@@ -292,7 +329,7 @@ module dev_poly #(
     logic [29:0] s_addr_w;
     assign s_addr = s_addr_w[MEM_BITS-1:0];
     assign s_rd = es == E_MIX_ISS;
-    wire signed [32:0] o_l = 33'(fm_l) + 33'(mono ? acc_r : acc_l);
+    wire signed [32:0] o_l = 33'(fm_l) + 33'(mono && out_pair == 4'd0 ? acc_r : acc_l);
     wire signed [32:0] o_r = 33'(fm_r) + 33'(acc_r);
     function automatic logic signed [15:0] sat(input logic signed [32:0] v);
         if (v > 33'sd32767) sat = 16'sd32767;
@@ -368,14 +405,14 @@ module dev_poly #(
         a1 <= s_rvalid;
         if (s_rvalid) begin
             x_s <= s_rdata;
-            {x_eval, x_lcur, x_rcur} <= fq_q;
+            {x_rb_q, x_eval, x_lcur, x_rcur} <= fq_q;
             fq_rp <= fq_rp_n;
         end
         a2 <= a1;
-        if (a1) begin y_e <= x_e; y_lcur <= x_lcur; y_rcur <= x_rcur; end
+        if (a1) begin y_e <= x_e; y_lcur <= x_lcur; y_rcur <= x_rcur; y_rb <= x_rb_q; end
         if (a2) begin
-            acc_l <= acc_l + 32'(x_pl >>> 24);
-            acc_r <= acc_r + 32'(x_pr >>> 24);
+            acc_l <= acc_l + (y_rb[0] ? 32'(x_pl >>> 24) : 32'sd0) + (y_rb[2] ? 32'(x_pr >>> 24) : 32'sd0);
+            acc_r <= acc_r + (y_rb[1] ? 32'(x_pl >>> 24) : 32'sd0) + (y_rb[3] ? 32'(x_pr >>> 24) : 32'sd0);
         end
         if (mix_in_valid) begin
             fm_l <= mix_in_l; fm_r <= mix_in_r;
@@ -388,6 +425,7 @@ module dev_poly #(
             es <= E_CLEAR; cnt <= '0;
             channel <= '0; fc <= '0; addr_hi <= '0; addr <= '0;
             on0 <= '0; on1 <= '0; master <= '0;
+            elim_nz <= '0; rdest_nz <= '0; ldest_nz <= '0;
             now <= '0; next_rate <= '0; next_env <= '0;
             req <= 1'b0; mix_req <= 1'b0; pq <= 1'b0;
             fq_wp <= '0; fq_rp <= '0; a1 <= 1'b0; a2 <= 1'b0;
@@ -498,6 +536,9 @@ module dev_poly #(
                     endcase
                     ack <= 1'b1; req <= 1'b0; es <= E_IDLE;
                 end else begin
+                    if (rfield == 4'd5 && req_env == 4'd4) elim_nz[cv] <= req_w[11:0] != 12'd0;
+                    if (rfield == 4'd5 && req_env == 4'd8) rdest_nz[cv] <= req_w[11:0] != 12'd0;
+                    if (rfield == 4'd5 && req_env == 4'd10) ldest_nz[cv] <= req_w[11:0] != 12'd0;
                     ack <= 1'b1; req <= 1'b0; es <= E_IDLE;
                 end
             E_MEM: if (m_ack) begin

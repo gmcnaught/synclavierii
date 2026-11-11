@@ -220,6 +220,8 @@ def boot_from_w0(image, ext_sectors=8192, target=5, devices=2, disk_mb=None, pol
                           synth=True, floppy=True, **system_kw)
         from .devices.stubs import PolyNoVoices
         cpu.poly = cpu.bus.attach(PolyNoVoices())
+        if cpu.multi is not None:
+            cpu.multi.poly = cpu.poly
     else:
         cpu = make_system(ext_sectors=ext_sectors, scsi={target: disk}, model="D",
                           synth=True, floppy=True, poly=poly, **system_kw)

@@ -135,6 +135,9 @@ class FMSynth:
         self.wave = [bytearray(256) for _ in range(WAVE_MEMORIES)]
         self.mar = [0] * (2 * voices)
         self.time_ns = 0
+        #: M19: a devices.multi.Distributor; with its `pair` set (1..8) the
+        #: output is that output pair instead of the stereo mix
+        self.multi = None
 
     def write(self, time_ns, channel_word, fn, value):
         """Apply one D162 write (FMInterface.log entry)."""
@@ -172,8 +175,13 @@ class FMSynth:
     def sample_int(self, time_ns):
         """Integer output at time_ns: (sum of s x (256 - pan), sum of s x pan)
         over the voices, s = (w - 128) x envelope x VOL. This is what the
-        HDL voice engine (hdl/dev/dev_fm.sv) computes."""
+        HDL voice engine (hdl/dev/dev_fm.sv) computes. With a multichannel
+        distributor (self.multi) and an output pair selected, each voice's
+        left and right go to the pair where their inputs are switched
+        (devices.multi.route_pair)."""
         left = right = 0
+        multi = self.multi
+        pair = multi.pair if multi is not None else 0
         for v in range(self.voices):
             mod, car = self.ch[2 * v], self.ch[2 * v + 1]
             car.interp.advance_to(time_ns)
@@ -185,6 +193,12 @@ class FMSynth:
             s = self.voice_sample(v) * car.fn13          # (w-128) x env x VOL
             if s:
                 pan, _ = ishc(mod.fn13)
+                if pair:
+                    from .devices.multi import route_pair
+                    sl, sr = route_pair(s * (256 - pan), s * pan, multi.fm_tags(v), pair)
+                    left += sl
+                    right += sr
+                    continue
                 right += s * pan
                 left += s * (256 - pan)
         return left, right

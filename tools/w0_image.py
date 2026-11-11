@@ -5,6 +5,7 @@ image (Synclavier3's "W0 Disk Image.simg", not redistributable):
     w0_image.py W0IMAGE OUTDIR [--mb 30] [--newdata FILE] [--midi] [--fm-voices N] [--poly-mb N]
                 [--poly-bins N | --poly-voices N] [--mono] [--w1] [--vt640]
                 [--disk-us N] [--dig-stm]
+                [--disk-us N] [--multi N]
 
   OUTDIR/W0-53.IMG   the W0 disk padded to --mb megabytes, with a USER
                      subcatalog made by MONITOR's own CREATE USER (MONITOR
@@ -66,6 +67,12 @@ image (Synclavier3's "W0 Disk Image.simg", not redistributable):
                      so SYN-5.3's STM screen records from the source file in
                      S5 (tools/stm_source.py; the core's OSD can set this at
                      load instead); the name gets -DSTM.
+  --multi N          a D32/D33 multichannel distributor with N (8 or 16)
+                     outputs (D51 bit 0x0800; sim/devices/multi.py,
+                     hdl/dev/dev_multi.sv): SYN-5.3 analyses its connections
+                     at start-up and offers output routing; the core's OSD
+                     Outputs item picks the stereo mix or one output pair;
+                     the name gets -MC<N>.
 
 Both are made by the simulator, so the core starts exactly where the
 lockstep traces do (sim/lockstep.py w0boot).
@@ -128,6 +135,8 @@ def main(argv=None):
     ap.add_argument("--vt640", action="store_true", help="VT640 graphics terminal")
     ap.add_argument("--dig-stm", action="store_true",
                     help="the digital STM input (D57 bit 0x4000; source file in S5)")
+    ap.add_argument("--multi", type=int, choices=(8, 16),
+                    help="multichannel distributor outputs (D32/D33)")
     ap.add_argument("--ork", action="store_true",
                     help="state image with the original keyboard instead of the velocity keyboard")
     a = ap.parse_args(argv)
@@ -161,11 +170,12 @@ def main(argv=None):
                           fm_voices=a.fm_voices, devices=3 if a.w1 else 2,
                           terminal="vt640" if a.vt640 else None, mouse=a.vt640, mono=a.mono,
                           scsi_block_ns=a.disk_us * 1000, scsi_seek_ns=a.seek_us * 1000,
-                          dig_stm=DigitalStm() if a.dig_stm else None)
+                          dig_stm=DigitalStm() if a.dig_stm else None, multi=a.multi)
     name = ("W0-53" + ("-MIDI" if a.midi else "") + ("-FM%d" % a.fm_voices if a.fm_voices != 32 else "")
             + ("-P%d" % a.poly_mb if a.poly_mb != 32 else "")
             + ("-V%d" % a.poly_voices if a.poly_voices else
-               "-BIN%d" % a.poly_bins if a.poly_bins != 1 else "") + ("-MONO" if a.mono else "") + ("-W1" if a.w1 else "") + ("-VT640" if a.vt640 else "") + ("-DSTM" if a.dig_stm else ""))
+               "-BIN%d" % a.poly_bins if a.poly_bins != 1 else "") + ("-MONO" if a.mono else "") + ("-W1" if a.w1 else "") + ("-VT640" if a.vt640 else "") + ("-DSTM" if a.dig_stm else "")
+            + ("-MC%d" % a.multi if a.multi else ""))
     sst = os.path.join(a.outdir, name + ".SST")
     data = state_bytes(cpu)
     open(sst, "wb").write(data)

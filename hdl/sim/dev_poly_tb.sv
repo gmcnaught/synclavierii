@@ -4,6 +4,10 @@
 //   W r v      write register r (0 D154 .. 3 D157) with v
 //   R r v      read register r, expect v
 //   X l r      a mix (FM sample 0): expect the poly mix (l, r)
+//   P n        M19: the output pair heard (0 the stereo mix)
+//   D v s t    M19: distributor routing tag t ({connected, output}) for
+//              poly voice v (32 x bin + channel), side s (0 left, 1 right)
+//   L v s e    M19: expect the level detector's answer e for voice v side s
 // Poly memory is a word array behind a port that answers a few clocks late,
 // and behind the mix read stream: commands taken on some clocks, data back
 // in order 12 clocks later (as the board bench's DDR3). +bins=N +units=N
@@ -29,6 +33,10 @@ module dev_poly_tb;
     logic [5:0]  last = 6'd32;
     logic        mono = 1'b0;
     logic signed [15:0] mix_out_l, mix_out_r;
+    logic [3:0]  out_pair = 0;
+    logic        rt_we = 0, rt_side = 0, q_side = 0, q_live;
+    logic [6:0]  rt_voice = 0, q_voice = 0;
+    logic [4:0]  rt_tag = 0;
     int          errors = 0, lines = 0, reads = 0, mixes = 0;
 
     dev_poly dut (
@@ -38,7 +46,8 @@ module dev_poly_tb;
         .m_addr, .m_rd, .m_wr, .m_wide, .m_wdata, .m_rdata, .m_ack, .clearing(),
         .s_addr, .s_rd, .s_ack, .s_rvalid, .s_rdata,
         .mix_in_valid, .mix_in_l(16'sd0), .mix_in_r(16'sd0),
-        .mix_out_valid, .mix_out_l, .mix_out_r
+        .mix_out_valid, .mix_out_l, .mix_out_r,
+        .out_pair, .rt_we, .rt_voice, .rt_side, .rt_tag, .q_voice, .q_side, .q_live
     );
 
     always #5 clk = !clk;
@@ -102,7 +111,7 @@ module dev_poly_tb;
 
     initial begin
         string path;
-        int fd, code, a, b;
+        int fd, code, a, b, c;
         byte k;
         logic [15:0] got;
         if (!$value$plusargs("stim=%s", path)) begin
@@ -117,10 +126,25 @@ module dev_poly_tb;
         rst = 0;
         repeat (1100) @(posedge clk);                // RAM clear (then poly memory: accesses wait)
         while (!$feof(fd)) begin
-            code = $fscanf(fd, " %c %d %d", k, a, b);
+            code = $fscanf(fd, " %c %d", k, a);
             if (code < 2) break;
+            if (k != "P") code = $fscanf(fd, " %d", b);
+            if (k == "D" || k == "L") code = $fscanf(fd, " %d", c);
             lines++;
             if (k == "T") pass_time(longint'(a));
+            else if (k == "P") begin @(negedge clk); out_pair = 4'(a); end
+            else if (k == "D") begin
+                @(negedge clk); rt_we = 1; rt_voice = 7'(a); rt_side = b[0]; rt_tag = 5'(c);
+                @(negedge clk); rt_we = 0;
+            end else if (k == "L") begin
+                @(negedge clk); q_voice = 7'(a); q_side = b[0];
+                @(posedge clk);
+                reads++;
+                if (q_live !== c[0]) begin
+                    errors++;
+                    if (errors < 20) $display("line %0d: live v%0d side %0d = %0d, expected %0d", lines, a, b, q_live, c);
+                end
+            end
             else if (k == "W") access(2'(a), 1'b0, 16'(b), got);
             else if (k == "R") begin
                 access(2'(a), 1'b1, 16'd0, got);

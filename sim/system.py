@@ -4,12 +4,12 @@ from .cpu import CPU
 from .devices import (ControlVoltages, ExternalMemory, FloppyController, FMInterface,
                       MulDiv, OriginalKeyboard, RealTimeClock, Terminal, VelocityKeyboard)
 from .devices.scsi import ScsiHost
-from .devices.terminal import D24_EXISTS, D57_EXISTS, D60_EXISTS, D70_EXISTS, POLY_EXISTS
+from .devices.terminal import D24_EXISTS, D32_EXISTS, D57_EXISTS, D60_EXISTS, D70_EXISTS, POLY_EXISTS
 
 
 def make_system(ext_sectors=1024, baud=9600, rtc_hz=200, output=None, floppy=False,
                 synth=False, strict=True, scsi=None, model="B", poly=None, keyboard="ork", midi=None, fm_voices=8, mouse=None,
-                scsi_block_ns=0, scsi_seek_ns=0):
+                scsi_block_ns=0, scsi_seek_ns=0, multi=None):
     """Return a CPU with D3, D4567, D50/D51 and (if ext_sectors) D60-D63.
 
     The devices are reachable as cpu.rtc, cpu.muldiv, cpu.terminal and
@@ -30,6 +30,8 @@ def make_system(ext_sectors=1024, baud=9600, rtc_hz=200, output=None, floppy=Fal
     scsi_block_ns: SCSI disk time, simulated ns per block read (0: instant).
     scsi_seek_ns: with disk time, simulated ns of a READ that does not continue
     the last one (sim/devices/scsi.py).
+    multi: outputs (8 or 16) of a D32/D33 multichannel distributor
+    (devices.multi.Distributor, cpu.multi; D51 bit 0x0800 set), M19.
     """
     bus = Bus()
     cpu = CPU(bus)
@@ -40,7 +42,7 @@ def make_system(ext_sectors=1024, baud=9600, rtc_hz=200, output=None, floppy=Fal
     cpu.scsi = bus.attach(ScsiHost(scsi, block_ns=scsi_block_ns, seek_ns=scsi_seek_ns)) if scsi is not None else None
     bits = ((D60_EXISTS if ext_sectors else 0) | (D24_EXISTS if scsi is not None else 0)
             | (D57_EXISTS if model == "D" else 0) | (POLY_EXISTS if poly is not None else 0)
-            | (D70_EXISTS if midi is not None else 0))
+            | (D70_EXISTS if midi is not None else 0) | (D32_EXISTS if multi else 0))
     cpu.terminal = bus.attach(Terminal(baud, device_bits=bits, output=output))
     cpu.floppy = bus.attach(FloppyController()) if floppy else None
     cpu.fm = bus.attach(FMInterface(voices=fm_voices, strict=strict)) if synth else None
@@ -50,4 +52,10 @@ def make_system(ext_sectors=1024, baud=9600, rtc_hz=200, output=None, floppy=Fal
     cpu.poly = bus.attach(poly) if poly is not None else None
     cpu.midi = bus.attach(midi) if midi is not None else None
     cpu.mouse = bus.attach(mouse) if mouse is not None else None
+    cpu.multi = None
+    if multi:
+        from .devices.multi import Distributor
+        cpu.multi = bus.attach(Distributor(multi, fm=cpu.fm, poly=cpu.poly))
+        if cpu.poly is not None:
+            cpu.poly.multi = cpu.multi
     return cpu

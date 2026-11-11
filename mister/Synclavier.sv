@@ -65,6 +65,7 @@ localparam CONF_STR = {
 	"P1O[17:14],Poly memory/bin,From image,4 MB,8 MB,12 MB,16 MB,20 MB,24 MB,28 MB,32 MB,224 MB/bins;",
 	"P1O[20:18],FM voices,From image,8,16,24,32;",
 	"P1O[21],Digital STM input (S5),From image,On;",
+	"O[34:31],Outputs (multichannel),Stereo mix,1-2,3-4,5-6,7-8,9-10,11-12,13-14,15-16;",
 	"-;",
 	"T[0],Reset;",
 	"R[0],Reset and close OSD;",
@@ -163,6 +164,7 @@ synclavier_core #(.CLK_HZ(50_000_000), .VID_CE_DIV(1)) core
 	.stall_view(status[5]),
 	.hw_cfg(status[20:7]),
 	.dig_stm_on(status[21]),
+	.out_pair(status[34:31]),
 
 	.img_mounted(img_mounted),
 	.img_readonly(img_readonly),

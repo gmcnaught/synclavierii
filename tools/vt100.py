@@ -72,10 +72,13 @@ for a VT640): a 640 x 480 x 1 graphics plane, y up, drawn by a Tektronix
               applies.
 Lines (Bresenham, both end points) and points use the data level; with
 XOR a shared end point of two vectors is flipped twice [CHOICE].
-Text plane in VT640 mode: row r on lines 20r-20r+19, glyph doubled on
-lines 20r+2-20r+17; column c from pixel 8 + ceil(7.5c), 8 pixels wide
-for even c and 7 for odd (font column 7 dropped); double-width columns 15
-pixels from 8 + 15c; reverse inverts all 20 lines of the cell.
+Text plane in VT640 mode: row r on lines 20r-20r+19, the VT220 font
+(tools/gen_font.py glyphs_glass, Glass TTY: 10 rows) doubled; column c
+from pixel 8 + ceil(7.5c), 8 pixels wide for even c and 7 for odd (font
+column 7 dropped); double-width columns 15 pixels from 8 + 15c; double
+height: font rows 0-4 (top) or 5-9 (bottom), 4 lines each; reverse
+inverts all 20 lines of the cell. (The cursor, font row 8, is not drawn
+here: term_display.sv blinks it.)
 """
 import os
 import sys
@@ -481,19 +484,18 @@ class Terminal:
 
 
     def render640(self):
-        from tools.gen_font import glyphs
-        font = glyphs()
+        from tools.gen_font import glyphs_glass
+        font = glyphs_glass()
         px = bytearray(self.g)
         for r in range(ROWS):
             a = self.attr[r]
             for line in range(20):
-                ln = line - 2
                 if a == DH_TOP:
-                    gl = ln >> 2 if 0 <= ln < 16 else None
+                    gl = line >> 2
                 elif a == DH_BOTTOM:
-                    gl = 4 + (ln >> 2) if 0 <= ln < 16 else None
+                    gl = 5 + (line >> 2)
                 else:
-                    gl = ln >> 1 if 0 <= ln < 16 else None
+                    gl = line >> 1
                 base = (20 * r + line) * GW
                 for x in range(8, 608):
                     o = x - 8
@@ -506,7 +508,7 @@ class Terminal:
                         if c >= COLS // 2:
                             continue
                     ch, rev = self.cells[r][c]
-                    on = 0 if gl is None or bit > 7 else (font[ch & 0x7F][gl] >> bit) & 1
+                    on = 0 if bit > 7 else (font[ch & 0x7F][gl] >> bit) & 1
                     px[base + x] |= on ^ rev
         return bytes(px)
 

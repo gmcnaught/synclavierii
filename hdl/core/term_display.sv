@@ -33,10 +33,11 @@
 // VT640 mode (`vt640`, from the state image; docs/devices/vt640-graphics-
 // terminal.md): GS/FS and every byte while in a graphics mode go to the
 // graphics plane (tek_plane.sv); the terminal fills 640 x 480: text row r
-// on lines 20r-20r+19 (glyph doubled on lines 20r+2-20r+17), column c from
-// pixel 8 + ceil(7.5c), 8 pixels wide for even c, 7 for odd (font column 7
-// dropped); double-width columns 15 pixels; reverse inverts the cell's 20
-// lines; text OR graphics. No panel strip (with `panel_over`: the panel
+// on lines 20r-20r+19, the VT220 font (fontglass.svh, 10 rows) doubled;
+// column c from pixel 8 + ceil(7.5c), 8 pixels wide for even c, 7 for odd
+// (font column 7 dropped); double-width columns 15 pixels; double height:
+// font rows 0-4 (top) or 5-9 (bottom), 4 lines each; reverse inverts the
+// cell's 20 lines; cursor on font row 8; text OR graphics. No panel strip (with `panel_over`: the panel
 // over lines 384-479) and no core pointer outside it: SYN-5.3 draws its
 // own cursor. As tools/vt100.py Terminal(vt640=True).render().
 //
@@ -94,6 +95,7 @@ module term_display #(
     output logic        keypad_app      // ESC = seen (ESC >, ESC c, reset: cleared)
 );
     `include "font8x8.svh"
+    `include "fontglass.svh"
     `include "panel_labels.svh"
 
     localparam int COLS = 80, ROWS = 24;
@@ -533,26 +535,28 @@ module term_display #(
     wire [1:0]  ra   = in_text ? rattr[prow] : 2'd0;     // this row's line attribute
     wire [6:0]  tcol = vt640 ? (ra != 2'd0 ? {1'b0, vtc[6:1]} : vtc)
                              : (ra != 2'd0 ? {1'b0, h[9:4]} : h[9:3]);
-    wire [4:0]  vg   = vln - 5'd2;                       // VT640: glyph line 0-15
+    // VT640: the VT220 font's row (0-9) on this line of the 20-line text row
+    wire [3:0]  gline = ra == 2'd1 ? {1'b0, vln[4:2]} :            // double height: top half
+                        ra == 2'd2 ? 4'd5 + {1'b0, vln[4:2]} :     // bottom half
+                        vln[4:1];
     wire [2:0]  line = !in_text ? v[2:0] :
-                       vt640 ? (ra == 2'd1 ? {1'b0, vg[3:2]} : ra == 2'd2 ? {1'b1, vg[3:2]} : vg[3:1]) :
                        ra == 2'd1 ? {1'b0, v[3:2]} :     // double height: top half
                        ra == 2'd2 ? {1'b1, v[3:2]} :     // bottom half
                        v[3:1];
     // VT640 text: the glyph bit, and whether this pixel shows text at all
     wire [3:0]  o2 = vtc[0] ? 4'd8 + 4'(vto) : 4'(vto);  // pixel in a double-width cell (15)
     wire [2:0]  vbit = ra != 2'd0 ? 3'((7'(o2) * 7'd8) / 7'd15) : vto;
-    wire        vblank_ln = vln < 5'd2 || vln > 5'd17;
     wire        vt_x = h >= 10'd8 && h < 10'd608;
     wire        cursor_here = in_text && lrow == row && tcol == col && frame[5] &&
-                              (vt640 ? !vblank_ln && vg[3:1] == 3'd7 : v[3:1] == 3'd7);
+                              (vt640 ? vln[4:1] == 4'd8 : v[3:1] == 3'd7);
     assign g_vaddr = 15'(v) * 15'd40 + 15'(h[9:4]);
 
     logic [7:0] tq, pq, vl1, glyph;
     logic [2:0] line1;
+    logic [3:0] gline1;
     logic       text1, inv1, dp1, cur1, vis1, inv2, dp2, cur2, vis2, seg1, wide1, wide2, vsel1;
     logic [2:0] vbit1, vbit2;
-    logic       vt1, vt2, vtx1, vtx2, vbl1, vbl2, gon1, gbit2;
+    logic       vt1, vt2, vtx1, vtx2, gon1, gbit2;
     logic [6:0] segv1;
 
     // a 7-segment digit in an 8 x 8 cell (bit 0 = leftmost pixel): a on
@@ -582,19 +586,21 @@ module term_display #(
         segv1 <= seg_byte[6:0];
         cur1 <= cursor_here;
         vis1 <= (in_text || in_panel) && h < 10'd640;
-        vt1 <= vt640 && in_text; vtx1 <= vt_x; vbl1 <= vblank_ln; vbit1 <= vbit;
+        vt1 <= vt640 && in_text; vtx1 <= vt_x; vbit1 <= vbit;
         gon1 <= vt640 && !p_over && v < 10'd480 && h < 10'd640;
         line1 <= line;
+        gline1 <= gline;
         h1 <= h; v1 <= v;
         // stage 2
-        glyph <= (seg1 ? seg_glyph(segv1, line1) : font8x8({(text1 ? tq[6:0] : vsel1 ? vl1[6:0] : pq[6:0]), line1})) |
+        glyph <= (vt1 ? fontglass({tq[6:0], gline1}) :
+                  seg1 ? seg_glyph(segv1, line1) : font8x8({(text1 ? tq[6:0] : vsel1 ? vl1[6:0] : pq[6:0]), line1})) |
                  (dp1 && line1 >= 3'd6 ? 8'h80 : 8'h00);       // decimal point
         inv2 <= inv1 || (text1 && tq[7]);                       // reverse video cell
         wide2 <= wide1;
         cur2 <= cur1;
         vis2 <= vis1;
         h2 <= h1; v2 <= v1;
-        vt2 <= vt1; vtx2 <= vtx1; vbl2 <= vbl1; vbit2 <= vbit1;
+        vt2 <= vt1; vtx2 <= vtx1; vbit2 <= vbit1;
         gbit2 <= gon1 && g_vq[h1[3:0]];
     end
     // simulation only (a second read port would keep the RAM out of M10K)
@@ -617,7 +623,7 @@ module term_display #(
     wire       ptr_px = ptr_on && pdx < 10'd8 && pdy < 10'd8 && arow[pdx[2:0]] &&
                         (!vt640 || (panel_over && v2 >= 10'd384));
 
-    wire vt_on = vtx2 && ((glyph[vbit2] && !vbl2) ^ inv2 ^ cur2);
+    wire vt_on = vtx2 && (glyph[vbit2] ^ inv2 ^ cur2);
     wire on = (vis2 && (vt2 ? vt_on : glyph[wide2 ? h2[3:1] : h2[2:0]] ^ inv2 ^ cur2)) || gbit2;
     always_ff @(posedge vclk) if (ce) begin
         hblank <= h2 >= 10'd640;

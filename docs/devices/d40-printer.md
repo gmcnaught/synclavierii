@@ -174,9 +174,9 @@ source but not on the Synclavier³ W0 image: `Able/MPLT` in
 PostScript printer driver `MPLT/PSPACK` (D40 or D42 port, XON/XOFF, baud
 rate set by the program). LASERCOM (and PRNTBAUD, SYMED) are only named in
 `UTILCAT/WINSTALL` as files copied from the Music Printing disk; their
-source is not in the repository. Music Printing runs on the core: §9.
+source is not in the repository. Music Printing runs on the core: §3.4.
 
-## 9. Music Printing (PF3): PostScript scores
+### 3.4 Music Printing (PF3): PostScript scores
 
 NED's Music Printing program, "Synclavier Music Engraving System"
 (Program Version G.3 Model D, "Supports Release M - 5.3"), is built from

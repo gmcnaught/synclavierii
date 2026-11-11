@@ -14,7 +14,7 @@ in OUTDIR/src and changes one line there: `PS_PRINTER_WRITE_ONLY` (MPLT/LITS)
 is 1 instead of `interp_is_running`, so the program sends its PostScript
 without waiting for printer replies, as it does under Synclavier3; the core's
 printer port is a capture file that never answers (docs/devices/d40-printer.md
-section 8). OUTDIR/mplt then holds the six files the release puts in
+section 3.4). OUTDIR/mplt then holds the six files the release puts in
 W0:.SYSTEM: .SPLT-7 (program) and .SAUX-7, .SCWT-7, .SFRM-7, .SLIB-7 (data),
 .SPRO-7 (the PostScript font prolog, text).
 

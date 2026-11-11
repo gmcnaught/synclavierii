@@ -35,9 +35,10 @@ module crt_adjust_tb;
     crt_adjust dut (.clk, .ce(1'b1), .*);
 
     // the output measured from its own blanking
-    int  ox = 0, oy = 0, de_n = 0, hs_x = -1, vs_y = -1, checking = 0;
+    // (one process writes the counts: the test resets them through `clear`)
+    int  ox = 0, oy = 0, de_n = 0, hs_x = -1, vs_y = -1, checking = 0, clear = 0;
     logic hb_q = 1, vb_q = 1, hs_q = 0, vs_q = 0;
-    always_ff @(posedge clk) begin
+    always @(posedge clk) begin
         automatic int x = (hb_q && !hblank_out) ? 0 : ox;
         automatic int y = !(hb_q && !hblank_out) ? oy : (vb_q && !vblank_out) ? 0 : oy + 1;
         automatic int a = 32 + hsize;
@@ -45,9 +46,10 @@ module crt_adjust_tb;
         automatic int src = (num >= 0) ? num / a : -((-num + a - 1) / a);
         automatic logic [23:0] want = (src >= 0 && src < 640) ? enc(src, y) : 24'd0;
         automatic logic [23:0] got = {r_out, g_out, b_out};
+        if (clear) begin de_n = 0; hs_x = -1; vs_y = -1; end
         if (checking) begin
             if (!hblank_out && !vblank_out) begin
-                de_n <= de_n + 1;
+                de_n = de_n + 1;
                 if (got !== (enable ? want : enc(x, y))) begin
                     if (errors < 10) $display("pixel (%0d,%0d) k=%0d: got %06x want %06x", x, y, hsize, got,
                                               enable ? want : enc(x, y));
@@ -57,11 +59,11 @@ module crt_adjust_tb;
                 if (errors < 10) $display("blank (%0d,%0d): %06x", x, y, got);
                 errors++;
             end
-            if (hs_out && !hs_q) hs_x <= x;
-            if (vs_out && !vs_q) vs_y <= y;
+            if (hs_out && !hs_q) hs_x = x;
+            if (vs_out && !vs_q) vs_y = y;
         end
-        hb_q <= hblank_out; vb_q <= vblank_out; hs_q <= hs_out; vs_q <= vs_out;
-        ox <= x + 1; oy <= y;
+        hb_q = hblank_out; vb_q = vblank_out; hs_q = hs_out; vs_q = vs_out;
+        ox = x + 1; oy = y;
     end
 
     // passthrough when off: the outputs are the inputs, every clock
@@ -71,9 +73,11 @@ module crt_adjust_tb;
         errors++;
     end
 
+    // frame boundaries in the input's vertical blanking: one window holds
+    // exactly one output frame with or without the output's line delay
     task automatic frames_at_top(input int n);
         repeat (n) begin
-            @(posedge clk iff (h == 0 && v == 0));
+            @(posedge clk iff (h == 0 && v == 500));
         end
     endtask
 
@@ -83,7 +87,7 @@ module crt_adjust_tb;
         checking = 0;
         frames_at_top(3);                 // lock, latch H-Size, settle
         @(negedge clk);
-        de_n = 0; hs_x = -1; vs_y = -1; checking = 1;
+        clear = 1; @(negedge clk); clear = 0; checking = 1;
         frames_at_top(1);
         @(negedge clk);
         checking = 0;

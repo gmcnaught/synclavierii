@@ -415,3 +415,8 @@ Verified:
   then `FULL PIANO   5.7`; all 14 sound files of that timbre are in poly
   memory; no terminal error. `W1:SYNTH2` (the last library, about 270 MB
   in), BANK 5 ENTRY 1: `SYN51 PAD   1.93`, its 6 sound files in poly memory.
+* Board lockstep (HDL = Python), SYN-5.3 boot with this W1: (`w0boot --poly
+  --vpk --fm-voices 8 --w1`, state image `w0_image.py --w1 --disk-us 0
+  --seek-us 0 --fm-voices 8`): 19,600,000 instructions, 736 SD reads,
+  identical. The boot's sound-file cache build reads 74 W1: blocks, 18 of
+  them above 65,535 (up to 560,350).

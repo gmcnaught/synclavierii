@@ -20,6 +20,10 @@ receive() at whatever pace the caller keeps (the UART's, on the board).
 Output bytes from all four ports go to one MIDI out: self.out is a list of
 (port, byte), and `output(byte)` is called for each if given. No interrupts.
 D51 bit 8 (D70_EXISTS) tells SYN-5.3 the card may be there (sim/system.py).
+
+smpte: a devices.smpte.SmpteReader (M20) answers D70-D73 while subsystem 8
+is selected; it takes every MIDI in byte (smpte.receive) and simulated
+time (tick).
 """
 from collections import deque
 
@@ -34,7 +38,8 @@ FIFO = 64
 class MidiSubsystem(Device):
     numbers = (0o70, 0o71, 0o72, 0o73)
 
-    def __init__(self, output=None):
+    def __init__(self, output=None, smpte=None):
+        self.smpte = smpte
         self.sel = 0
         self.mcha = 0
         self.fifo = deque()
@@ -49,7 +54,13 @@ class MidiSubsystem(Device):
         else:
             self.fifo.append(byte & 0xFF)
 
+    def tick(self, ns):
+        if self.smpte is not None:
+            self.smpte.tick(ns)
+
     def read(self, dev):
+        if self.smpte is not None and self.sel == 8:
+            return self.smpte.read(dev)
         here = self.sel == SUBSYS
         if dev == 0o70:
             return self.sel if here else 0
@@ -67,6 +78,8 @@ class MidiSubsystem(Device):
 
     def write(self, dev, value):
         value &= 0xFFFF
+        if self.smpte is not None and self.sel == 8:
+            self.smpte.write(dev, value)       # (D71 also latches MCHA below)
         if dev == 0o70:
             self.sel = value
         elif dev == 0o71:

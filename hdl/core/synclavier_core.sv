@@ -17,6 +17,9 @@
 //   dig_stm       the digital sample-to-memory input (M18): native routines
 //                 64-76 with an audio file on SD drive 5 (S5) as the source,
 //                 when D57 has bit 0x4000 (the state image's, or dig_stm_on).
+//   dev_smpte     D70 subsystem 8, the SMPTE reader, on the card's bus when
+//                 the state image or the OSD has it: time code from the MIDI
+//                 Time Code on MIDI in (every byte, raw);
 //   dev_multi     D32/D33 multichannel distributor when the state image has
 //                 D51 bit 0x0800 (M19): routing tags for dev_fm and dev_poly,
 //                 which mix the output pair `out_pair` (OSD) instead of the
@@ -47,6 +50,7 @@ module synclavier_core #(
     input  logic        stall_view,      // status line: lag by stall cause instead of health
     input  logic [13:0] hw_cfg,          // OSD Hardware page (M16): card complement, taken at reset
     input  logic        dig_stm_on,      // OSD (M18): digital STM input (D57 bit 0x4000), taken at reset
+    input  logic        smpte_osd,       // OSD: SMPTE reader on (M20), taken at reset; or the state image's
     input  logic [3:0]  out_pair,        // OSD Outputs (M19): 0 stereo mix, n distributor outputs 2n-1, 2n
 
     input  logic [5:0]  img_mounted,
@@ -102,6 +106,8 @@ module synclavier_core #(
     input  logic [15:0] mouse_host_dxy,  // {dX, dY}, 8-bit two's complement
     input  logic        midi_card_we,   // a byte into the card's input FIFO (simulation; beats MIDI)
     input  logic [7:0]  midi_card_byte,
+    input  logic        smpte_host_we,  // a MIDI in byte for the SMPTE reader (simulation; beats MIDI)
+    input  logic [7:0]  smpte_host_byte,
     input  logic        kb_host_we,     // keyboard / panel words (simulation; beats MIDI)
     input  logic        kb_host_panel,
     input  logic [2:0]  kb_host_index,
@@ -238,7 +244,7 @@ module synclavier_core #(
     logic [10:0] poly_units;
     logic [2:0]  poly_bins;
     logic [5:0]  poly_last;
-    logic        term_vt640, term_mouse;
+    logic        term_vt640, term_mouse, smpte_img;
     logic [19:0] scsi_block_ns;
     logic [25:0] scsi_seek_ns;
     logic        scsi_hold;
@@ -270,7 +276,7 @@ module synclavier_core #(
     able_system #(.CLK_HZ(CLK_HZ)) sys (
         .clk, .rst(cpu_rst), .rt_enable, .lag_us, .stall_us,
         .rt_voices, .dbg_stall(1'b0), .voice_tick, .voice_tick_ns,
-        .cpu_model, .cpu_d57(d57), .term_bits, .hw_cfg, .poly_units, .poly_bins, .poly_last, .term_vt640, .term_mouse, .scsi_block_ns, .scsi_seek_ns,
+        .cpu_model, .cpu_d57(d57), .term_bits, .hw_cfg, .poly_units, .poly_bins, .poly_last, .term_vt640, .term_mouse, .smpte_img, .scsi_block_ns, .scsi_seek_ns,
         .out_pair(pair), .fm_rt_we(rt_we && rt_fm), .fm_rt_voice(rt_voice[4:0]), .fm_rt_side(rt_side),
         .fm_rt_tag(rt_tag), .fm_q_voice(q_voice[4:0]), .fm_q_side(q_side), .fm_q_live, .fm_busy,
         .dev_rd, .dev_wr, .dev_num, .dev_wdata,
@@ -411,7 +417,7 @@ module synclavier_core #(
         dev_rdata = 16'd0; dev_ack = 1'b0; dev_nosyn = 1'b0;
         if (sel_scsi)      begin dev_rdata = scsi_rdata; dev_ack = scsi_ack; end
         else if (sel_poly) begin dev_rdata = poly_rdata; dev_ack = poly_ack && !stm_pwr; end
-        else if (sel_midi) begin dev_rdata = midi_rdata; dev_ack = midi_ack; end
+        else if (sel_midi) begin dev_rdata = midi_rdata | smpte_rdata; dev_ack = midi_ack; end
         else if (sel_mouse) begin dev_rdata = mouse_rdata; dev_ack = mouse_ack; end
         else if (sel_multi) begin dev_rdata = multi_rdata; dev_ack = multi_ack; end
         else               dev_nosyn = dev_rd || dev_wr;
@@ -495,6 +501,17 @@ module synclavier_core #(
         .wdata(dev_wdata), .rdata(midi_rdata), .ack(midi_ack),
         .rx_valid(midi_card_we || card_in_valid), .rx_data(midi_card_we ? midi_card_byte : card_in_data),
         .tx_valid(card_tx_valid), .tx_data(card_tx_data), .tx_ready(card_tx_ready)
+    );
+    // SMPTE reader (D70 subsystem 8, M20) from MIDI Time Code: every MIDI in
+    // byte, raw (midi_card_feed drops F1 and SysEx); smpte_host_* in simulation
+    logic [15:0] smpte_rdata;
+    logic        smpte_osd_q;
+    always_ff @(posedge clk) if (cpu_rst) smpte_osd_q <= smpte_osd;
+    dev_smpte smpte (
+        .clk, .rst(cpu_rst), .present(smpte_img || smpte_osd_q),
+        .sel(sel_midi), .rd(dev_rd), .wr(dev_wr), .reg_sel(dev_num[1:0]), .wdata(dev_wdata),
+        .rdata(smpte_rdata), .tick, .tick_ns,
+        .rx_valid(smpte_host_we || (midi_byte && card)), .rx_data(smpte_host_we ? smpte_host_byte : midi_data)
     );
     midi_uart_tx #(.CLK_HZ(CLK_HZ)) midi_out (
         .clk, .rst, .alt(midi_alt), .valid(card_tx_valid), .data(card_tx_data),

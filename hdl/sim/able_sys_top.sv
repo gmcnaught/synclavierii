@@ -134,7 +134,7 @@ module able_sys_top (
     wire         fm_rt_we = 1'b0, fm_rt_side = 1'b0, fm_q_side = 1'b0;
     wire  [4:0]  fm_rt_voice = '0, fm_rt_tag = '0, fm_q_voice = '0;
     logic        fm_q_live, fm_busy;
-    logic        term_vt640, term_mouse;
+    logic        term_vt640, term_mouse, smpte_img;
     logic [19:0] scsi_block_ns;
     logic [25:0] scsi_seek_ns;
     logic        voice_tick;

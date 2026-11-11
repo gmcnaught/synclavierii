@@ -150,6 +150,7 @@ OSD; SYN-5.3 looks for its hardware only at start-up):
 | Poly voice cards | From image, Mono | mono: a 3200's cards; SYN-5.3 pans hard right and the core plays it on both outputs |
 | Poly memory/bin | From image, 4 … 32 MB, 224 MB/bins | memory came in 4 MB steps |
 | FM voices | From image, 8, 16, 24, 32 | |
+| SMPTE reader (MTC in) | From image, On | the SMPTE reader, reading MIDI Time Code (below); needs a state image with the MIDI card |
 
 "From image" keeps what the state image says. The same choices exist in
 `tools/w0_image.py`, which bakes them into a state image:
@@ -248,3 +249,29 @@ every channel when STOP is pressed twice.
     <file delay="1" type="s" index="2" path="W0-53-MIDI.SST"/>
 </mistergamedescription>
 ```
+
+**Chasing a DAW's time code (MTC).** SYN-5.3 follows time code only
+through its SMPTE reader; MIDI Time Code on its MIDI card's input is
+ignored (`docs/devices/smpte.md`). The core models the SMPTE reader and
+feeds it the MTC that arrives on MIDI in, so the sequencer chases a DAW:
+
+1. Use `W0-53-MIDI-SMPTE.SST` (`tools/w0_image.py --midi --smpte`), or
+   `W0-53-MIDI.SST` with OSD Hardware "SMPTE reader (MTC in)" On, then
+   Reset.
+2. In the DAW, send MTC to the MidiLink USB MIDI port (e.g. Logic:
+   Project Settings → Synchronization → MIDI → Transmit MTC; Reaper:
+   the output device's "send timecode" setting). Set the DAW's frame rate to match
+   SYN-5.3's SMPTE mode: the default is Drop Frame (29.97 df); 30 = Non
+   Drop, 25, 24; 29.97 non-drop is "NTSC 30 Fr" (MTC sends it as 30).
+3. On the panel: hold SMPTE and press EXT: the window shows "Drop Frame
+   SMPTE" (SMPTE on). Press EXT again while the mode is shown to step
+   through the modes. The SMPTE button sets the sequence's SMPTE start
+   time (00:00:00:00 by default: sequence time 0 = time code 0).
+4. Start the DAW: the lower line shows the incoming time; about 0.5 s
+   later the sequencer locates and plays in step (in simulation within
+   10 ms); stop the DAW and the sequencer stops 0.1 s later; locate the
+   DAW and play: it follows. "SIGNAL DOES NOT MATCH SMPTE MODE": the DAW's
+   drop-frame setting differs from the SMPTE mode.
+
+Time code that stops for more than 50 ms counts as stopped. MIDI notes,
+clock and the rest go to the MIDI card as before.

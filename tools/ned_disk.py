@@ -5,11 +5,15 @@ Format (worked out from the Release L image and hansliss/syncextract):
   * sectors are 256 words = 512 bytes; words are big-endian in the image file
   * a catalog is a run of 8-word entries:
         name[4 words]  (8 chars, low byte first in each word, NUL padded)
-        start          (sector, relative to the catalog's own base sector)
-        length         (sectors)
+        start          (sector, relative to the catalog's own base sector;
+                        low 16 bits)
+        length         (sectors, low 16 bits)
         words          (file length in words, low 16 bits)
-        type           (0 text, 1 executable, 3/4 data, 6 subcatalog,
-                        7 floppy-sized subcatalog, 8 large executable)
+        type           (bits 0-3: 0 text, 1 executable, 3/4 data, 6
+                        subcatalog, 7 large subcatalog, 8 large executable;
+                        bits 4-7: length bits 16-19; bits 8-15: start bits
+                        16-23 -- XPL/CATCODE GET_FCB, so a catalog spans
+                        2^24 sectors, 8 GB)
   * entries with an empty name are free space; an all-zero entry ends the list
   * type 6/7 entries contain their own catalog at their first sector
 
@@ -48,6 +52,19 @@ def name_of(ws):
     return s.decode("latin-1")
 
 
+def entry_fields(e):
+    """(start, length, words, type) of an 8-word catalog entry."""
+    return e[4] | (e[7] >> 8) << 16, e[5] | (e[7] >> 4 & 0xF) << 16, e[6], e[7] & 0xF
+
+
+def entry_words(name_words, start, length, words, typ):
+    """The 8 words of a catalog entry (start < 2^24, length < 2^20)."""
+    if not 0 <= start < 1 << 24 or not 0 <= length < 1 << 20:
+        raise ValueError("start %d / length %d out of range" % (start, length))
+    return list(name_words) + [start & 0xFFFF, length & 0xFFFF, words & 0xFFFF,
+                               (start >> 16) << 8 | (length >> 16) << 4 | typ]
+
+
 def walk(W, base=0, path="", max_sectors=4, depth=0):
     for i in range(0, max_sectors * SECTOR_WORDS, 8):
         off = base * SECTOR_WORDS + i
@@ -57,7 +74,7 @@ def walk(W, base=0, path="", max_sectors=4, depth=0):
         nm = name_of(e[0:4])
         if not nm:
             continue
-        start, length, words, typ = e[4], e[5], e[6], e[7]
+        start, length, words, typ = entry_fields(e)
         abs_start = base + start
         p = path + "/" + nm
         yield p, typ, abs_start, length, words
@@ -108,6 +125,28 @@ def put_bank(W, floppy, base, fw, n, path):
 ROOT_CATALOG_SECTORS = 4
 
 
+class DiskWords:
+    """Big-endian words of image bytes, unpacked only where indexed (a
+    catalog lookup in a large image reads its catalog sectors, not the
+    whole image)."""
+
+    def __init__(self, d):
+        self.d = d
+
+    def __len__(self):
+        return len(self.d) // 2
+
+    def __getitem__(self, k):
+        if isinstance(k, slice):
+            a, b, step = k.indices(len(self))
+            if step != 1:
+                raise ValueError("step slices are not supported")
+            return struct.unpack(">%dH" % max(0, b - a), bytes(self.d[2 * a:2 * max(a, b)]))
+        if k < 0:
+            k += len(self)
+        return struct.unpack_from(">H", self.d, 2 * k)[0]
+
+
 def add_root_file(disk, name, data, typ=3, capacity=None):
     """Append file `name` (bytes `data`, big-endian words) to the root
     catalog of hard-disk image bytes `disk` (a bytearray, changed in place):
@@ -133,7 +172,7 @@ def add_file(disk, path, data, typ=3, capacity=None, replace=False):
     name = parts[-1]
     if not 1 <= len(name) <= 8 or len(data) % 2:
         raise ValueError("name up to 8 characters, whole words")
-    W = load_bytes(disk)
+    W = DiskWords(disk)
     if len(parts) > 1:
         sub = "/" + "/".join(parts[:-1])
         for p, t, start, length, words in walk(W):
@@ -144,7 +183,7 @@ def add_file(disk, path, data, typ=3, capacity=None, replace=False):
             raise ValueError("no sub-catalog %s" % sub)
     else:
         capacity = capacity if capacity is not None else len(disk) // (2 * SECTOR_WORDS)
-        base, cat_sectors, limit = 0, ROOT_CATALOG_SECTORS, min(capacity, 0x10000)
+        base, cat_sectors, limit = 0, ROOT_CATALOG_SECTORS, min(capacity, 1 << 24)
     nwords = len(data) // 2
     length = (nwords + SECTOR_WORDS - 1) // SECTOR_WORDS
     nb = (name.encode("latin-1") + bytes(8))[:8]
@@ -156,22 +195,24 @@ def add_file(disk, path, data, typ=3, capacity=None, replace=False):
         if not any(e):
             slot = off
             break
+        e_start, e_len = entry_fields(e)[:2]
         if name_of(e[0:4]) == name:
             if not replace:
                 raise ValueError("%s is already in the catalog" % name)
-            if length <= e[5]:
-                at = (base + e[4]) * SECTOR_WORDS * 2
-                disk[at:at + e[5] * SECTOR_WORDS * 2] = data + bytes(e[5] * SECTOR_WORDS * 2 - len(data))
-                disk[off + 12:off + 16] = struct.pack(">2H", (e[5] * SECTOR_WORDS) & 0xFFFF, typ)
-                return base + e[4]
+            if length <= e_len:
+                at = (base + e_start) * SECTOR_WORDS * 2
+                disk[at:at + e_len * SECTOR_WORDS * 2] = data + bytes(e_len * SECTOR_WORDS * 2 - len(data))
+                disk[off:off + 16] = struct.pack(">8H", *entry_words(e[0:4], e_start, e_len,
+                                                                     e_len * SECTOR_WORDS, typ))
+                return base + e_start
             disk[off:off + 8] = bytes(8)            # free space: empty name
-        if e[5]:
-            end = max(end, e[4] + e[5])
+        if e_len:
+            end = max(end, e_start + e_len)
     if slot is None:
         raise ValueError("catalog full")
     if end + length > limit:
         raise ValueError("%s: %d sectors do not fit after sector %d" % (name, length, base + end))
-    disk[slot:slot + 16] = struct.pack(">8H", *(entry_name + [end, length, nwords & 0xFFFF, typ]))
+    disk[slot:slot + 16] = struct.pack(">8H", *entry_words(entry_name, end, length, nwords, typ))
     at = (base + end) * SECTOR_WORDS * 2
     disk[at:at + length * SECTOR_WORDS * 2] = data + bytes(length * SECTOR_WORDS * 2 - len(data))
     return base + end

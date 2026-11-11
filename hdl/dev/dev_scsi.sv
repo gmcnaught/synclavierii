@@ -45,8 +45,8 @@ module dev_scsi #(
     input  logic [19:0] block_ns,     // disk time per block (0: none)
     input  logic [25:0] seek_ns,      // seek time of a non-sequential READ (0: none)
     output logic        hint,         // a READ starts: fetch the line of hint_blk
-    output logic [15:0] hint_blk,
-    output logic [15:0] probe_blk,    // the block under the read position
+    output logic [23:0] hint_blk,
+    output logic [23:0] probe_blk,    // the block under the read position
     input  logic        line_ok,      // its line is buffered (a clock late)
     input  logic        line_wait,    // hold for line_ok (paced to real time)
     output logic        hold,
@@ -60,12 +60,12 @@ module dev_scsi #(
 
     input  logic        present,
     input  logic        protect,
-    input  logic [16:0] blocks,
+    input  logic [24:0] blocks,       // at most 2^24
     input  logic        present1,     // W1
     input  logic        protect1,
-    input  logic [16:0] blocks1,
+    input  logic [24:0] blocks1,
     output logic        d_unit,       // the selected disk: 0 W0, 1 W1
-    output logic [23:0] d_addr,       // {block[15:0], word[7:0]}
+    output logic [31:0] d_addr,       // {block[23:0], word[7:0]}
     output logic        d_rd,
     output logic        d_wr,
     output logic [15:0] d_wdata,
@@ -87,7 +87,7 @@ module dev_scsi #(
 
     logic [2:0]  phase, src, q;
     logic        tsel;                // the selected target: 0 TARGET, 1 TARGET1
-    wire  [16:0] dblocks = tsel ? blocks1 : blocks;
+    wire  [24:0] dblocks = tsel ? blocks1 : blocks;
     wire         dprotect = tsel ? protect1 : protect;
     assign d_unit = tsel;
     logic [15:0] select_bits;
@@ -98,13 +98,13 @@ module dev_scsi #(
     logic [3:0]  cdb_n;
     logic [7:0]  status, sense_key, last_sense;
     logic [24:0] len, pos;
-    logic [16:0] lba;
+    logic [23:0] lba;
     logic        out_disk;
     logic [7:0]  wbuf;
     logic        cw_ok;               // cw holds stream word cw_word (disk data)
     logic [23:0] cw_word;
     logic [15:0] cw;
-    logic [23:0] st_addr;             // the word being written
+    logic [31:0] st_addr;             // the word being written
     logic [1:0]  nbytes;              // bytes still to move for this access
     logic        is_get, is_peek;
     logic [15:0] put_word;
@@ -125,10 +125,12 @@ module dev_scsi #(
     end
 
     wire [23:0] want_word = pos[24:1];
-    wire [16:0] want_blk  = lba + {1'b0, want_word[23:8]};
+    wire [23:0] want_blk  = lba + {8'd0, want_word[23:8]};
 
     // the byte at pos of a generated reply
-    wire [31:0] last_blk = {15'd0, dblocks} - 32'd1;
+    wire [31:0] last_blk = {7'd0, dblocks} - 32'd1;
+    // MODE SENSE block descriptor: 3 bytes of block count (2^24 shows as FFFFFF)
+    wire [23:0] mode_blk = dblocks[24] ? 24'hFFFFFF : dblocks[23:0];
     logic [7:0] gen;
     always_comb begin
         gen = 8'd0;
@@ -145,9 +147,9 @@ module dev_scsi #(
             G_MODE: case (pos[3:0])
                 4'd0:  gen = 8'd11;
                 4'd3:  gen = 8'd8;
-                4'd5:  gen = {7'd0, dblocks[16]};
-                4'd6:  gen = dblocks[15:8];
-                4'd7:  gen = dblocks[7:0];
+                4'd5:  gen = mode_blk[23:16];
+                4'd6:  gen = mode_blk[15:8];
+                4'd7:  gen = mode_blk[7:0];
                 4'd10: gen = 8'h02;
                 default: gen = 8'd0;
             endcase
@@ -183,14 +185,14 @@ module dev_scsi #(
                                   : {11'd0, cdb[1][4:0], cdb[2], cdb[3]};
     wire [16:0] ex_n   = ex_op[5] ? {1'b0, cdb[7], cdb[8]}
                                   : (cdb[4] == 8'd0 ? 17'd256 : {9'd0, cdb[4]});
-    wire        ex_range = ex_lba + {15'd0, ex_n} > {15'd0, dblocks};
+    wire        ex_range = {1'b0, ex_lba} + {16'd0, ex_n} > {8'd0, dblocks};
     wire [24:0] ex_len4  = {17'd0, cdb[4]};
 
     // disk time
     logic        timed;
     logic [39:0] elapsed, due;
     wire ready = !timed || phase != P_DATA_IN || (elapsed >= due && (!line_wait || line_ok));
-    assign probe_blk = want_blk[15:0];
+    assign probe_blk = want_blk;
 
     // where the last READ or WRITE ended
     logic        head_ok, head_t;
@@ -202,7 +204,7 @@ module dev_scsi #(
 
     wire start = sel && (rd || wr) && !ack && q == Q_IDLE && !hold;
 
-    assign d_addr  = q == Q_STORE ? st_addr : {want_blk[15:0], want_word[7:0]};
+    assign d_addr  = q == Q_STORE ? st_addr : {want_blk, want_word[7:0]};
     assign d_rd    = q == Q_FETCH;
     assign d_wr    = q == Q_STORE;
     assign d_wdata = {wbuf, put_word[7:0]};
@@ -308,7 +310,7 @@ module dev_scsi #(
                     if (!pos[0]) wbuf <= put_b;
                     else if (out_disk) begin
                         put_word <= {8'd0, put_b};
-                        st_addr <= {want_blk[15:0], want_word[7:0]};
+                        st_addr <= {want_blk, want_word[7:0]};
                         q <= Q_STORE;
                     end
                     if (pos + 25'd1 == len) begin status <= 8'h00; phase <= P_STATUS; end
@@ -354,10 +356,10 @@ module dev_scsi #(
                 end else if (ex_op[1] && dprotect) begin              // write, read only
                     status <= 8'h02; sense_key <= 8'h07;
                 end else if (ex_n != 17'd0) begin
-                    lba <= ex_lba[16:0];
+                    lba <= ex_lba[23:0];
                     head_ok <= 1'b1; head_t <= tsel; head_lba <= ex_lba + {15'd0, ex_n};
                     if (ex_seek) due <= 40'(block_ns) + 40'(seek_ns);
-                    if (ex_read) begin hint <= 1'b1; hint_blk <= ex_lba[15:0]; end
+                    if (ex_read) begin hint <= 1'b1; hint_blk <= ex_lba[23:0]; end
                     len <= {ex_n[15:0], 9'd0};
                     src <= G_DISK;
                     out_disk <= 1'b1;

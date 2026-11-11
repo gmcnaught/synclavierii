@@ -120,7 +120,7 @@ class ScsiDisk:
             n = cdb[4]
             page = bytearray(12)
             page[0], page[3] = 11, 8
-            page[5:8] = self.blocks.to_bytes(3, "big")
+            page[5:8] = min(self.blocks, 0xFFFFFF).to_bytes(3, "big")   # 2^24: FFFFFF
             page[9:12] = BLOCK.to_bytes(3, "big")
             return GOOD, bytes(page[:n]), 0, None
         if op == 0x15:                                     # MODE SELECT(6)

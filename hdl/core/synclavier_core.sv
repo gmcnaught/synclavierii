@@ -168,21 +168,21 @@ module synclavier_core #(
     output logic signed [39:0] audio_sum_r
 );
     // ------------------------------------------------------------ floppies
-    logic [26:0] m_addr;
+    logic [34:0] m_addr;                         // {drive[2:0], block[23:0], word[7:0]}
     logic        m_rd, m_wr, m_ack;
     logic [15:0] m_wdata, m_rdata;
     logic [5:0]  sd_present;
     logic [16:0] stm_blocks;
     logic        w1_protect;
-    logic [16:0] w1_blocks;
+    logic [24:0] w1_blocks;
     logic [1:0]  fd_protect;
     logic        w0_protect;
     logic [12:0] state_blocks;
-    logic [16:0] w0_blocks;
+    logic [24:0] w0_blocks;
     wire  [1:0]  fd_present = sd_present[1:0];
     logic [10:0] fd_sectors0, fd_sectors1;
     logic        scsi_hint, scsi_line_ok;            // dev_scsi <-> sd_floppy (seek time)
-    logic [15:0] scsi_hint_blk, scsi_probe_blk;
+    logic [23:0] scsi_hint_blk, scsi_probe_blk;
     logic        scsi_unit;
     logic [5:0]  media_rd, media_wr;
     logic        prn_rd, prn_wr;
@@ -389,7 +389,7 @@ module synclavier_core #(
         .sd_buff_addr, .sd_buff_dout, .sd_buff_din(sd_buff_din6), .sd_buff_wr,
         .count(prn_count), .busy(prn_busy), .note(prn_note), .note_valid(prn_note_valid)
     );
-    logic [23:0] scsi_addr;
+    logic [31:0] scsi_addr;
     logic        scsi_rd, scsi_wr;
     logic [15:0] scsi_wdata;
     wire  sel_scsi = (dev_rd || dev_wr) && dev_num[6:2] == 5'b00101;        // 024-027
@@ -475,12 +475,13 @@ module synclavier_core #(
 
     // the boot loader owns the floppy and external memory ports in reset;
     // then the SCSI disks (drives 3, 4) or the floppies:
-    // dev_floppy: {drive, sector[9:0], word} -> {drive[2:0], block[15:0], word}
+    // dev_floppy: {drive, sector[9:0], word} -> {drive[2:0], block[23:0], word}
     wire scsi_m = scsi_rd || scsi_wr;
     // (dig_stm, M18: while stm_own, its read and only its)
-    assign m_addr   = cpu_rst ? {1'b0, b_fd_addr} : stm_own ? {3'd5, stm_addr}
+    assign m_addr   = cpu_rst ? {1'b0, b_fd_addr[25:24], 8'd0, b_fd_addr[23:0]}
+                    : stm_own ? {3'd5, 8'd0, stm_addr}
                     : scsi_m ? {scsi_unit ? 3'd4 : 3'd3, scsi_addr}
-                    : {2'b00, s_fd_addr[18], 6'd0, s_fd_addr[17:0]};
+                    : {2'b00, s_fd_addr[18], 14'd0, s_fd_addr[17:0]};
     assign m_rd     = cpu_rst ? b_fd_rd   : stm_own ? stm_rd : (scsi_m ? scsi_rd : s_fd_rd);
     assign m_wr     = cpu_rst ? 1'b0      : !stm_own && (scsi_m ? scsi_wr : s_fd_wr);
     assign m_wdata  = scsi_m ? scsi_wdata : s_fd_wdata;

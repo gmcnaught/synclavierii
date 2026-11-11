@@ -137,6 +137,17 @@ EMPTY = {"partials": [None] * 4, "misc": MISC_TEMPLATE}
 
 def write_file(path, banks, min_sectors=2000):
     """banks: list of 8 lists of up to 8 timbres (None = empty slot)."""
+    out, stride, need = bank_bytes(banks, min_sectors)
+    with open(path, "wb") as f:
+        f.write(out)
+    return stride, need
+
+
+def bank_bytes(banks, min_sectors=2000):
+    """(.NEWDATA bytes, bank stride, largest bank in sectors) for up to 8
+    banks of up to 8 timbres (None = empty slot)."""
+    if len(banks) > 8:
+        raise ValueError("%d banks: a .NEWDATA holds 8" % len(banks))
     data = []
     for b in range(8):
         slots = ((banks[b] if b < len(banks) else []) + [None] * 8)[:8]
@@ -149,9 +160,7 @@ def write_file(path, banks, min_sectors=2000):
     out = []
     for ws in data:
         out += ws + [0] * (stride * SECTOR - len(ws))
-    with open(path, "wb") as f:
-        f.write(struct.pack(">%dH" % len(out), *out))
-    return stride, need
+    return struct.pack(">%dH" % len(out), *out), stride, need
 
 
 # ------------------------------------------------------------- text parsing

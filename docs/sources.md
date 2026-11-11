@@ -158,3 +158,15 @@ checksums differ.
 * The cards communicate through the backplane; J1 ribbons go to other cards.
 * The cards must be in strictly adjacent slots; the backplane is referred to
   as "IB25"; peripherals (MFC1, disk controllers) cable out of the rack.
+
+### NED user manuals on printing (M21)
+
+| Where | Path in `Synclavier/Documentation` @ `ee74dbdc…` | Used |
+|---|---|---|
+| Blue Manuals | `User Documentation/Blue Manuals/11 Organizing and Storing Sounds/OS-07 Printing.pdf` | hardcopy keys per screen, Monitor `print` |
+| 3 Folders Manual | `User Documentation/3 Folders Manual (red-green-blue)/Terminal Support Options/HARDWARE AND SOFTWARE OPTIONS.pdf` | supported printers, D40 interface |
+| 3 Folders Manual | `User Documentation/3 Folders Manual (red-green-blue)/Real-Time Performance Options/NOTES ON MUSIC PRINTING HARDWARE AND SOFTWARE July 1984.pdf` | Music Printing Option: VT640, IDS P-80/P-132 |
+| Release O manual | `User Documentation/Release O Manual/Public/Release O Manual OCR Lo-Res.pdf`, Music Printing addendum §7 | PostScript printers, RS-232 pins 2/3/7, 9600 baud |
+
+Summarised in [`devices/d40-printer.md`](devices/d40-printer.md) §3.0, not copied.
+

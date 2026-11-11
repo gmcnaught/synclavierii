@@ -63,10 +63,48 @@ rate is the D40Q's default [UNK].
 | K Music Notation Display | `H` ("Print screen with <H>", `MNOTMOD/PICSFNCS.xpl:20`) | `HARDCOPY` (`MNOTMOD/MAINFNCS.xpl:40-46`) | IDS graphics, read back from the terminal (§4) |
 | G Recorder Display | `h` (`RECMOD/557REC1A:337-343`) | `SCREEN_DUMP` | text: for each 80-character screen row CR LF DC4 (`"15" "12" "24"`) then the row from the screen image in external memory; FF at the end (`D40SOU:137-161`) |
 | B Sound File Directory (optical) | print command (`STORMOD/WINDOW:953`) | `Print.Directory` (`STORMOD/PRINT:63-294`) | text with page headers and FF |
+| A Timbre Directory, C Sequence Directory, library | `p` | `SCREEN_DUMP` (`DIRMOD/575-TIMB:347`, `577-SEQ:351`, `536-LIB:181`) | text, as G |
+| I Patch Display (keyboard), H Multichannel/routing, E Extra System Commands | `p` | `SCREEN_DUMP` (`PATCHMOD/PATCHSOU:192,275`, `ROUTMOD/ROUTSOUB:522`, `SYSMOD/580-SYST:410`) | text |
+| Patch Display (main screen), Direct-to-Disk displays | CTRL-P | `SCREEN_DUMP` (`PATCHMOD/550-ASSN:1020`, `DTDMOD/DTDSOUA:1146`, `DTDSOUC:1205`) | text |
+| L Sound File Editor (Display menu) | `N` per the manual | `HARDCOPY` (`STMMOD/STINSOU:225`, "Printing...") | IDS graphics |
+| F FM Timbre Displays | the Hardcopy field + Return | `SCREEN_DUMP` or `HARDCOPY` (`TIMBMOD/TDSUSOU:185-189`) | text or IDS graphics |
 
-Without `o#d40` both keys call `no.printer` (an error message). The Main
+The keys match the table in NED's user manual, *OS-07 Printing* ("Printing
+from the RTP system", Blue Manuals, `Synclavier/Documentation`). Run so
+far: G `h` (simulator) and K `H` (simulator and MiSTer, §7); the others
+are [OBS source] only.
+
+Without `o#d40` the keys call `no.printer` (an error message). The Main
 Menu's "<PF3> Music Printing" is a separate NED program (the MONITOR's
 PLOT command) that is not on the W0 image; nothing here concerns it.
+
+### 3.0 What NED's manuals say about the printer [OBS manuals]
+
+* *Hardware and Software Options* (1984): printers that work with the
+  system are the DECwriter, LA-34, Printronix, Prism and Diablo 630, on
+  the D40 interface (the printer types of `SYSLITS`).
+* *Notes on Music Printing Hardware and Software* (July 1984): the Music
+  Printing Option (SCRIPT era) needs the VT640 and an IDS **P-80 or
+  P-132** graphics printer (the Paper Tiger/Prism family the hardcopy
+  codes are for) on the PRINTER/MODEM port.
+* *Release O manual*, Music Printing addendum, §7 "Printers" (Revision
+  F.4): the Music Printing program also drives **PostScript** laser
+  printers and typesetters (LaserWriter, QMS-PS800, Linotronic 100/300
+  ...) and has a LASERCOM utility to talk to them; the printer goes on the
+  Synclavier's Printer port with an RS-232 25-pin cable, **pins 2, 3 and 7
+  only** (no hardware handshake), at **9600 baud**.
+* *OS-07 Printing*: before printing "be sure your printer is connected
+  and the power is on ... in 'ready' or 'on line' mode"; the Monitor's
+  `print` command prints a text file; nothing about the screen after a
+  hardcopy.
+
+So on the instrument the port ran at 9600 baud, with flow control by
+XON/XOFF from the printer [INF: no handshake wires; the driver honours
+^S/^Q, §2]. The model's 10 µs a byte (§5)
+departs from that: at 9600 baud the simulated hardcopy is noise (§3.1).
+Whether the real hardcopy was right at 9600 baud with this 5.3 code is
+[UNK]; the Synclavier³ source says it "doesnt work any more" under the
+interpreter.
 
 ### 3.1 Screen hardcopy (`hardcopy`, `D40SOU:166-349`)
 

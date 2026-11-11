@@ -46,9 +46,10 @@ def test_fm_tables_up_to_date():
 
 
 def test_font_up_to_date():
-    from tools.gen_font import PATH, PATH610, text, text610
+    from tools.gen_font import PATH, PATH610, text, text610, PATHGLASS, text_glass
     assert open(PATH).read() == text(), "run python3 tools/gen_font.py"
     assert open(PATH610).read() == text610(), "run python3 tools/gen_font.py"
+    assert open(PATHGLASS).read() == text_glass(), "run python3 tools/gen_font.py"
 
 
 def _testbench(name, rtl, args=()):
@@ -162,6 +163,8 @@ def test_term_display_vt100():
 VT640_STREAM = (
     b"\x1b[H\x1b[2JTitle line\x1b[3;10H\x1b[7mreverse\x1b[0m plain"
     b"\x1b[5;1H\x1b#6WIDE\x1b[24;70Hbottom"
+    b"\x1b[7;1H\x1b#3Tall gy\x1b[8;1H\x1b#4Tall gy"            # double height, both halves
+    b"\x1b[10;1H\x1b(0lqwqk\x1b[11;1Hx x x\x1b[12;1Hmqvqj`a\x1b(B gjpqy|_"   # line drawing, descenders
     b"\x1d\x1b/0d"
     b"\x20\x60\x20\x40"                  # (0,0) move
     b"\x38\x70\x3f\x5f"                  # to (1023, 760) line

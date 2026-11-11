@@ -235,6 +235,7 @@ supported by Synclavier Digital or New England Digital.
 | `mister/sys/` (MiSTer framework, unchanged) | GPL-2.0, [`mister/sys/LICENSE-GPL2`](mister/sys/LICENSE-GPL2) |
 | `third_party/font8x8/` (Daniel Hepper) | Public domain (header of `font8x8_basic.h`) |
 | `third_party/font6x10/` (X.Org misc-misc `6x10.bdf`) | Public domain (`COPYRIGHT` in the BDF) |
+| `third_party/glasstty/` (svofski, Glass TTY VT220) | Unlicense (`third_party/glasstty/LICENSE`) |
 | `tests/fixtures/NED-SCSI.LST` (NED assembler listing) | MIT, [`tests/fixtures/LICENSE-NED-Software`](tests/fixtures/LICENSE-NED-Software) |
 
 A built core (`.rbf`) contains `mister/sys/`, so a distributed RBF is a

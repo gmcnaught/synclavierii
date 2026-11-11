@@ -16,6 +16,13 @@ This repository contains:
   * third_party/font8x8/font8x8_basic.h: 8x8 bitmap font by Daniel
     Hepper, based on work by Marcel Sondaar / IBM; public domain.
 
+  * third_party/font6x10/6x10-ascii.bdf: X.Org misc-misc 6x10 font;
+    public domain.
+
+  * third_party/glasstty/: the dot matrix of the Glass TTY VT220 font by
+    svofski (https://github.com/svofski/glasstty), Unlicense
+    (third_party/glasstty/LICENSE).
+
   * tests/fixtures/NED-SCSI.LST: an NED assembler listing from
     jbemond/Software ("Official Software for the Synclavier(R) Digital
     Audio System"), Copyright (c) 2017 Synclavier Digital, MIT licence

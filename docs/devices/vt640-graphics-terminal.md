@@ -419,10 +419,20 @@ refuses VT640 (§2.6); it also needs Direct-to-Disk. [INF]
 * **Bitmap: 640 × 480 × 1 bit** in VT640 pixels (300 Kbit; one
   dual-port BRAM), row = 479 − y.
 * **Terminal area = the whole 640 × 480 while graphics are configured**:
-  text row r on lines 20r…20r+19 (16-line glyph + 2 lines padding), column
-  c at pixel 8 + ⌊7.5c⌋ (cells alternately 8 and 7 pixels wide; the 8 × 8
-  font's column 7 is blank for most glyphs; line-drawing glyphs widen to
-  the cell). Graphics OR text = lit pixel. [INF from §3.5]
+  text row r on lines 20r…20r+19, column c at pixel 8 + ⌊7.5c⌋ (cells
+  alternately 8 and 7 pixels wide). Graphics OR text = lit pixel. [INF
+  from §3.5]
+* Text glyphs: [CHOICE] the VT220's 7 × 9 dot matrix in a 10-row cell
+  (svofski's Glass TTY VT220, Unlicense, `third_party/glasstty`,
+  `tools/gen_font.py`), each row doubled: 10 rows fill the 20 lines with
+  no padding. Dots are 1 pixel wide (the VT220's dot stretch would make
+  neighbours touch in the 7-pixel cells); glyphs use font columns 0–6,
+  so the odd cells lose nothing; line-drawing glyphs repeat column 6 into
+  column 7 so lines join, as the VT220 does. Double height: font rows 0–4
+  (top) or 5–9 (bottom), 4 lines each. The cursor is font row 8. The
+  VT640 board kept the host VT100's text; the VT100's ROM is a 7 × 9
+  matrix in a 10-line cell too, so this is closer than the 8 × 8 font
+  doubled with 2 blank lines above and below that it replaces. [INF]
 * The current 640 × 384 text area + panel (`docs/hdl.md`) cannot hold this
   geometry: scaling graphics into 640 × 384 (x' = (x−8)·16/15,
   y' = (479−y)·4/5) keeps text alignment but clips x < 8 and x > 607,

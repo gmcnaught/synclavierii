@@ -420,3 +420,10 @@ Verified:
   --seek-us 0 --fm-voices 8`): 19,600,000 instructions, 736 SD reads,
   identical. The boot's sound-file cache build reads 74 W1: blocks, 18 of
   them above 65,535 (up to 560,350).
+* MiSTer .62 (RBF of PR #65, worst setup slack +0.243 ns; `W0-53.IMG` in
+  S3, `W1-SAMPLES.IMG` in S4, `W0-53-W1-VT640.SST`): boot to the Main Menu;
+  D, `W1:PIANO1`: "Current Catalog: W1:PIANO1"; BANK 2 ENTRY 1 (panel
+  buttons over MIDI channel 16): "Current Timbre: FULL PIANO 5.7", all 14
+  sound files found in DDR3 poly memory (`/dev/mem`); `W1:SYNTH2` BANK 5
+  ENTRY 1: "SYN51 PAD 1.93", its 6 sound files in poly memory. Not yet
+  listened to.

@@ -105,8 +105,8 @@ python3 tools/music_printing.py install W0-53.IMG mp              # into W0:.SYS
 ```
 
 Builds NED's XPL compiler (clang++, macOS) and NED's Music Printing
-program as NED's release build does, with the printer handshake off, and
-installs it on a W0 image (`docs/devices/d40-printer.md` §3.4). Nothing it
+program as NED's release build does, with the printer handshake off and
+the VT640 Screen display starting at pixel 8, and installs it on a W0 image (`docs/devices/d40-printer.md` §3.4). Nothing it
 builds is committed.
 
 ## `stmb.py`, `timbre_disk.py`: timbre libraries

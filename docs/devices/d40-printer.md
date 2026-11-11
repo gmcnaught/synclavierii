@@ -188,7 +188,8 @@ NED's source and installed by `tools/music_printing.py`:
   a command-line compile never calls are stubbed), then the XPL libraries
   and `Able/MPLT` as NED's release build does (`Sync3Builder`:
   `XPL/COMALL`, `MPLT/COMPILE` → `*SPLT-7`).
-* One line of the program is changed: `PS_PRINTER_WRITE_ONLY` (MPLT/LITS)
+* Two changes are made to the source (`PATCHES` in the tool). First,
+  `PS_PRINTER_WRITE_ONLY` (MPLT/LITS)
   = 1 instead of `interp_is_running`. With it 0 the program first sends
   CTRL-T and waits for a PostScript printer's `%%[ status: idle ]%%`
   (`MPLT/HARDSORC` `AQUIRE_PRINTER`), then asks whether `NEDMusicFont` is
@@ -198,6 +199,19 @@ NED's source and installed by `tools/music_printing.py`:
   handshake as compiled could not succeed with a real printer either:
   `COMPARE` is exact, the expected status line ends in CR, and PSPACK keeps
   the LF that ends a status message (`MPLT/PSPACK` WHEN D40INT) [INF].
+* Second, the Screen display on a VT640 starts the music at graphics pixel
+  8 instead of 0 [CHOICE]. As NED wrote it, `DISPLAY_MUSIC` (MPLT/MAINSORC)
+  maps the music's X 0 to pixel 0 (`OPEN_WINDOW`, MPLT/PICSFNCS: `viewport`
+  and `iwindow` both 0 … 639) and a single unnamed staff starts at X 0
+  (`START_STAFF`, MPLT/LISTFNCS), so the clef touches the left edge of the
+  picture; a line is the page width at 75 pixels per inch (7.5 in = 562
+  pixels, `MAINSORC` PIXEL_WIDTH). [OBS] A VT100's CRT showed the picture
+  inside a black border, which the core's edge-to-edge video lacks [INF].
+  The patch sets `viewport (8,639,…)` and `iwindow (0,631,…)` after
+  `OPEN_WINDOW` in `DISPLAY_MUSIC` (still 1:1, X 0 at pixel 8, where
+  SYN-5.3's text column 0 starts, §3.5 of `vt640-graphics-terminal.md`) and
+  limits a line to 631 pixels. MG600/Macintosh terminals, the editor and the
+  printed page are unchanged.
 * The Synclavier³ W0 already has all six files. Its `.SPLT-7` waits for
   the printer like the source does (in the simulator: CTRL-T only,
   "Waiting for printer to respond"); its `.SAUX-7`, `.SCWT-7`, `.SFRM-7`,

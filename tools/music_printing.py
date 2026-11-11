@@ -10,11 +10,17 @@
 command-line compile never calls), then the XPL libraries (`Able/XPL/COMALL`)
 and Music Printing (`Able/MPLT/COMPILE`) the way NED's release build
 (`Projects/AbleBrowser/Sync3Builder`) does. It works on a copy of the source
-in OUTDIR/src and changes one line there: `PS_PRINTER_WRITE_ONLY` (MPLT/LITS)
-is 1 instead of `interp_is_running`, so the program sends its PostScript
-without waiting for printer replies, as it does under Synclavier3; the core's
-printer port is a capture file that never answers (docs/devices/d40-printer.md
-section 3.4). OUTDIR/mplt then holds the six files the release puts in
+in OUTDIR/src and changes two things there (docs/devices/d40-printer.md
+section 3.4):
+
+* `PS_PRINTER_WRITE_ONLY` (MPLT/LITS) is 1 instead of `interp_is_running`, so
+  the program sends its PostScript without waiting for printer replies, as it
+  does under Synclavier3; the core's printer port is a capture file that never
+  answers.
+* On a VT640 the Screen display (MPLT/MAINSORC `DISPLAY_MUSIC`) starts the
+  music at graphics pixel 8, where SYN-5.3's text starts, instead of pixel 0,
+  and fits each line in the remaining 632 pixels. The printed page and the
+  editor are unchanged. OUTDIR/mplt then holds the six files the release puts in
 W0:.SYSTEM: .SPLT-7 (program) and .SAUX-7, .SCWT-7, .SFRM-7, .SLIB-7 (data),
 .SPRO-7 (the PostScript font prolog, text).
 
@@ -68,8 +74,30 @@ void zero_mem(byte *the_data, uint32 the_length) { memset(the_data, 0, the_lengt
 int InterChangeLibEqualFSSpecs(SyncFSSpec *, SyncFSSpec *) { return 0; }
 '''
 
-WRITE_ONLY_OLD = b"dcl PS_PRINTER_WRITE_ONLY\tlit 'interp_is_running';"
-WRITE_ONLY_NEW = b"dcl PS_PRINTER_WRITE_ONLY\tlit '1';"
+# (file under Able/MPLT, NED's text, replacement); each text occurs once.
+# Lines end in CR (NED text files).
+SCREEN_X0 = 8   # SYN-5.3's text column 0 starts at VT640 pixel 8 (PLOTSOU gpos.x)
+PATCHES = [
+    ("LITS", b"dcl PS_PRINTER_WRITE_ONLY\tlit 'interp_is_running';",
+     b"dcl PS_PRINTER_WRITE_ONLY\tlit '1';"),
+    ("MAINSORC", b"DISPLAY_MUSIC:procedure swap;\r\r  dcl SYSTEMS       fixed,\r",
+     b"DISPLAY_MUSIC:procedure swap;\r\r  dcl SYSTEMS       fixed,\r"
+     b"      DISP_X0       fixed, /* VT640: music starts at this pixel (patch) */\r"),
+    ("MAINSORC", b"\r      if PIXEL_WIDTH <= SCREEN_WIDTH#\r"
+     b"      then call GET_SYSTEM (PIXEL_WIDTH - 1);\r"
+     b"      else call GET_SYSTEM (SCREEN_WIDTH#);\r",
+     b"\r      DISP_X0 = 0; if terminal.model = t#vt640 then DISP_X0 = %d;\r"
+     b"      if PIXEL_WIDTH <= SCREEN_WIDTH# - DISP_X0\r"
+     b"      then call GET_SYSTEM (PIXEL_WIDTH - 1);\r"
+     b"      else call GET_SYSTEM (SCREEN_WIDTH# - DISP_X0);\r" % SCREEN_X0),
+    ("MAINSORC", b"        call OPEN_WINDOW (SCREEN_TOP#,STAFF_POS,SCREEN_BOT#);\r",
+     b"        call OPEN_WINDOW (SCREEN_TOP#,STAFF_POS,SCREEN_BOT#);\r"
+     b"        if DISP_X0 ~= 0 then do; /* User X 0 at pixel DISP_X0, 1:1 */\r"
+     b"          viewport (DISP_X0,SCREEN_WIDTH#,SCREEN_BOT#,SCREEN_TOP#);\r"
+     b"          WINDOW_XH = SCREEN_WIDTH# - DISP_X0;\r"
+     b"          iwindow  (WINDOW_XL,WINDOW_XH,WINDOW_YL,WINDOW_YH);\r"
+     b"        end;\r"),
+]
 
 # (W0:.SYSTEM name, file in OUTDIR/mplt, NED file type: 0 text, 1 exec, 3 data)
 FILES = [(".SPLT-7", "*SPLT-7.sprg", 1), (".SAUX-7", "*SAUX-7.sdat", 3),
@@ -107,6 +135,16 @@ def build_compiler(src, out):
     return exe
 
 
+def patch_source(mplt):
+    """Apply PATCHES to the MPLT source directory in place."""
+    for name, old, new in PATCHES:
+        path = os.path.join(mplt, name)
+        data = open(path, "rb").read()
+        if data.count(old) != 1:
+            raise SystemExit("MPLT/%s: text to patch not found once: %r" % (name, old[:60]))
+        open(path, "wb").write(data.replace(old, new))
+
+
 def build(software, out):
     out = os.path.abspath(out)
     src = os.path.join(out, "src")
@@ -116,11 +154,7 @@ def build(software, out):
     shutil.copytree(os.path.join(software, "Projects", "XPLProcessors"),
                     os.path.join(src, "Projects", "XPLProcessors"))
     shutil.copytree(os.path.join(software, "Able"), os.path.join(src, "Able"))
-    lits = os.path.join(src, "Able", "MPLT", "LITS")
-    data = open(lits, "rb").read()
-    if data.count(WRITE_ONLY_OLD) != 1:
-        raise SystemExit("MPLT/LITS: PS_PRINTER_WRITE_ONLY declaration not found")
-    open(lits, "wb").write(data.replace(WRITE_ONLY_OLD, WRITE_ONLY_NEW))
+    patch_source(os.path.join(src, "Able", "MPLT"))
     print("compiler ...")
     exe = build_compiler(src, out)
     xpl = os.path.join(out, "xpl")

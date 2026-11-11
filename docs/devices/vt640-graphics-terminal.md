@@ -199,6 +199,14 @@ Exception: MONITOR CLEARSCREEN sends ESC `!5M` only for `G#MACINTOSH`
   (`MNOTMOD/GLOBFNCS.xpl:686-687`). [OBS]
 * BS (010) is used to overstrike: note heads are `o` BS `#` on VT640
   (`PICSFNCS.xpl:233-238`). [OBS]
+* Glyphs: [CHOICE] the public-domain X.Org 5 × 7 font
+  (`third_party/font5x7`, `tools/gen_font.py`), on columns 1–5 and lines
+  1–11 above the position, each font row 1.5 times (row 6 = descender).
+  The VT640's own character ROM is not documented here; an earlier model
+  used the text plane's heavy 8 × 8 font stretched to 8 × 12, whose note
+  heads overran the 8-line staff space and merged with the staff lines, so
+  heads were hard to tell apart. With 5 × 7, `o` is 4 × 6 pixels and
+  `o` BS `#` a 5 × 7 head.
 * Data level applies to text: erase is `data_level(1)` + redraw the same
   string (`TPRIMSOU:272-283,302-314`). [OBS]
 * Vertical labels: move_to, US, one char, repeated (`PLOTSOU:570-581`). [OBS]

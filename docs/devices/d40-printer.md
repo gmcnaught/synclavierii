@@ -168,10 +168,15 @@ printer port's RS-232 stream, whatever the protocol: IDS Prism graphics
 for the hardcopy, ASCII for the text dumps. `tools/print_render.py
 --extract OUT CAPTURE` writes them alone (to send to a real printer or
 another converter); the PNG/PDF rendering understands the IDS codes and
-text. No PostScript generator is in the published NED source or on the
-Synclavier³ W0 image; the "<PF3> Music Printing" program (§3) is not on
-the W0 image, so what it sent is [UNK]. If a user has it, its output would
-land in the capture file unchanged.
+text. The "<PF3> Music Printing" program (§3) is in the published NED
+source but not on the Synclavier³ W0 image: `Able/MPLT` in
+`jbemond/Software` (101 files; `MPLT/COMPILE` builds `*SPLT-7`), with a
+PostScript printer driver `MPLT/PSPACK` (D40 or D42 port, XON/XOFF, baud
+rate set by the program). LASERCOM (and PRNTBAUD, SYMED) are only named in
+`UTILCAT/WINSTALL` as files copied from the Music Printing disk; their
+source is not in the repository. Running Music Printing on the core would
+need `*SPLT-7` built with NED's XPL compiler (`Code/Sources/XPLProcessors`)
+[not done]; its output would land in the capture file unchanged.
 
 ## 4. VT640 read-back [OBS decoder, CHOICE reply]
 

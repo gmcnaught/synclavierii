@@ -4,7 +4,7 @@ the DEMOS sub-catalog of tools/timbre_disk.py. Standard library only.
 
 With SYNCLAVIER_W0 naming a SYN-5.3 W0 image that holds .NEWDATA (e.g.
 W0-53.IMG from tools/w0_image.py), test_record_in_simulator records two
-short parts in the simulator and checks the saved .SQ1DATA (about 2 min).
+short parts in the simulator and checks the saved .SQ1DATA (about 90 s).
 """
 import os
 import struct

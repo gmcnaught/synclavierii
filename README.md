@@ -103,6 +103,7 @@ Build the core with `mister/build.sh` (Quartus Lite 17.0) or take the
 | [`docs/fm-voice.md`](docs/fm-voice.md), [`docs/poly-synth.md`](docs/poly-synth.md) | FM voices and poly sampling: registers, timing, memory |
 | [`docs/devices/`](docs/devices/) | Register maps: keyboards, FM interface, control voltages, MIDI card, VT640 |
 | [`docs/timbre-libraries.md`](docs/timbre-libraries.md) | Timbre bank formats and how to load NED libraries |
+| [`docs/sequences.md`](docs/sequences.md) | Demo sequences for Music Notation: recording them in the simulator, sources, the W1: disk |
 | [`docs/model-c-runtime-analysis.md`](docs/model-c-runtime-analysis.md) | Disassembly of NED's Model B/C/D runtime packages |
 | [`docs/sources.md`](docs/sources.md) | Every source, pinned by URL, commit and checksum |
 | [`docs/research-log.md`](docs/research-log.md) | How the findings were reached, including corrections |

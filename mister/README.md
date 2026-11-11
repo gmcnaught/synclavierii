@@ -180,6 +180,15 @@ library in SYN-5.3 with D (Subcatalog Directory), `W1:TIMBDSK3`, RETURN,
 and the panel's BANK/ENTRY buttons play from it
 (`docs/timbre-libraries.md`).
 
+**Demo sequences on W1:.** `tools/seq_record.py record` makes `.SQnDATA`
+files from the public-domain pieces in `data/sequences/` (a Bach chorale,
+the Minuet in G, two sections of a Brahms quartet movement), and
+`tools/timbre_disk.py W1.IMG [*.stmb] --seq DEMOS:1=chorale.sseq ...`
+puts them in a sub-catalog. In SYN-5.3: D, `W1:DEMOS`, RETURN, then
+SEQUENCE + 1–4 recalls a piece, START plays it, and K shows it (VT640
+state image; set Staves, TimeSig, and Key/Clf per staff as listed in
+`docs/sequences.md`); H prints the screen.
+
 **A second SCSI disk (W1:).** `tools/w0_image.py --w1` keeps W1 (SCSI
 target 4) in MONITOR's device table (`W0-53-W1.SST`); mount the second
 disk image as S4 (`<file delay="2" type="s" index="4" path="W1.IMG"/>`

@@ -170,3 +170,15 @@ checksums differ.
 
 Summarised in [`devices/d40-printer.md`](devices/d40-printer.md) §3.0, not copied.
 
+
+## Music for the demo sequences (public domain / CC0)
+
+Encodings the note lists in `data/sequences/` were made from
+([`sequences.md`](sequences.md) §4). Downloaded 2026-11-10; the files
+themselves are not in the repository.
+
+| Piece | URL | Licence | SHA-256 |
+|---|---|---|---|
+| J. S. Bach, chorale BWV 269 (Mutopia piece 378, LilyPond MIDI) | `https://www.mutopiaproject.org/ftp/BachJS/BWV269/bwv_269/bwv_269.mid` | Public Domain (typesetter's dedication) | `783a5a944f28030876a84c753a47abeeff93c56adb6a3dd7c396d06e07184d10` |
+| Minuet in G, BWV Anh. 114 (Mutopia piece 75) | `https://www.mutopiaproject.org/ftp/BachJS/BWVAnh114/anna-magdalena-04/anna-magdalena-04.mid` | Public Domain | `fd87a6673e18104047842a1c858d2c9d8eb9ad845d7a8fa46e3664b17642cb75` |
+| Brahms, String Quartet No. 2, Op. 51 No. 2 (OpenScore String Quartets, MusicXML) | `OpenScore/StringQuartets` @ `301e0a480a478e367ceca9d01b38afceabfbb1cc`, `scores/Brahms,_Johannes/String_Quartet_No.2,_Op.51_No.2/sq7302602.mxl` | CC0 1.0 (credit requested: OpenScore String Quartets) | `0ab0ebc557cd177cfe75421b7694ec0bb52de382d17152916872a3fcd195b61e` |

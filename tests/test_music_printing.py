@@ -24,6 +24,27 @@ def test_able_text():
     assert struct.unpack(">2H", music_printing.able_text(b"f")) == (1, ord("f"))
 
 
+def test_patches_on_ned_source():
+    """Each source patch matches NED's MPLT text exactly once (NED_SOFTWARE:
+    a checkout of jbemond/Software), and the VT640 offset patch only touches
+    DISPLAY_MUSIC."""
+    sw = os.environ.get("NED_SOFTWARE")
+    if not sw:
+        print("  skip test_patches_on_ned_source (NED_SOFTWARE not set)")
+        return
+    with tempfile.TemporaryDirectory() as d:
+        for name in {n for n, _o, _n in music_printing.PATCHES}:
+            open(os.path.join(d, name), "wb").write(open(os.path.join(sw, "Able", "MPLT", name), "rb").read())
+        before = open(os.path.join(d, "MAINSORC"), "rb").read()
+        music_printing.patch_source(d)
+        after = open(os.path.join(d, "MAINSORC"), "rb").read()
+    start = before.index(b"DISPLAY_MUSIC:procedure")
+    end = before.index(b"end DISPLAY_MUSIC;")
+    assert after[:start] == before[:start]
+    assert after[after.index(b"end DISPLAY_MUSIC;"):] == before[end:]
+    assert b"viewport (DISP_X0,SCREEN_WIDTH#" in after
+
+
 def test_postscript_cleanup():
     raw = b"\x14\x14%!PS-Adobe-2.0\r%%Title: x\rserverdict begin 0 exitserver\r/a 1 def\rshowpage\r\x04"
     ps = print_render.postscript(raw)

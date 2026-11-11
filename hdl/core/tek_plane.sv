@@ -12,8 +12,8 @@
 //   ESC FF clear, pen up; ESC / n d data level (0 set, 1 clear, 2 XOR);
 //   ESC | c c and ESC \ c skipped; other ESC c ignored (sizes: one size);
 //   alpha: printable -> 8 x 14 cell, lower-left at the position, the 5 x 7
-//   glyph (font5x7.svh) on columns 1-5, cell lines 2-12 from the top (line
-//   l = 12 - gl from the bottom: font row 6 - l*2/3), x += 8; BS x -= 8, CR x = 0,
+//   dot-matrix glyph (font6x10.svh) at 1:1: columns 1-5, font row r (1-9)
+//   on line 8 - r above the position (descenders on lines 0, -1), x += 8; BS x -= 8, CR x = 0,
 //   LF y -= 14.
 //   ESC " p ; y ; n c   read back (M21, SYN-5.3's screen hardcopy): n (at
 //   most 128) 5-pixel groups of line y (0 = bottom) from x = 0, coded as
@@ -44,7 +44,7 @@ module tek_plane (
     input  logic [14:0] v_addr,         // word: row * 40 + x / 16
     output logic [15:0] v_q
 );
-    `include "font5x7.svh"
+    `include "font6x10.svh"
 
     localparam int WORDS = 640 * 480 / 16;
 
@@ -88,7 +88,7 @@ module tek_plane (
     // line
     logic signed [11:0] lx, ly, lx1, ly1, ldx, ldy, lerr;
     logic        lsx, lsy;
-    // glyph: cell line gl (0-13 from the top), column gc
+    // glyph: font row gl (1-9), column gc
     logic [3:0]  gl;
     logic [2:0]  gc;
     logic [6:0]  gch;
@@ -166,15 +166,12 @@ module tek_plane (
         onscreen = x >= 0 && x < 640 && y >= 0 && y < 480;
     endfunction
 
-    // the glyph pixel at (gl, gc): cell lines 2-12 from the top (line 12 - gl
-    // from the bottom, font row 6 - line*2/3), columns 1-5 (font bit gc - 1)
-    wire [3:0] g_ln  = 4'd12 - gl;
-    wire [2:0] g_row = 3'd6 - 3'((5'(g_ln) * 5'd2) / 5'd3);
-    wire [4:0] g_bits = font5x7({gch, g_row});
-    wire [2:0] g_col = gc - 3'd1;
-    wire       g_on  = gl >= 4'd2 && gl <= 4'd12 && gc >= 3'd1 && gc <= 3'd5 && g_bits[g_col];
-    wire signed [11:0] g_x = cx + 12'(gc);
-    wire signed [11:0] g_y = cy + 12'sd13 - 12'(gl);
+    // the glyph pixel at (gl, gc): font row gl on line 8 - gl above the
+    // position, font column gc on pixel column gc + 1
+    wire [4:0] g_bits = font6x10({gch, gl});
+    wire       g_on  = gc <= 3'd4 && g_bits[gc];
+    wire signed [11:0] g_x = cx + 12'sd1 + 12'(gc);
+    wire signed [11:0] g_y = cy + 12'sd8 - 12'(gl);
 
     // Bresenham: the next point
     wire signed [12:0] e2 = {lerr, 1'b0};
@@ -266,9 +263,9 @@ module tek_plane (
         end
         T_GLYPH: begin                                    // one cell position per visit
             if (g_on) plot(g_x, g_y, T_GLYPH);
-            if (gc == 3'd7) begin
+            if (gc == 3'd4) begin
                 gc <= 3'd0;
-                if (gl == 4'd13) begin
+                if (gl == 4'd9) begin
                     if (!g_on || !onscreen(g_x, g_y)) t <= T_IDLE;
                     else t_ret <= T_IDLE;
                 end
@@ -322,7 +319,7 @@ module tek_plane (
             else if (c == 8'h1f) begin if (gmode == G_VEC || gmode == G_PNT) gmode <= G_ALPHA; end
             else if (gmode == G_ALPHA) begin
                 if (c >= 8'h20 && c <= 8'h7e) begin
-                    gch <= c[6:0]; gl <= '0; gc <= '0; cx <= gx; cy <= gy;
+                    gch <= c[6:0]; gl <= 4'd1; gc <= '0; cx <= gx; cy <= gy;
                     gx <= gx + 12'sd8;
                     t <= T_GLYPH;
                 end else if (c == 8'h08) gx <= gx - 12'sd8;

@@ -65,10 +65,10 @@ for a VT640): a 640 x 480 x 1 graphics plane, y up, drawn by a Tektronix
               (readback_reply) goes to `reply` (Terminal(reply=callable));
               other ESC " ... finals are ignored
   alpha       printable: an 8 x 14 cell whose lower-left corner is the
-              graphics position; the 5 x 7 glyph (tools/gen_font.py
-              glyphs57, X.Org 5x7) on columns 1-5 and lines 1-11 above the
-              position, each font row 1.5 times (line l from the bottom,
-              0-10: row 6 - l*2//3; row 6 is the descender), then x += 8; BS x -= 8, CR x = 0, LF y -= 14; data level
+              graphics position; the 5 x 7 dot-matrix glyph
+              (tools/gen_font.py glyphs610, X.Org 6x10) at 1:1 on columns
+              1-5, font row r (1-9) on line 8 - r above the position
+              (capitals lines 1-7, descenders lines 0 and -1), then x += 8; BS x -= 8, CR x = 0, LF y -= 14; data level
               applies.
 Lines (Bresenham, both end points) and points use the data level; with
 XOR a shared end point of two vectors is flipped twice [CHOICE].
@@ -346,18 +346,18 @@ class Terminal:
                 y0 += sy
 
     def glyph(self, ch):
-        """A graphics-mode (alpha) character: the 5 x 7 font, rows 1.5 times
-        [CHOICE: a thin font about the size of a Tek 4010 character at
-        640 x 480, so music notation's note heads (o, #) fit a staff space]."""
-        from tools.gen_font import glyphs57
-        if not hasattr(self, "_font57"):
-            self._font57 = glyphs57()
-        g = self._font57[ch]
-        for line in range(11):                 # from the bottom
-            bits = g[6 - line * 2 // 3]
+        """A graphics-mode (alpha) character: a 5 x 7 dot matrix at 1:1
+        [CHOICE: SYN-5.3 draws a note head as O (BS #) from (X-3, Y-4) with
+        the stem at X+-3 (MNOTMOD/PICSFNCS.xpl NOTE, PLOTFNCS.xpl), so its
+        O is 7 rows tall from line 1 and centred 3 columns in]."""
+        from tools.gen_font import glyphs610
+        if not hasattr(self, "_font610"):
+            self._font610 = glyphs610()
+        g = self._font610[ch]
+        for r in range(1, 10):                 # row 1 = capital top, 7 = baseline row
             for col in range(5):
-                if bits >> col & 1:
-                    self.plot(self.gx + 1 + col, self.gy + 1 + line)
+                if g[r] >> col & 1:
+                    self.plot(self.gx + 1 + col, self.gy + 8 - r)
 
     def tek(self, c):
         if self.gesc is not None:                  # ESC sequences in graphics

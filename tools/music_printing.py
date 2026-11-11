@@ -18,12 +18,10 @@ section 3.4). OUTDIR/mplt then holds the six files the release puts in
 W0:.SYSTEM: .SPLT-7 (program) and .SAUX-7, .SCWT-7, .SFRM-7, .SLIB-7 (data),
 .SPRO-7 (the PostScript font prolog, text).
 
-`install` writes them into W0.IMG's .SYSTEM. Synclavier3's W0 has a full
-one-sector .SYSTEM catalog, so the entries of six optical-disk and tape
-utilities a MiSTer cannot use (OPREPAIR, OPADD, OPLIST, OPVOLUME, OPUPDATE,
-TAPECAT) are reused in place (a zeroed entry could end NED's catalog scan),
-their data placed after the catalog's last file. An image that already has
-the files is updated in place.
+`install` writes them into W0.IMG's .SYSTEM. Synclavier3's W0 already has
+all six (its .SPLT-7 is built for the interpreter: it waits for a printer
+reply); files with the same contents are left alone and .SPLT-7 is
+replaced in place.
 
 Nothing built here is committed (tests/test_repo_hygiene.py): NED's software
 is MIT-licensed source; users build their own copy.
@@ -37,7 +35,7 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-from tools.ned_disk import SECTOR_WORDS, load_bytes, name_of, walk  # noqa: E402
+from tools.ned_disk import SECTOR_WORDS, add_file, load_bytes, walk  # noqa: E402
 
 COMPILER_SOURCES = [
     "Code/Sources/XPLProcessors/XPLCompiler.cpp", "Code/Sources/XPLProcessors/sgen.cpp",
@@ -77,7 +75,6 @@ WRITE_ONLY_NEW = b"dcl PS_PRINTER_WRITE_ONLY\tlit '1';"
 FILES = [(".SPLT-7", "*SPLT-7.sprg", 1), (".SAUX-7", "*SAUX-7.sdat", 3),
          (".SCWT-7", "*SCWT-7.sdat", 3), (".SFRM-7", "*SFRM-7.sdat", 3),
          (".SLIB-7", "*SLIB-7.sdat", 3), (".SPRO-7", "*SPRO-7.txt", 0)]
-VICTIMS = ["OPREPAIR", "OPADD", "OPLIST", "OPVOLUME", "OPUPDATE", "TAPECAT"]
 
 
 def build_compiler(src, out):
@@ -179,43 +176,24 @@ def able_text(data):
 
 
 def install(disk, files):
-    """Put `files` [(name, data bytes, type)] into the .SYSTEM catalog of
-    `disk` (a bytearray, changed in place): an entry of the same name is
-    reused, else one of VICTIMS. Returns [(name, replaced, start, sectors)]."""
+    """Put `files` [(name, data bytes, type)] into W0:.SYSTEM of `disk` (a
+    bytearray, changed in place) with ned_disk.add_file: a file already
+    there with the same contents is left alone, one with the same name is
+    overwritten in place when the new data fits its sectors (Synclavier3's
+    W0 has all six; only .SPLT-7 differs), else a new entry is used.
+    Returns [(name, action)]."""
     W = load_bytes(disk)
-    sysc = [(s, ln) for p, t, s, ln, w in walk(W) if p == "/.SYSTEM"]
-    if not sysc:
-        raise ValueError("no .SYSTEM catalog")
-    base, limit = sysc[0]
-    ents = {}
-    end = 1
-    for i in range(0, SECTOR_WORDS, 8):
-        e = W[base * SECTOR_WORDS + i:base * SECTOR_WORDS + i + 8]
-        if any(e):
-            ents[name_of(e[0:4])] = i
-            end = max(end, e[4] + e[5])
+    have = {p.rsplit("/", 1)[1]: (s, ln, w) for p, t, s, ln, w in walk(W) if p.startswith("/.SYSTEM/")}
     done = []
-    victims = [v for v in VICTIMS if v in ents]
     for name, data, typ in files:
-        if name in ents:
-            i, was = ents[name], name
-        elif victims:
-            was = victims.pop(0)
-            i = ents.pop(was)
-        else:
-            raise ValueError("no catalog entry free for %s" % name)
-        nw = len(data) // 2
-        ln = (nw + SECTOR_WORDS - 1) // SECTOR_WORDS
-        if end + ln > limit:
-            raise ValueError("%s does not fit in .SYSTEM" % name)
-        nb = (name.encode("latin-1") + bytes(8))[:8]
-        off = (base * SECTOR_WORDS + i) * 2
-        disk[off:off + 16] = struct.pack(">8H", *([nb[k] | nb[k + 1] << 8 for k in range(0, 8, 2)]
-                                                  + [end, ln, nw & 0xFFFF, typ]))
-        at = (base + end) * SECTOR_WORDS * 2
-        disk[at:at + ln * SECTOR_WORDS * 2] = data + bytes(ln * SECTOR_WORDS * 2 - len(data))
-        done.append((name, was, base + end, ln))
-        end += ln
+        if name in have:
+            s, ln, w = have[name]
+            old = bytes(disk[s * SECTOR_WORDS * 2:(s + ln) * SECTOR_WORDS * 2])
+            if old[:len(data)] == data and not any(old[len(data):]):
+                done.append((name, "unchanged"))
+                continue
+        add_file(disk, "/.SYSTEM/" + name, data, typ=typ, replace=True)
+        done.append((name, "replaced" if name in have else "added"))
     return done
 
 
@@ -244,9 +222,8 @@ def main(argv=None):
         build(a.software, a.outdir)
         return 0
     disk = bytearray(open(a.image, "rb").read())
-    for name, was, start, ln in install(disk, mplt_files(a.outdir)):
-        print("W0:.SYSTEM:%-8s %s, %d sectors at %d" % (name, "updated" if was == name else
-                                                       "in place of " + was, ln, start))
+    for name, action in install(disk, mplt_files(a.outdir)):
+        print("W0:.SYSTEM:%-8s %s" % (name, action))
     open(a.image, "wb").write(disk)
     return 0
 

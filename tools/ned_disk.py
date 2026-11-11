@@ -62,7 +62,7 @@ def walk(W, base=0, path="", max_sectors=4, depth=0):
         p = path + "/" + nm
         yield p, typ, abs_start, length, words
         if typ in (6, 7) and depth < 6:
-            yield from walk(W, abs_start, p, 1 if typ == 7 else 4, depth + 1)
+            yield from walk(W, abs_start, p, 4 if typ == 7 else 1, depth + 1)
 
 
 def file_words(W, start, length, words):
@@ -138,7 +138,7 @@ def add_file(disk, path, data, typ=3, capacity=None, replace=False):
         sub = "/" + "/".join(parts[:-1])
         for p, t, start, length, words in walk(W):
             if p == sub and t in (6, 7):
-                base, cat_sectors, limit = start, (1 if t == 7 else ROOT_CATALOG_SECTORS), length
+                base, cat_sectors, limit = start, (ROOT_CATALOG_SECTORS if t == 7 else 1), length
                 break
         else:
             raise ValueError("no sub-catalog %s" % sub)

@@ -180,8 +180,8 @@ def main(argv=None):
     if a.music_printing:
         from tools.music_printing import install, mplt_files
         disk = bytearray(disk)
-        for name, was, start, ln in install(disk, mplt_files(a.music_printing)):
-            print("W0:.SYSTEM:%s (%s)" % (name, "updated" if was == name else "in place of " + was))
+        for name, action in install(disk, mplt_files(a.music_printing)):
+            print("W0:.SYSTEM:%s %s" % (name, action))
         disk = bytes(disk)
     w0 = os.path.join(a.outdir, "W0-53.IMG")
     open(w0, "wb").write(disk)

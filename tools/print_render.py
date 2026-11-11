@@ -79,6 +79,19 @@ class Page:
         self.w, self.h, self.px = w, h, px
 
 
+def postscript(data):
+    """The PostScript jobs in a printout (NED Music Printing sends them with
+    CR line ends, a CTRL-D after each job and `serverdict begin 0 exitserver`
+    to keep its font on the printer), as a file a viewer or Ghostscript
+    reads: LF line ends, no CTRL-D, no exitserver. None if there is no
+    PostScript in it."""
+    i = data.find(b"%!PS")
+    if i < 0:
+        return None
+    ps = data[i:].replace(b"\r\n", b"\n").replace(b"\r", b"\n").replace(b"\x04", b"")
+    return ps.replace(b"serverdict begin 0 exitserver", b"")
+
+
 def render(data):
     """Pages (Page) for a printed byte stream."""
     from tools.gen_font import glyphs
@@ -247,8 +260,25 @@ def main(argv=None):
     data = open(a.capture, "rb").read()
     if not a.raw:
         data = read_capture(data)
-    pages = render(data)
     base, ext = os.path.splitext(a.out)
+    ps = postscript(data)
+    if ps is not None:                          # Music Printing: PostScript
+        open(base + ".ps", "wb").write(ps)
+        import shutil
+        import subprocess
+        gs = shutil.which("gs")
+        if gs is None:
+            print("%d bytes of PostScript: %s (install Ghostscript to render it)" % (len(data), base + ".ps"))
+            return 0
+        subprocess.run([gs, "-q", "-dNOPAUSE", "-dBATCH", "-sDEVICE=png16m", "-r100",
+                        "-sOutputFile=%s-%%d%s" % (base, ext or ".png"), base + ".ps"], check=True)
+        if a.pdf:
+            subprocess.run([gs, "-q", "-dNOPAUSE", "-dBATCH", "-sDEVICE=pdfwrite",
+                            "-sOutputFile=" + a.pdf, base + ".ps"], check=True)
+        print("%d bytes of PostScript: %s, pages %s-N%s%s" % (len(data), base + ".ps", base, ext or ".png",
+                                                             " and " + a.pdf if a.pdf else ""))
+        return 0
+    pages = render(data)
     names = [a.out] if len(pages) == 1 else ["%s-%d%s" % (base, i + 1, ext or ".png")
                                              for i in range(len(pages))]
     for p, n in zip(pages, names):

@@ -249,6 +249,14 @@ file back and render it:
 python3 tools/print_render.py PRINT.PRN page.png --pdf page.pdf
 ```
 
+**Music Printing (PF3).** NED's score engraving program is not on the
+Synclavier³ W0, but it is in NED's published source: build it with
+`python3 tools/music_printing.py build <checkout of jbemond/Software> mp`
+(macOS with the command-line tools) and add `--music-printing mp` (with
+`--vt640 --printer`) to `tools/w0_image.py`. PF3 starts it; Operation Mode
+`2` (Print) then RETURN prints the current sequence as PostScript into S6,
+and `print_render.py` turns it into `.ps`, PNG and PDF (with Ghostscript).
+
 `--extract printer.bin` instead writes the bytes exactly as they went out
 of the RS-232 printer port (IDS Prism codes, text), e.g. for a real
 printer. After a Music Notation print, press CTRL-X to redraw the screen:

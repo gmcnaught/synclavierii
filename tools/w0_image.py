@@ -76,6 +76,10 @@ image (Synclavier3's "W0 Disk Image.simg", not redistributable):
                      at start-up and offers output routing; the core's OSD
                      Outputs item picks the stereo mix or one output pair;
                      the name gets -MC<N>.
+  --music-printing OUTDIR  NED's Music Printing (PF3; built from NED's
+                     source by tools/music_printing.py build OUTDIR) in
+                     W0:.SYSTEM; with --vt640 and --printer it prints a score
+                     as PostScript into the S6 capture file.
   --printer [TYPE]   a printer on the D40/D41 port (MONITOR options word 17 |
                      o#d40 020, configuration word 19 = TYPE << 8; TYPE one
                      of prism (default: SYN-5.3's screen hardcopy is for an
@@ -153,6 +157,8 @@ def main(argv=None):
     ap.add_argument("--printer", nargs="?", const="prism", default=None,
                     choices=("prism", "printronix", "la34", "decIII", "diablo"),
                     help="a printer on D40 (default type prism)")
+    ap.add_argument("--music-printing", metavar="OUTDIR",
+                    help="install NED Music Printing built by tools/music_printing.py build")
     ap.add_argument("--ork", action="store_true",
                     help="state image with the original keyboard instead of the velocity keyboard")
     a = ap.parse_args(argv)
@@ -171,6 +177,12 @@ def main(argv=None):
     if newdata is None:
         print("no timbre bank (--newdata): W0 without .NEWDATA")
     disk = prepared_disk(a.image, a.mb, newdata)
+    if a.music_printing:
+        from tools.music_printing import install, mplt_files
+        disk = bytearray(disk)
+        for name, was, start, ln in install(disk, mplt_files(a.music_printing)):
+            print("W0:.SYSTEM:%s (%s)" % (name, "updated" if was == name else "in place of " + was))
+        disk = bytes(disk)
     w0 = os.path.join(a.outdir, "W0-53.IMG")
     open(w0, "wb").write(disk)
     from sim.boot import boot_from_w0

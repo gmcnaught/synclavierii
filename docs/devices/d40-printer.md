@@ -97,6 +97,44 @@ simulator: at 9600 and at 76800 baud the page is dot noise; at 20 µs a
 byte it is the screen.] Hence the [CHOICE] in §5: the port is faster than
 the CPU fills the ring.
 
+### 3.2 After a Music Notation hardcopy the screen is wrong [OBS]
+
+After K, H the status box shows Measure# 65535, Measures 0, TimeSig 0/0,
+Click 0/0, Pitch C1 and the clef and the first bar line are erased (seen
+on the MiSTer and in the simulator, which agree). Cause, in SYN-5.3:
+
+* `hardcopy` uses external memory sectors `TRD.PTR` to `TRD.PTR + 3` as
+  scratch: the 7-line dot buffer at `TRD.PTR`, `+1` (zeroed and filled for
+  each of the 69 swaths, `D40SOU:317-319,186-189`) and the read-back line
+  at `TRD.PTR + 3` (`:236`).
+* The Music Notation Display keeps its note map, the record of what is on
+  the screen, in the same place: `OLD_SECT = TRD.PTR`, 16 sectors, then
+  `NEW_SECT` (`MNOTMOD/SQEDLITS.xpl:166-170`).
+* So the print overwrites the display's record of the screen, and the
+  refresh after the key (`new.ABLE.seq.info | 4`, `MAINFNCS.xpl:53`)
+  draws from it.
+
+In the simulator (VT640, empty sequence) the print changes sectors
+`TRD.PTR` (34 words), `+1` (6) and `+3` (48); nothing outside
+`TRD.PTR..+3`. A full refresh puts the screen right: **CTRL-X** (it turns
+the instruction box off and redraws everything; in the simulator the
+status box, clef and bar line are back), or leave and re-enter K. The
+printed page itself is correct (it is read before the refresh). The core
+runs NED's code unchanged, so this is kept; a real instrument with the same
+software would do the same [INF].
+
+### 3.3 What the capture holds
+
+The capture file holds exactly the bytes SYN-5.3 writes to D40, the
+printer port's RS-232 stream, whatever the protocol: IDS Prism graphics
+for the hardcopy, ASCII for the text dumps. `tools/print_render.py
+--extract OUT CAPTURE` writes them alone (to send to a real printer or
+another converter); the PNG/PDF rendering understands the IDS codes and
+text. No PostScript generator is in the published NED source or on the
+Synclavier³ W0 image; the "<PF3> Music Printing" program (§3) is not on
+the W0 image, so what it sent is [UNK]. If a user has it, its output would
+land in the capture file unchanged.
+
 ## 4. VT640 read-back [OBS decoder, CHOICE reply]
 
 `read_screen` (`D40SOU:190-286`) asks the terminal for line y (VT640

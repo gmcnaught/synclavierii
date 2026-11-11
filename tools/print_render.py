@@ -224,6 +224,8 @@ def main(argv=None):
     ap.add_argument("--raw", action="store_true", help="CAPTURE is the printed bytes alone")
     ap.add_argument("--blank", metavar="FILE", help="write an empty capture file and stop")
     ap.add_argument("--mb", type=int, default=4, help="--blank: file size in MB")
+    ap.add_argument("--extract", metavar="FILE",
+                    help="write the printed bytes alone (the RS-232 stream, any protocol) and stop")
     a = ap.parse_args(argv)
     if a.blank:
         with open(a.blank, "wb") as f:
@@ -232,8 +234,16 @@ def main(argv=None):
         print("%s: empty capture file, %d MB (%d bytes of printing)"
               % (a.blank, a.mb, (a.mb << 20) - BLOCK))
         return 0
+    if a.extract:
+        if not a.capture:
+            ap.error("--extract needs CAPTURE")
+        data = open(a.capture, "rb").read()
+        data = data if a.raw else read_capture(data)
+        open(a.extract, "wb").write(data)
+        print("%s: %d bytes" % (a.extract, len(data)))
+        return 0
     if not a.capture or not a.out:
-        ap.error("CAPTURE and OUT are needed (or --blank FILE)")
+        ap.error("CAPTURE and OUT are needed (or --blank FILE, --extract FILE)")
     data = open(a.capture, "rb").read()
     if not a.raw:
         data = read_capture(data)

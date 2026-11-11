@@ -5,7 +5,8 @@ import struct
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-from tools.ned_disk import SECTOR_WORDS, add_root_file, load_bytes, read_file, walk  # noqa: E402
+from tools.ned_disk import (SECTOR_WORDS, DiskWords, add_file, add_root_file,  # noqa: E402
+                            entry_fields, entry_words, load_bytes, read_file, walk)
 
 
 def _disk(sectors=64):
@@ -43,6 +44,35 @@ def test_add_root_file_errors():
         pass
     else:
         raise AssertionError("duplicate name accepted")
+
+
+def test_entry_high_bits():
+    """Start bits 16-23 in type-word bits 8-15, length bits 16-19 in bits
+    4-7 (XPL/CATCODE GET_FCB)."""
+    e = entry_words([1, 2, 3, 4], 0x12_3456, 0x7_89AB, 0x1234, 5)
+    assert e[4:] == [0x3456, 0x89AB, 0x1234, 0x12 << 8 | 0x7 << 4 | 5]
+    assert entry_fields(e) == (0x12_3456, 0x7_89AB, 0x1234, 5)
+    for bad in ((1 << 24, 1), (0, 1 << 20)):
+        try:
+            entry_words([0] * 4, *bad, 0, 3)
+        except ValueError:
+            continue
+        raise AssertionError(bad)
+
+
+def test_files_above_32mb():
+    """A sub-catalog placed beyond sector 65535 and its files read back."""
+    d = bytearray(40 << 20)                            # 81920 sectors
+    add_root_file(d, "PAD", bytes(70000 * 512))        # sectors 4..70003
+    add_file(d, "SUB", bytes(10 * 512), typ=7)         # 4-sector catalog + 6
+    add_file(d, "SUB/SND", struct.pack(">600H", *range(600)), typ=5)
+    W = DiskWords(d)
+    ents = {p: (typ, start, length, words) for p, typ, start, length, words in walk(W)}
+    assert ents["/SUB"] == (7, 70004, 10, 2560)
+    assert ents["/SUB/SND"] == (5, 70008, 3, 600)
+    assert read_file(W, "SUB/SND") == list(range(600))
+    raw = load_bytes(d)[8:16]                          # the SUB entry's words
+    assert raw[4] == 70004 & 0xFFFF and raw[7] == 1 << 8 | 7
 
 
 if __name__ == "__main__":

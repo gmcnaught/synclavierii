@@ -115,9 +115,13 @@ builds is committed.
 python3 tools/stmb.py convert "LIBRARY FOLDER" -o LIB.stmb        # NED FM library text -> .NEWDATA
 python3 tools/timbre_disk.py W1-TIMBRES.IMG LIB1.stmb LIB2.stmb   # a W1: with one sub-catalog per library
 python3 tools/timbre_disk.py W1.IMG --seq DEMOS:1=chorale.sseq     # sequences as W1:DEMOS/.SQnDATA
+python3 tools/timbre_disk.py W1.IMG FM/*.stmb --samples Original-NED-Sample-Patch-Libraries  # + sampled libraries
+python3 tools/sample_library.py Original-NED-Sample-Patch-Libraries [--all-sounds]     # list what --samples adds
 ```
 
-See `docs/timbre-libraries.md`.
+`sample_library.py` packs the NED sample/patch banks into 18 libraries by
+instrument family and copies each `.caf` back to the NED sound file it
+was exported from (`SNCL` chunk + samples). See `docs/timbre-libraries.md`.
 
 ## `seq_record.py`: demo sequences
 

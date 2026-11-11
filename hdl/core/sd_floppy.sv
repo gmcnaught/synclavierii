@@ -5,13 +5,14 @@
 //               sector n is SD block n;
 //   drive 2     a state image for the boot loader (tools/state_image.py),
 //               read only;
-//   drive 3     a SCSI disk (W0: for dev_scsi), up to 65536 blocks;
+//   drive 3     a SCSI disk (W0: for dev_scsi), up to 2^24 blocks (8 GB,
+//               NED's 24-bit catalog sector addresses);
 //   drive 4     a second SCSI disk (W1:), the same;
 //   drive 5     the digital STM source (dig_stm.sv, M18), read only, up to
 //               65536 blocks.
 //
 // Word port (dev_floppy's fd_*, dev_scsi or the boot loader): {drive[2:0],
-// block[15:0], word[7:0]}; hold rd/wr until ack, a one-clock pulse; the clock after an
+// block[23:0], word[7:0]}; hold rd/wr until ack, a one-clock pulse; the clock after an
 // ack is ignored (the same handshake as the simulation RAM models). Two
 // lines are buffered: for the SCSI disks (drives 3, 4) and the STM source
 // (drive 5) a line is 32 blocks
@@ -32,7 +33,7 @@
 module sd_floppy (
     input  logic        clk,
     input  logic        rst,
-    input  logic [26:0] addr,
+    input  logic [34:0] addr,
     input  logic        rd,
     input  logic        wr,
     input  logic [15:0] wdata,
@@ -44,8 +45,8 @@ module sd_floppy (
     output logic [10:0] sectors0,       // floppy sizes (at most 1024)
     output logic [10:0] sectors1,
     output logic [12:0] blocks2,        // state image size (at most 4096)
-    output logic [16:0] blocks3,        // SCSI disk sizes (at most 65536)
-    output logic [16:0] blocks4,
+    output logic [24:0] blocks3,        // SCSI disk sizes (at most 2^24)
+    output logic [24:0] blocks4,
     output logic        protect4,
     output logic [16:0] blocks5,        // STM source size (at most 65536)
     output logic        active,         // an SD transfer is in progress (LED)
@@ -70,41 +71,41 @@ module sd_floppy (
     input  logic        sd_buff_wr,
     input  logic        hint,
     input  logic [2:0]  hint_drive,
-    input  logic [15:0] hint_blk,
+    input  logic [23:0] hint_blk,
     input  logic [2:0]  probe_drive,
-    input  logic [15:0] probe_blk,
+    input  logic [23:0] probe_blk,
     output logic        probe_hit
 );
     localparam logic [2:0] S_IDLE = 3'd0, S_RD = 3'd1, S_RDING = 3'd2, S_WR = 3'd3, S_WRING = 3'd4;
     logic [2:0]  state;                 // the SD side
     logic        v [2];                 // buffer b holds the line (drv[b], base[b])
     logic [2:0]  drv [2];
-    logic [15:0] base [2];
+    logic [23:0] base [2];
     logic        mru;                   // the buffer used last
     logic        fb;                    // the buffer being read into / written back from
     logic [2:0]  f_drive;               // the SD request's drive
     logic        dirty;                 // a block of buffer dbuf waits to be written back
     logic        wb_req;                //   ... now (its last word was written)
     logic        dbuf;
-    logic [15:0] dblk;
+    logic [23:0] dblk;
     logic        pf;                    // a background read is wanted: (pf_drive, pf_base)
     logic [2:0]  pf_drive;
-    logic [15:0] pf_base;
+    logic [23:0] pf_base;
 
-    wire [2:0]  drive = addr[26:24];
-    wire [15:0] blk   = addr[23:8];
+    wire [2:0]  drive = addr[34:32];
+    wire [23:0] blk   = addr[31:8];
     wire [7:0]  w     = addr[7:0];
     wire        line  = drive >= 3'd3;  // 32-block lines
-    wire [15:0] lbase = line ? {blk[15:5], 5'd0} : blk;
+    wire [23:0] lbase = line ? {blk[23:5], 5'd0} : blk;
     wire        hit0  = v[0] && drv[0] == drive && base[0] == lbase;
     wire        hit1  = v[1] && drv[1] == drive && base[1] == lbase;
     wire        hit   = hit0 || hit1;
     wire        hb    = hit1;           // the hit buffer
-    wire [15:0] hbase = {hint_blk[15:5], 5'd0};
+    wire [23:0] hbase = {hint_blk[23:5], 5'd0};
     wire        h_have = (v[0] && drv[0] == hint_drive && base[0] == hbase) ||
                          (v[1] && drv[1] == hint_drive && base[1] == hbase) ||
                          ((state == S_RD || state == S_RDING) && drv[fb] == hint_drive && base[fb] == hbase);
-    wire [15:0] pbase = {probe_blk[15:5], 5'd0};
+    wire [23:0] pbase = {probe_blk[23:5], 5'd0};
     always_ff @(posedge clk)
         probe_hit <= (v[0] && drv[0] == probe_drive && base[0] == pbase) ||
                      (v[1] && drv[1] == probe_drive && base[1] == pbase);
@@ -145,29 +146,29 @@ module sd_floppy (
     assign active      = state != S_IDLE;
 
     // blocks in a SCSI disk's line at b: 32, cut at the end of the image
-    function automatic logic [5:0] line_cnt(input logic [2:0] d, input logic [15:0] b);
-        logic [16:0] n, left;
-        n = d == 3'd5 ? blocks5 : d == 3'd4 ? blocks4 : blocks3;
-        left = n > {1'b0, b} ? n - {1'b0, b} : 17'd1;
-        line_cnt = left >= 17'd32 ? 6'd31 : 6'(left - 17'd1);
+    function automatic logic [5:0] line_cnt(input logic [2:0] d, input logic [23:0] b);
+        logic [24:0] n, left;
+        n = d == 3'd5 ? {8'd0, blocks5} : d == 3'd4 ? blocks4 : blocks3;
+        left = n > {1'b0, b} ? n - {1'b0, b} : 25'd1;
+        line_cnt = left >= 25'd32 ? 6'd31 : 6'(left - 25'd1);
     endfunction
-    wire [16:0] dblocks = drive == 3'd5 ? blocks5 : drive == 3'd4 ? blocks4 : blocks3;
-    wire [15:0] next_base = lbase + 16'd32;
-    wire        next_ok = line && {1'b0, next_base} < dblocks && lbase != 16'hFFE0;
+    wire [24:0] dblocks = drive == 3'd5 ? {8'd0, blocks5} : drive == 3'd4 ? blocks4 : blocks3;
+    wire [23:0] next_base = lbase + 24'd32;
+    wire        next_ok = line && {1'b0, next_base} < dblocks && lbase != 24'hFFFFE0;
 
-    task automatic set_lba(input logic [2:0] d, input logic [15:0] b);
+    task automatic set_lba(input logic [2:0] d, input logic [23:0] b);
         case (d)
-            3'd0: sd_lba0 <= {16'd0, b};
-            3'd1: sd_lba1 <= {16'd0, b};
-            3'd2: sd_lba2 <= {16'd0, b};
-            3'd3: sd_lba3 <= {16'd0, b};
-            3'd4: sd_lba4 <= {16'd0, b};
-            default: sd_lba5 <= {16'd0, b};
+            3'd0: sd_lba0 <= {8'd0, b};
+            3'd1: sd_lba1 <= {8'd0, b};
+            3'd2: sd_lba2 <= {8'd0, b};
+            3'd3: sd_lba3 <= {8'd0, b};
+            3'd4: sd_lba4 <= {8'd0, b};
+            default: sd_lba5 <= {8'd0, b};
         endcase
     endtask
 
     // start an SD read of line (d, b) into buffer bf
-    task automatic start_read(input logic bf, input logic [2:0] d, input logic [15:0] b);
+    task automatic start_read(input logic bf, input logic [2:0] d, input logic [23:0] b);
         fb <= bf; f_drive <= d;
         v[bf] <= 1'b0; drv[bf] <= d; base[bf] <= b;
         set_lba(d, b);
@@ -196,8 +197,8 @@ module sd_floppy (
             sectors0 <= 11'd0;
             sectors1 <= 11'd0;
             blocks2 <= 13'd0;
-            blocks3 <= 17'd0;
-            blocks4 <= 17'd0;
+            blocks3 <= 25'd0;
+            blocks4 <= 25'd0;
             blocks5 <= 17'd0;
         end else begin
             for (int d = 0; d < 6; d++)
@@ -206,8 +207,8 @@ module sd_floppy (
                     if (d == 0) sectors0 <= img_size[63:19] != 0 ? 11'd1024 : 11'(img_size[18:9]);
                     if (d == 1) sectors1 <= img_size[63:19] != 0 ? 11'd1024 : 11'(img_size[18:9]);
                     if (d == 2) blocks2 <= img_size[63:21] != 0 ? 13'd4096 : 13'(img_size[20:9]);
-                    if (d == 3) blocks3 <= img_size[63:25] != 0 ? 17'd65536 : 17'(img_size[24:9]);
-                    if (d == 4) blocks4 <= img_size[63:25] != 0 ? 17'd65536 : 17'(img_size[24:9]);
+                    if (d == 3) blocks3 <= img_size[63:33] != 0 ? 25'h1000000 : 25'(img_size[32:9]);
+                    if (d == 4) blocks4 <= img_size[63:33] != 0 ? 25'h1000000 : 25'(img_size[32:9]);
                     if (d == 5) blocks5 <= img_size[63:25] != 0 ? 17'd65536 : 17'(img_size[24:9]);
                     if (d < 2) protect[d] <= img_readonly;
                     if (d == 3) protect3 <= img_readonly;

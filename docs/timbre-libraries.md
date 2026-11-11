@@ -285,3 +285,133 @@ The same disk can carry sequences: `tools/timbre_disk.py --seq
 DEMOS:N=FILE.sseq` adds a sub-catalog of `.SQnDATA` files, which SEQUENCE
 + button N recalls once it is the current catalog
 ([`sequences.md`](sequences.md)).
+
+## Original NED Sample/Patch Libraries on W1: (analysis, 2026-11-11)
+
+Source: `https://www.synclavier.com/Downloads/Original-NED-Sample-Patch-Libraries.zip`,
+586,070,014 bytes (the server's content-length on 2026-11-11 equals the
+local `timbres/Original-NED-Sample-Patch-Libraries.zip`). Git-ignored.
+
+### Contents [OBS]
+
+* 92 folders. 90 hold a `*NEWDATA.stmb`: 77 one bank, 10 two banks,
+  DRMDTA40 three, PNODTA71 and PRCDTA01 eight: **116 banks, 464 timbres**.
+  AM-DATA: 2 FM entries, text only (`stmb.py convert`). NED_TL23: all
+  2,075 `.caf` sound files, no timbres.
+* A timbre names its sound files in type-1 frames (48 words): words 3–6 =
+  the 8-character name, low byte first. **No catalog path.**
+* 774 distinct sound files are referenced (all present): 453,808 sectors,
+  232 MB. 1,301 are referenced by no timbre: 496 MB. All 2,075: 1,421,757
+  sectors, 728 MB; 63 instrument prefixes (most files: CLT 159, PNO 127,
+  BCL 111; 18 prefixes such as CLT, BCL, TBA, VOX have no timbre at all).
+* Timbre names end in their poly-memory size in MB (`FULL PIANO   5.7`);
+  the largest is about 10 MB.
+
+### A `.caf` is a NED sound file [OBS: all 2,075 files]
+
+* Chunk `SNCL`, 1,536 bytes = sectors 0–2 of the NED sound file (header
+  and symbol table, [`poly-synth.md`](poly-synth.md) §5), big-endian words.
+  Valid data (words 2–4) = CAF frames × channels in 2,075 of 2,075; the file
+  handle (word 53, high byte first) is the file name.
+* Chunk `data`: 4-byte edit count, then 16-bit little-endian PCM; 78 stereo
+  files are interleaved L/R as NED stores them. Rates: 50 kHz 1,959, 100 kHz
+  63, 65/40/45/25/30 kHz the rest. 922 headers have sample-rate word 42 = 0
+  and give the rate as period index (word 21), which the loader accepts.
+  Compat 4 in 2,051, 1–3 in 24.
+* Conversion is a copy: `SNCL` words + samples byte-swapped to big-endian,
+  padded to 3 + total-data sectors (word 7). No resampling. Loops, pitch,
+  marks and the caption stay as they are. (`sound_import.py` builds headers
+  from WAV/AIFF and is not needed here.)
+
+### How SYN-5.3 finds a patch's sound file [OBS]
+
+`198-SYN2:430-500`, recall of a timbre whose file is not in poly memory:
+interpreter asset library (only when `interp_is_running`) → floppy cache →
+**`FIND.SOUND`** (sound-file cache) → `LOCATE` on the active level / current
+catalog / system catalog, only when there is no cache → optical index.
+
+The cache (`197-PAL2` `SETUP.CACHE`, `TRAVERSE.DEVICE`) holds every sound
+file on W0: and then W1:, recursing into type 6/7 sub-catalogs to depth
+10, 8 words per file in poly memory; `FIND.SOUND` takes the first name
+match. It is built when `interp_real_time_prefs(SYNCLAVIER_PREF_CREATE_CACHE)`
+returns the bit. On this hardware the natives return their argument (as for
+the D70 poll, [`devices/d70-midi-subsystem.md`](devices/d70-midi-subsystem.md))
+[INF], so the cache exists and **sound files can sit in any W1: sub-catalog**.
+A W0: file with the same name would shadow a W1: file. Not yet checked: no
+test has recalled a sound file from W1: in SYN-5.3 (the M17 open item).
+
+### Limits
+
+| Limit | Where [OBS] | Value | Library needs |
+|---|---|---|---|
+| SCSI disk size | was: `hdl/core/sd_floppy.sv` clamped W0/W1 at 65,536 blocks with 16-bit block addresses (`sd_floppy.sv`, `dev_scsi.sv`); our choice, sized for the W0 images. READ(10) carries a 32-bit LBA; NED sizes a disk from READ CAPACITY up to 24 bits of sectors (`XPL/DEVUTIL` Find_Win_Size) | now 2^24 blocks (8 GB) | — |
+| Catalog entry size | `tools/ned_disk.py` `add_file` writes 16-bit start and length; NED packs MS start (bits 8–15) and MS length (bits 4–7) into the type word (`XPL/CATCODE:58-64,328-333`) | 32 MB per catalog in the tool; 24-bit start, 20-bit length in NED | MS bits in `walk` and `add_file` |
+| Catalog entries | root and type 7: 128; type 6: 32 | — | PNO 127 files; CLT 159 needs two sub-catalogs |
+| Sound file length | `197-PAL1:378-386` | < 65,536 sectors | largest 2,895 |
+| Poly memory | M10 | 224 MB | largest timbre ≈ 10 MB |
+
+### Options, by period capacity
+
+The Synclavier 3200/9600 shipped with hard disks such as 80 MB or 320 MB,
+or optical WORM drives up to 2 GB.
+
+| Option | Contents | Size | Needs |
+|---|---|---|---|
+| **A: W1: 320 MB class** | 116 banks repacked into 8-bank `.NEWDATA` libraries by instrument family (about 15–18), the 774 referenced sound files, and the existing 17 FM libraries + DEMOS | ≈ 250 MB | HDL disk width, `ned_disk` MS bits, CAF copy, bank repack |
+| B: W1: 1 GB | A + the 1,301 unreferenced sound files (B screen / patch building) | ≈ 745 MB | as A |
+| C: optical | full library as an optical volume (period-correct for the whole set) | 728 MB+ | optical target (spike S1, not modelled) |
+
+### Implementation (option A, 2026-11-11)
+
+| Part | Change |
+|---|---|
+| HDL | `sd_floppy.sv` word port `{drive, block[23:0], word}`, W0/W1 up to 2^24 blocks (8 GB, clamped there); `dev_scsi.sv` 24-bit LBA, READ CAPACITY of the image size, MODE SENSE block count 3 bytes (FFFFFF at 2^24, also in `sim/devices/scsi.py`); `synclavier_core.sv` packs the four word-port users into the new address |
+| `tools/ned_disk.py` | catalog entries with start bits 16–23 and length bits 16–19 in the type word (`entry_fields`, `entry_words`); `add_file` reads only catalog sectors (`DiskWords`), so a 274 MB image builds in 5 s |
+| `tools/stmb.py` | `bank_bytes()`: up to 8 parsed banks → `.NEWDATA` bytes |
+| `tools/sample_library.py` | `.caf` → NED sound file (`SNCL` + samples, checked against the header); banks grouped by family (`FAMILIES`), 8 to a library, a bank file kept whole; TOMDTA43 entries 2–8 (wave-table words, not timbres) left empty; AM-DATA's two FM entries encoded from text |
+| `tools/timbre_disk.py` | `--samples DIR [--all-sounds]`: one sub-catalog per library (type 7 above 31 files) holding its `.NEWDATA` and every sound file its timbres use; a sound used by two libraries is in both (161 copies, 31 MB) so each library is complete |
+
+Libraries (`python3 tools/sample_library.py DIR` lists every bank):
+
+| Sub-catalog | Banks (bank files) | Sound files |
+|---|---|---|
+| PIANO1 | HPCDTA40, PNODTA40 ×2, PNODTA41, PNODTA42 | 43 |
+| PIANO2 | PNODTA71 ×8 (Concert Grand) | 84 |
+| BRASS1 | FHNDTA40, FHNDTA41, FLGDTA40, TBNDTA40 ×2, TBNDTA41, TPTDTA40, TPTDTA41 | 72 |
+| BRASS2 | TPTDTA42, 44, 46, 47, 49 | 74 |
+| WINDS1 | FLTDTA40 ×2, FLTDTA41–43, MWWDTA40–42 | 39 |
+| WINDS2 | MWWDTA43, SSXDTA40, TSXDTA40 | 29 |
+| STRINGS1 | ABSDTA40, ABSDTA42, BJODTA40, EBSDTA40, GTRDTA40, HRPDTA40 ×2 | 61 |
+| STRINGS2 | HRPDTA41 ×2, HRPDTA42 ×2, HRPDTA43, VLNDTA40 ×2 | 47 |
+| STRINGS3 | VLNDTA41 ×2, VLNDTA42 | 26 |
+| DRUMS1 | BDRDTA40, CRADTA40, DRMDTA40 ×3, GNGDTA40, HIHDTA40, RIDDTA40 | 115 |
+| DRUMS2 | SNRDTA40, SPLDTA40, TMPDTA40, TOMDTA40, 42, 43 | 44 |
+| PERC1 | CBADTA01, CBLDTA01 ×2, CGADTA01, CLVDTA01, GUIDTA01, GUIDTA02, MBLDTA01 | 51 |
+| PERC2 | MBLDTA03, MPCDTA01–04 | 16 |
+| PERC3 | PRCDTA01 ×8 (Latin percussion) | 106 |
+| PERC4 | RATDTA01, SHKDTA01 ×2, TAMDTA01, TMBDTA01, TRIDTA01, WBKDTA01, XTKDTA40 | 47 |
+| MALLETS | CHIDTA40, KBADTA40, MBADTA40, OBLDTA40, STDDTA40 | 30 |
+| SYNTH1 | AM-DATA, SYNDTA40–46 | 24 |
+| SYNTH2 | SYNDTA47–53 | 27 |
+
+Build (with the FM libraries and the demo sequences):
+
+```bash
+python3 tools/timbre_disk.py W1-SAMPLES.IMG timbres/fm-stmb/*.stmb \
+    --samples timbres/Original-NED-Sample-Patch-Libraries \
+    --seq DEMOS:0=SQ0.sseq ... --seq DEMOS:4=SQ4.sseq       # 274 MB
+```
+
+In SYN-5.3: D (Subcatalog Directory), `W1:PIANO2`, RETURN; then BANK n,
+ENTRY m. The W0: image has no sound file of the same name as a library
+file (W0: holds CLARA3 and CLARA4 only).
+
+Verified:
+
+* Read-back: all 935 sound files and 18 `.NEWDATA` files in the image are
+  byte-identical to their sources; 894 files start above sector 65,535.
+* Simulator (SYN-5.3, VPK, `W0-53.IMG` + the 274 MB W1:): `W1:PIANO1`
+  entered, BANK 2 ENTRY 1: the panel shows `LOADING SOUND FILE "PNOGN340"`,
+  then `FULL PIANO   5.7`; all 14 sound files of that timbre are in poly
+  memory; no terminal error. `W1:SYNTH2` (the last library, about 270 MB
+  in), BANK 5 ENTRY 1: `SYN51 PAD   1.93`, its 6 sound files in poly memory.

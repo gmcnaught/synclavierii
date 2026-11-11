@@ -8,15 +8,15 @@ module dev_scsi_tb;
     logic [1:0]  reg_sel = 0;
     logic [15:0] wdata = 0, rdata;
     logic        ack;
-    logic [23:0] d_addr;
+    logic [31:0] d_addr;
     logic        d_rd, d_wr, d_ack;
     logic [15:0] d_wdata, d_rdata;
     int          errors = 0;
 
     dev_scsi #(.TARGET(4'd5)) dut (
         .clk, .rst, .sel, .rd, .wr, .reg_sel, .wdata, .rdata, .ack,
-        .present(1'b1), .protect(1'b0), .blocks(17'd4),
-        .present1(1'b0), .protect1(1'b0), .blocks1(17'd0), .d_unit(),
+        .present(1'b1), .protect(1'b0), .blocks(25'd4),
+        .present1(1'b0), .protect1(1'b0), .blocks1(25'd0), .d_unit(),
         .tick(1'b0), .tick_ns(10'd0), .block_ns(20'd0), .hold(),
         .seek_ns(26'd0), .hint(), .hint_blk(), .probe_blk(), .line_ok(1'b1), .line_wait(1'b0),
         .d_addr, .d_rd, .d_wr, .d_wdata, .d_rdata, .d_ack

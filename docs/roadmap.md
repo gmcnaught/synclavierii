@@ -28,7 +28,12 @@ On a MiSTer (.62, 2026-11-09): MIDI card (M8b), 32 FM voices
 SCSI load time (M11: sound files load with 0 underruns), W1: (M12, `--w1`),
 VT640 graphics and mouse (M13, `--vt640`); FM and poly voices on real time
 (M14, `hdl/voice_clock.sv`: a CPU wait no longer stops the audio). 2026-11-10: two
-poly bins, a 6400 (M15, `--poly-bins 2`: 64 poly voices, CLARA3 played from bin 2).
+poly bins, a 6400 (M15, `--poly-bins 2`: 64 poly voices, CLARA3 played from bin 2);
+the card complement in the OSD (M16: up to 128 poly voices in 4 bins, mono
+cards, memory in 4 MB steps), sound file import (M17), digital
+sample-to-memory from an SD file (M18), the multichannel distributor (M19),
+an SMPTE reader fed by MIDI Time Code (M20) and the printer port with
+music notation hardcopy (M21); see [`model-alignment.md`](model-alignment.md).
 
 ## Next
 
@@ -37,12 +42,12 @@ poly bins, a 6400 (M15, `--poly-bins 2`: 64 poly voices, CLARA3 played from bin 
 | Launchkey pad and pot numbers (M8a) | a MIDI capture from the user's Launchkey |
 | FM and poly sound against a real instrument (M3.3) | recordings |
 
-Possible but low value on MiSTer: SMPTE, multichannel outputs, guitar
-interface, printer port.
+Research only: optical disk (no images found), Direct-to-Disk playback.
 
-Not planned: Direct-to-Disk (separate 68K system, no firmware),
-sample-to-memory recording (no audio input), mono sampling, the Macintosh
-terminal.
+Not planned (reasons in [`model-alignment.md`](model-alignment.md) §5):
+analog sample-to-memory (no audio input), Direct-to-Disk recording, mono
+sampling (D66), the guitar interface, the RS-422 comm processor and
+Macintosh terminal, CV/gate outputs, tape.
 
 ## Open gaps
 

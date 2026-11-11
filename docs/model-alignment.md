@@ -1,5 +1,8 @@
 # Model alignment: 3200 / 6400 / 9600 options on the MiSTer core
 
+*Status 2026-11-10: M16–M21 done and verified on a MiSTer (results in
+[`plan.md`](plan.md) §4 Done); research spikes S1, S2 not started.*
+
 *Feature pass, 2026-11-10. Compares the core with the card options that
 Release 5.3 (SYN-5.3) supports, and plans the remaining options that a
 MiSTer can provide. Milestones continue from M15 in [`plan.md`](plan.md).*

@@ -249,6 +249,12 @@ file back and render it:
 python3 tools/print_render.py PRINT.PRN page.png --pdf page.pdf
 ```
 
+`--extract printer.bin` instead writes the bytes exactly as they went out
+of the RS-232 printer port (IDS Prism codes, text), e.g. for a real
+printer. After a Music Notation print, press CTRL-X to redraw the screen:
+SYN-5.3's print routine uses the display's own memory as scratch space
+(`docs/devices/d40-printer.md` §3.2).
+
 What prints:
 
 | Screen | Key | Printout |

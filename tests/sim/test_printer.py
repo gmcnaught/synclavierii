@@ -163,6 +163,19 @@ def test_text_and_files():
     assert read_capture(cap) == b"xyz"
 
 
+def test_extract():
+    """print_render --extract: the printed bytes alone, from a capture file."""
+    import tempfile
+    from tools import print_render
+    with tempfile.TemporaryDirectory() as d:
+        cap, out = os.path.join(d, "P.PRN"), os.path.join(d, "p.bin")
+        body = b"%!PS-Adobe-2.0\nshowpage\n"
+        blk = print_render.header(len(body)) + body
+        open(cap, "wb").write(blk.ljust(4096, b"\0"))
+        assert print_render.main([cap, "--extract", out]) == 0
+        assert open(out, "rb").read() == body
+
+
 def _syn53(**kw):
     image = os.environ.get("SYNCLAVIER_W0")
     if not image:

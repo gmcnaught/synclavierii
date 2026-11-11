@@ -197,16 +197,28 @@ Exception: MONITOR CLEARSCREEN sends ESC `!5M` only for `G#MACINTOSH`
   `char.width`/`char.height`: **8 × 14** VT640 pixels (`TTYSOU:1020-1021`);
   music notation uses the same `ALPHA_WIDTH=8`, `ALPHA_HIGHT=14`
   (`MNOTMOD/GLOBFNCS.xpl:686-687`). [OBS]
-* BS (010) is used to overstrike: note heads are `o` BS `#` on VT640
-  (`PICSFNCS.xpl:233-238`). [OBS]
-* Glyphs: [CHOICE] the public-domain X.Org 5 × 7 font
-  (`third_party/font5x7`, `tools/gen_font.py`), on columns 1–5 and lines
-  1–11 above the position, each font row 1.5 times (row 6 = descender).
-  The VT640's own character ROM is not documented here; an earlier model
-  used the text plane's heavy 8 × 8 font stretched to 8 × 12, whose note
-  heads overran the 8-line staff space and merged with the staff lines, so
-  heads were hard to tell apart. With 5 × 7, `o` is 4 × 6 pixels and
-  `o` BS `#` a 5 × 7 head.
+* BS (010) is used to overstrike: note heads are `O` (`asc.o` = 0117)
+  and, for filled heads, `O` BS `#` on VT640 (`PICSFNCS.xpl:233-238`),
+  drawn from (X−3, Y−4) for a note at (X, Y); the stem is at X+3 or X−3
+  (`PLOTFNCS.xpl:43-44`), the staff space 8 lines. [OBS] So SYN-5.3
+  expects a capital O 7 lines tall on cell lines 1–7, centred 3 columns
+  in. [INF]
+* Music Printing (`*SPLT-7`) also writes its text (tempo, expression,
+  pedal marks) in alpha mode, one character per positioning; its notes,
+  clefs and symbols are vectors. [OBS] A Synclavier II publicity photo of
+  a VT100/VT640 showing a Music Printing lead sheet has that text (lyrics,
+  chord names) as small, thin dot-matrix characters. [INF from a blurry
+  photo]
+* Glyphs: [CHOICE] a 5 × 7 dot matrix at 1:1, the public-domain X.Org
+  6x10 font (`third_party/font6x10`, `tools/gen_font.py`): font columns on
+  pixel columns 1–5, font row r (1–9) on line 8 − r above the position
+  (capitals lines 1–7, descenders lines 0 and −1). `O` is then 5 × 7,
+  centred on the note. The VT640's own character ROM is not documented
+  here; earlier models (an 8 × 8 font stretched to 8 × 12, then X.Org 5x7
+  stretched 1.5×) put the head off-centre, above the pitch and clear of
+  the stem.
+* Character size (ESC 0–3, ESC 8–;) is ignored: SYN-5.3 and Music
+  Printing select only size 0 (ESC 0) in the streams captured so far.
 * Data level applies to text: erase is `data_level(1)` + redraw the same
   string (`TPRIMSOU:272-283,302-314`). [OBS]
 * Vertical labels: move_to, US, one char, repeated (`PLOTSOU:570-581`). [OBS]

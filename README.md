@@ -233,7 +233,7 @@ supported by Synclavier Digital or New England Digital.
 | This project's own files (HDL, simulator, tools, tests, docs) | MIT, [`LICENSE`](LICENSE) |
 | `mister/sys/` (MiSTer framework, unchanged) | GPL-2.0, [`mister/sys/LICENSE-GPL2`](mister/sys/LICENSE-GPL2) |
 | `third_party/font8x8/` (Daniel Hepper) | Public domain (header of `font8x8_basic.h`) |
-| `third_party/font5x7/` (X.Org misc-misc `5x7.bdf`, Markus Kuhn) | Public domain (`COPYRIGHT` in the BDF) |
+| `third_party/font6x10/` (X.Org misc-misc `6x10.bdf`) | Public domain (`COPYRIGHT` in the BDF) |
 | `tests/fixtures/NED-SCSI.LST` (NED assembler listing) | MIT, [`tests/fixtures/LICENSE-NED-Software`](tests/fixtures/LICENSE-NED-Software) |
 
 A built core (`.rbf`) contains `mister/sys/`, so a distributed RBF is a

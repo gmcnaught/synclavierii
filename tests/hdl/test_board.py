@@ -46,9 +46,9 @@ def test_fm_tables_up_to_date():
 
 
 def test_font_up_to_date():
-    from tools.gen_font import PATH, PATH57, text, text57
+    from tools.gen_font import PATH, PATH610, text, text610
     assert open(PATH).read() == text(), "run python3 tools/gen_font.py"
-    assert open(PATH57).read() == text57(), "run python3 tools/gen_font.py"
+    assert open(PATH610).read() == text610(), "run python3 tools/gen_font.py"
 
 
 def _testbench(name, rtl, args=()):

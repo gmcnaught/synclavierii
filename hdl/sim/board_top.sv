@@ -12,10 +12,11 @@ module board_top (
     input  logic        rt_enable,
     input  logic [13:0] hw_cfg,          // OSD Hardware page (LOCKSTEP_HWCFG)
     input  logic [3:0]  out_pair,        // OSD Outputs, M19 (LOCKSTEP_OUTPUTS)
+    input  logic        printer_osd,     // OSD printer (LOCKSTEP_PRINTER_OSD)
 
     input  logic [10:0] ps2_key,
     input  logic [24:0] ps2_mouse,
-    input  logic [5:0]  img_mounted,
+    input  logic [6:0]  img_mounted,
     input  logic        img_readonly,
     input  logic [63:0] img_size,
     output logic [31:0] sd_lba0,
@@ -24,16 +25,20 @@ module board_top (
     output logic [31:0] sd_lba3,
     output logic [31:0] sd_lba4,
     output logic [31:0] sd_lba5,
-    output logic [5:0]  sd_rd,
-    output logic [5:0]  sd_wr,
+    output logic [31:0] sd_lba6,
+    output logic [6:0]  sd_rd,
+    output logic [6:0]  sd_wr,
     output logic [5:0]  sd_blk_cnt3,
     output logic [5:0]  sd_blk_cnt4,
     output logic [5:0]  sd_blk_cnt5,
-    input  logic [5:0]  sd_ack,
+    input  logic [6:0]  sd_ack,
     input  logic [13:0] sd_buff_addr,
     input  logic [7:0]  sd_buff_dout,
     output logic [7:0]  sd_buff_din,
+    output logic [7:0]  sd_buff_din6,
     input  logic        sd_buff_wr,
+    output logic [31:0] prn_count,
+    output logic        prn_busy,
 
     input  logic        DDRAM_BUSY,
     output logic [7:0]  DDRAM_BURSTCNT,
@@ -130,8 +135,10 @@ module board_top (
     // one clock in simulation: the video runs at clk / 2
     synclavier_core core (
         .clk, .rst_hard, .rst, .rt_enable, .rt_voices(rt_enable), .clk_vid(clk), .ps2_key, .ps2_mouse, .color(2'd0), .panel_over(1'b0), .stall_view(1'b0), .hw_cfg, .dig_stm_on(1'b0), .out_pair, .smpte_osd(1'b0),
-        .img_mounted, .img_readonly, .img_size, .sd_lba0, .sd_lba1, .sd_lba2, .sd_lba3, .sd_lba4, .sd_lba5, .sd_rd, .sd_wr, .sd_blk_cnt3, .sd_blk_cnt4, .sd_blk_cnt5, .sd_ack,
-        .sd_buff_addr, .sd_buff_dout, .sd_buff_din, .sd_buff_wr,
+        .printer_osd, .readback_en(1'b0),
+        .img_mounted, .img_readonly, .img_size, .sd_lba0, .sd_lba1, .sd_lba2, .sd_lba3, .sd_lba4, .sd_lba5, .sd_lba6, .sd_rd, .sd_wr, .sd_blk_cnt3, .sd_blk_cnt4, .sd_blk_cnt5, .sd_ack,
+        .sd_buff_addr, .sd_buff_dout, .sd_buff_din, .sd_buff_din6, .sd_buff_wr,
+        .prn_note(), .prn_note_valid(), .prn_count, .prn_busy,
         .xr_addr, .xr_rd, .xr_wr, .xr_wide, .xr_wdata, .xr_rdata, .xr_ack,
         .xs_addr, .xs_rd, .xs_ack, .xs_rvalid, .xs_rdata,
         .ce_pix, .vga_r, .vga_g, .vga_b, .vga_hs, .vga_vs, .vga_hblank, .vga_vblank,

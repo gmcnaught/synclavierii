@@ -14,8 +14,15 @@
 //   alpha: printable -> 8 x 14 cell, lower-left at the position, glyph on
 //   cell lines 1-12 (font row (line-1)*2/3), x += 8; BS x -= 8, CR x = 0,
 //   LF y -= 14.
+//   ESC " p ; y ; n c   read back (M21, SYN-5.3's screen hardcopy): n (at
+//   most 128) 5-pixel groups of line y (0 = bottom) from x = 0, coded as
+//   tools/vt100.py readback_reply (run lengths, then CR); the reply is made
+//   at once into a 512-byte buffer and, with rb_en, sent out on rb_valid /
+//   rb_data (one byte a clock, into the terminal's input) 2 ms of simulated
+//   time (tick_ns) later, as sim/boot.py READBACK_NS; other finals ignored.
 // A byte is taken (in_valid && ready) only when the plane is idle; a pixel
-// costs 2 clocks (read, then write the word back), a clear 19200 clocks.
+// costs 2 clocks (read, then write the word back), a clear 19200 clocks, a
+// read-back about 6 clocks a group.
 // Video reads the bitmap on vclk (v_addr -> v_q a clock later).
 module tek_plane (
     input  logic        clk,
@@ -24,6 +31,12 @@ module tek_plane (
     input  logic [7:0]  in_data,
     output logic        ready,
     output logic        active,         // in a graphics mode (bytes belong here)
+
+    input  logic        tick,           // simulated time (read-back delay)
+    input  logic [9:0]  tick_ns,
+    input  logic        rb_en,          // answer read-back requests
+    output logic        rb_valid,       // read-back reply bytes, for the terminal's input
+    output logic [7:0]  rb_data,
 
     input  logic        vclk,
     input  logic        v_ce,           // the video's pixel enable: read on it
@@ -47,7 +60,8 @@ module tek_plane (
 
     // ------------------------------------------------------------ decoder
     localparam logic [1:0] G_NONE = 2'd0, G_VEC = 2'd1, G_PNT = 2'd2, G_ALPHA = 2'd3;
-    localparam logic [2:0] E_NO = 3'd0, E_ESC = 3'd1, E_SLASH = 3'd2, E_SKIP2 = 3'd3, E_SKIP1 = 3'd4;
+    localparam logic [2:0] E_NO = 3'd0, E_ESC = 3'd1, E_SLASH = 3'd2, E_SKIP2 = 3'd3, E_SKIP1 = 3'd4,
+                           E_RB = 3'd5;
     logic [1:0]  gmode;
     logic [2:0]  gesc;
     logic [3:0]  num;
@@ -68,7 +82,7 @@ module tek_plane (
 
     // ------------------------------------------------------ pixel engine
     localparam logic [2:0] T_IDLE = 3'd0, T_CLEAR = 3'd1, T_LINE = 3'd2, T_GLYPH = 3'd3,
-                           T_RD = 3'd4, T_WR = 3'd5;
+                           T_RD = 3'd4, T_WR = 3'd5, T_RB = 3'd6, T_RBEMIT = 3'd7;
     logic [2:0]  t, t_ret;              // state; where T_WR returns to
     // line
     logic signed [11:0] lx, ly, lx1, ly1, ldx, ldy, lerr;
@@ -83,6 +97,63 @@ module tek_plane (
     logic [3:0]  pbit;
 
     assign ready = t == T_IDLE;
+
+    // ------------------------------------------------- read-back (M21)
+    logic [1:0]  rb_i;                  // parameter being read
+    logic [9:0]  rb_p [3];              // the parameters (saturating)
+    logic [8:0]  rb_row;                // screen row (0 = top) of the line
+    logic        rb_blank;              // line off the screen
+    logic [7:0]  rb_n;                  // groups to send
+    logic [7:0]  rb_k;                  // groups done
+    logic [9:0]  rb_x;                  // next pixel
+    logic [2:0]  rb_b;                  // pixels of this group so far
+    logic [4:0]  rb_g;                  // this group's value so far
+    logic [5:0]  rb_w;                  // word index in wq
+    logic        rb_wv;                 // wq holds word rb_w
+    logic [15:0] wq;
+    logic [4:0]  run_v;                 // the run being counted
+    logic [5:0]  run_n;
+    logic [7:0]  em [3];                // bytes still to emit for a finished run
+    logic [1:0]  em_n;
+    logic        rb_last;               // after the emission: the trailer
+    logic        rb_fin;                // the trailer is out: done
+    logic [1:0]  rb_ph;                 // word fetch: 1 address out, 2 data in
+    wire         rb_pix = !rb_blank && rb_x < 10'd640 && wq[rb_x[3:0]];
+    wire  [4:0]  rb_v = {rb_g[3:0], rb_pix};
+    // reply buffer and its sender
+    logic [7:0]  rbuf [512];
+    logic [8:0]  rb_wp, rb_len, rb_sp;
+    logic        rb_bwe;
+    logic [7:0]  rb_bd;
+    logic        rb_go, rb_pend, rb_sending;
+    logic signed [31:0] rb_due;
+    always_ff @(posedge clk) begin
+        if (rb_bwe) rbuf[rb_wp] <= rb_bd;
+        rb_data <= rbuf[rb_sp];
+    end
+    always_ff @(posedge clk) begin
+        rb_valid <= 1'b0;
+        if (rst) begin
+            rb_pend <= 1'b0; rb_sending <= 1'b0;
+        end else if (rb_go) begin                   // a reply is made: send it 2 ms on
+            rb_pend <= 1'b1; rb_due <= 32'sd2_000_000; rb_sending <= 1'b0;
+        end else if (rb_pend && rb_due > 0) begin
+            if (tick) rb_due <= rb_due - 32'(tick_ns);
+        end else if (rb_pend && rb_en) begin
+            rb_pend <= 1'b0; rb_sending <= 1'b1; rb_sp <= '0;
+        end else if (rb_sending) begin              // rbuf[rb_sp] is on rb_data next clock
+            rb_valid <= 1'b1;
+            if (rb_sp + 9'd1 == rb_len) rb_sending <= 1'b0;
+            rb_sp <= rb_sp + 9'd1;
+        end
+    end
+    // a run's bytes (tools/vt100.py readback_reply)
+    task automatic finish_run(input logic [4:0] v, input logic [5:0] n);
+        if (v == 5'd0) begin em[0] <= 8'o44; em[1] <= {2'b01, n}; em_n <= 2'd2; end
+        else if (v == 5'd31) begin em[0] <= 8'o45; em[1] <= {2'b01, n}; em_n <= 2'd2; end
+        else if (n >= 6'd3) begin em[0] <= 8'o46; em[1] <= {3'b010, v}; em[2] <= {2'b01, n}; em_n <= 2'd3; end
+        else begin em[0] <= {3'b010, v}; em[1] <= {3'b010, v}; em_n <= 2'(n); end
+    endtask
 
     // pixel (x, y) -> word address and bit; on screen?
     function automatic logic [14:0] waddr(input logic signed [11:0] x, input logic signed [11:0] y);
@@ -117,7 +188,10 @@ module tek_plane (
 
     always_ff @(posedge clk) begin
         a_we <= 1'b0;
+        rb_bwe <= 1'b0; rb_go <= 1'b0;
+        if (rb_bwe) rb_wp <= rb_wp + 9'd1;
         if (rst) begin
+            rb_len <= '0; rb_fin <= 1'b0;
             gmode <= G_NONE; gesc <= E_NO; pen <= 1'b0; after_loy <= 1'b0;
             level <= 2'd0; gx <= '0; gy <= '0; hiy <= '0; loy <= '0; hix <= '0;
             t <= T_CLEAR; a_addr <= '0;
@@ -149,6 +223,44 @@ module tek_plane (
                 if (e2 <= 13'(ldx)) ly <= lsy ? ly - 12'sd1 : ly + 12'sd1;
             end
         end
+        T_RB: begin                                       // the next pixel of the line
+            if (rb_k == rb_n) begin                       // all groups: the last run, then CR
+                if (rb_n != 8'd0) finish_run(run_v, run_n);
+                rb_last <= 1'b1;
+                t <= T_RBEMIT;
+            end else if (rb_ph == 2'd1) rb_ph <= 2'd2;     // a_q is being read
+            else if (rb_ph == 2'd2) begin                 // the word holding pixel rb_x
+                wq <= a_q; rb_w <= rb_x[9:4]; rb_wv <= 1'b1; rb_ph <= 2'd0;
+            end else if (!rb_blank && rb_x < 10'd640 && !(rb_wv && rb_w == rb_x[9:4])) begin
+                a_addr <= 15'(rb_row) * 15'd40 + 15'(rb_x[9:4]);
+                rb_ph <= 2'd1;
+            end else begin                                // take pixel rb_x
+                rb_x <= rb_x + 10'd1;
+                if (rb_b != 3'd4) begin
+                    rb_g <= {rb_g[3:0], rb_pix}; rb_b <= rb_b + 3'd1;
+                end else begin                            // a group: count it into the run
+                    rb_b <= '0; rb_k <= rb_k + 8'd1;
+                    if (rb_k == 8'd0) begin run_v <= rb_v; run_n <= 6'd1; end
+                    else if (rb_v == run_v && run_n != 6'd63) run_n <= run_n + 6'd1;
+                    else begin
+                        finish_run(run_v, run_n);
+                        run_v <= rb_v; run_n <= 6'd1;
+                        t <= T_RBEMIT;
+                    end
+                end
+            end
+        end
+        T_RBEMIT: begin                                   // a run's bytes into the reply
+            if (em_n != 2'd0) begin
+                rb_bwe <= 1'b1; rb_bd <= em[0]; em[0] <= em[1]; em[1] <= em[2]; em_n <= em_n - 2'd1;
+            end else if (rb_last) begin
+                rb_bwe <= 1'b1; rb_bd <= 8'o15; rb_last <= 1'b0; rb_fin <= 1'b1;
+            end else if (rb_fin) begin                    // the reply is made
+                rb_fin <= 1'b0;
+                rb_len <= rb_wp + {8'd0, rb_bwe}; rb_go <= 1'b1;
+                t <= T_IDLE;
+            end else t <= T_RB;
+        end
         T_GLYPH: begin                                    // one cell position per visit
             if (g_on) plot(g_x, g_y, T_GLYPH);
             if (gc == 3'd7) begin
@@ -169,6 +281,10 @@ module tek_plane (
                         else if (c == 8'h2f) begin gesc <= E_SLASH; num <= '0; end
                         else if (c == 8'h7c) gesc <= E_SKIP2;
                         else if (c == 8'h5c) gesc <= E_SKIP1;
+                        else if (c == 8'h22) begin
+                            gesc <= E_RB; rb_i <= '0;
+                            rb_p[0] <= '0; rb_p[1] <= '0; rb_p[2] <= '0;
+                        end
                     end
                     E_SLASH:
                         if (c >= 8'h30 && c <= 8'h39)
@@ -177,6 +293,23 @@ module tek_plane (
                         else if (c == 8'h3b) num <= '0;
                         else gesc <= E_NO;
                     E_SKIP2: gesc <= E_SKIP1;
+                    E_RB:
+                        if (c >= 8'h30 && c <= 8'h39)
+                            rb_p[rb_i] <= 14'(rb_p[rb_i]) * 14'd10 + 14'(c[3:0]) > 14'd1023 ? 10'd1023
+                                          : 10'(14'(rb_p[rb_i]) * 14'd10 + 14'(c[3:0]));
+                        else if (c == 8'h3b) begin if (rb_i != 2'd2) rb_i <= rb_i + 2'd1; end
+                        else begin
+                            gesc <= E_NO;
+                            if (c == 8'h63 && rb_i == 2'd2) begin      // 'c': read line y back
+                                rb_blank <= rb_p[1] > 10'd479;
+                                rb_row <= 9'(10'd479 - rb_p[1]);
+                                rb_n <= rb_p[2] > 10'd128 ? 8'd128 : rb_p[2][7:0];
+                                rb_k <= '0; rb_x <= '0; rb_b <= '0; rb_g <= '0;
+                                rb_wv <= 1'b0; rb_ph <= '0; rb_wp <= '0; rb_len <= '0;
+                                em_n <= '0; rb_last <= 1'b0; rb_fin <= 1'b0;
+                                t <= T_RB;
+                            end
+                        end
                     default: gesc <= E_NO;
                 endcase
             end else if (c == 8'h1d) begin gmode <= G_VEC; pen <= 1'b0; after_loy <= 1'b0; end

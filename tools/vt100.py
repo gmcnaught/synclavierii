@@ -59,6 +59,11 @@ for a VT640): a 640 x 480 x 1 graphics plane, y up, drawn by a Tektronix
               title at y = 470 only fits at size 0]
   ESC ` a-e x line type (drawn solid); ESC | c c, ESC backslash c, ESC ! c...:
               ignored; other ESC c: ignored
+  ESC " 0 ; y ; n c   read back n 5-pixel groups of graphics line y (y up,
+              0-479) from the left (SYN-5.3's screen hardcopy, D40SOU
+              read_screen; docs/devices/d40-printer.md): the reply
+              (readback_reply) goes to `reply` (Terminal(reply=callable));
+              other ESC " ... finals are ignored
   alpha       printable: an 8 x 14 cell whose lower-left corner is the
               graphics position; the 8 x 8 glyph covers cell lines 1-12
               from the top (each font row 1.5 times: row = (line-1)*2/3),
@@ -90,9 +95,45 @@ def tek_to_pixel(xt, yt):
     return (xt * 640 + 512) >> 10, (min(yt, 779) * 630 + 640) >> 10
 
 
+def readback_reply(g, y, groups):
+    """The VT640 read-back reply for graphics line y (0 = bottom) of plane g
+    (row 0 = top): `groups` groups of 5 pixels from x = 0, each a value
+    with bit 4 = its leftmost pixel; run-length coded as SYN-5.3 decodes it
+    (D40SOU read_screen): a run of 0 -> "$" n, of 037 -> "%" n, of another
+    value v, 3 or more long -> "&" v n, else single bytes v; v and n are
+    sent as 0100 | value (n 1..63); then CR. [CHOICE: the real VT640's reply
+    format is not documented in the NED source beyond what it decodes]"""
+    row = GH - 1 - y
+    vals = []
+    for k in range(groups):
+        v = 0
+        for i in range(5):
+            x = 5 * k + i
+            on = 0 <= row < GH and x < GW and g[row * GW + x]
+            v = v << 1 | (1 if on else 0)
+        vals.append(v)
+    out = bytearray()
+    k = 0
+    while k < len(vals):
+        v, n = vals[k], 1
+        while k + n < len(vals) and vals[k + n] == v and n < 63:
+            n += 1
+        if v == 0:
+            out += bytes((0o44, 0o100 | n))
+        elif v == 0o37:
+            out += bytes((0o45, 0o100 | n))
+        elif n >= 3:
+            out += bytes((0o46, 0o100 | v, 0o100 | n))
+        else:
+            out += bytes([0o100 | v] * n)
+        k += n
+    return bytes(out + b"\r")
+
+
 class Terminal:
-    def __init__(self, vt640=False):
+    def __init__(self, vt640=False, reply=None):
         self.vt640 = vt640
+        self.reply = reply                   # callable(bytes): read-back replies
         self.g = bytearray(GW * GH)          # graphics plane, row 0 = top (y = 479)
         self.gmode = None                    # None (text), "vector", "point", "alpha"
         self.pen = False
@@ -332,8 +373,20 @@ class Terminal:
                     self.gesc = 2                  # two bytes to skip
                 elif c == ord("\\"):
                     self.gesc = 1
+                elif c == ord('"'):
+                    self.gesc, self.rb = "readback", [0]
                 else:
                     self.gesc = None
+            elif g == "readback":                  # ESC " p ; p ; p final
+                if ord("0") <= c <= ord("9"):
+                    self.rb[-1] = min(9999, self.rb[-1] * 10 + c - ord("0"))
+                elif c == ord(";"):
+                    if len(self.rb) < 3:
+                        self.rb.append(0)
+                else:
+                    self.gesc = None
+                    if c == ord("c") and len(self.rb) == 3 and self.reply:
+                        self.reply(readback_reply(self.g, self.rb[1], min(self.rb[2], 128)))
             elif g == "slash":
                 if ord("0") <= c <= ord("9"):
                     self.num = min(9, self.num * 10 + c - ord("0"))

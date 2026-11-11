@@ -61,6 +61,23 @@ chunk; export then import gives the same file. `ned_disk.add_file` and
 `python3 tests/test_sound_import.py` (with `SYNCLAVIER_W0_RAW` = the raw
 `W0 Disk Image.simg`, also CLARA3/CLARA4 round trips).
 
+
+## `print_render.py`: printer capture to pages
+
+```bash
+python3 tools/print_render.py CAPTURE OUT.png [--pdf OUT.pdf] [--raw]
+python3 tools/print_render.py --blank FILE [--mb 4]
+```
+
+Renders what the Synclavier printed on its D40 printer port (the core's
+capture file from SD slot S6, or with `--raw` the bytes alone, e.g.
+`sim/devices/printer.py Printer.out`) as an IDS Paper Tiger / Prism would:
+text at 10.5 cpi and 6 lpi, ETX graphics (7-dot columns, 84 dpi), form
+feeds as new pages; one PNG per page and optionally one PDF. `--blank`
+makes an empty capture file to mount in S6. Format and printer model:
+[`docs/devices/d40-printer.md`](../docs/devices/d40-printer.md). Standard
+library only.
+
 ---
 
 Results of running the disassembler on NED's runtime packages are in

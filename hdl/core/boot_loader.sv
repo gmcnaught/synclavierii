@@ -30,7 +30,10 @@
 // external memory: the rest is cleared (Release 5.3: tools/w0_image.py).
 // Header word 35 (M16) locates the staged MONITOR's options word; with
 // `mono` (OSD) the loader sets o#pvoice (0200) in it, and `pvoice` is that
-// bit as loaded (mono voice cards, dev_poly).
+// bit as loaded (mono voice cards, dev_poly). With `printer` (OSD, M21) it
+// sets o#d40 (020) there and configuration word 19 (two words on) to the
+// printer type IDS Prism (p#prism 12, shifted left 8: 006000), as
+// sim/boot.py set_printer does.
 //
 // Progress and errors are written to the terminal display (msg_*).
 module boot_loader (
@@ -45,6 +48,7 @@ module boot_loader (
     output logic [15:0] term_bits,          // D51 device bits
     input  logic        mono,               // OSD: mono poly voice cards (set o#pvoice)
     output logic        pvoice,             // o#pvoice of the loaded options word
+    input  logic        printer,            // OSD: a printer on D40 (set o#d40, word 19)
     output logic        cpu_rst,            // the system's reset (load ports live)
     output logic        error,
 
@@ -465,9 +469,11 @@ module boot_loader (
                     fd_rd <= 1'b0;
                     xm_addr <= xn; xm_wdata <= fd_rdata; xm_wr <= 1'b1;
                     if (hw[35] != 16'd0 && xn == {8'd0, hw[35] - 16'd1}) begin
-                        xm_wdata <= fd_rdata | (mono ? 16'o200 : 16'd0);
+                        xm_wdata <= fd_rdata | (mono ? 16'o200 : 16'd0) | (printer ? 16'o20 : 16'd0);
                         pvoice <= fd_rdata[7] | mono;
                     end
+                    if (hw[35] != 16'd0 && xn == {8'd0, hw[35] + 16'd1} && printer)
+                        xm_wdata <= 16'o6000;
                     wp <= wp + 20'd1;
                 end else if (xm_wr && xm_ack) begin
                     xm_wr <= 1'b0;

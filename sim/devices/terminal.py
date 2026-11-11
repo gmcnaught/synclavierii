@@ -53,6 +53,7 @@ class Terminal(Device):
         self.rx_wait = 0     # ns until the next input character can arrive
         self.tx_busy = 0     # ns until the transmitter is empty again
         self.xmit_irq = False
+        self.later = []      # [ns to go, data]: replies the terminal sends later
 
     def set_baud(self, baud):
         self.baud = baud
@@ -64,6 +65,12 @@ class Terminal(Device):
             data = data.encode("latin-1")
         self.input.extend(data)
         self._receive()
+
+    def feed_later(self, ns, data):
+        """Queue input that arrives `ns` of simulated time from now (the
+        terminal's own replies, e.g. a VT640 read-back: tools/vt100.py);
+        it then goes through feed() (so lockstep traces record it)."""
+        self.later.append([ns, bytes(data)])
 
     def _receive(self):
         if not self.char_rdy and self.input and self.rx_wait <= 0:
@@ -110,6 +117,11 @@ class Terminal(Device):
                 self.xmit_irq = True  # transmitter went empty
         if self.rx_wait > 0:
             self.rx_wait -= ns
+        if self.later:
+            for e in self.later:
+                e[0] -= ns
+            while self.later and self.later[0][0] <= 0:
+                self.feed(self.later.pop(0)[1])
         if not self.char_rdy and self.input:
             self._receive()
 

@@ -151,6 +151,7 @@ OSD; SYN-5.3 looks for its hardware only at start-up):
 | Poly memory/bin | From image, 4 … 32 MB, 224 MB/bins | memory came in 4 MB steps |
 | FM voices | From image, 8, 16, 24, 32 | |
 | SMPTE reader (MTC in) | From image, On | the SMPTE reader, reading MIDI Time Code (below); needs a state image with the MIDI card |
+| Printer (D40) | From image, On | On: an IDS Prism on D40/D41; printouts go to S6 (below) |
 
 "From image" keeps what the state image says. The same choices exist in
 `tools/w0_image.py`, which bakes them into a state image:
@@ -227,6 +228,34 @@ sound file is the keyboard timbre's; save it with **D** (Save) as usual.
 Recording keeps the source's samples bit for bit (a mono recording of a
 stereo file takes the left channel). The OSD setting takes effect at
 reset; a newly mounted file the next time SYN-5.3 uses the input.
+
+**Printer (D40) and printing.** SYN-5.3 prints to a printer on the
+D40Q's D40/D41 port (`docs/devices/d40-printer.md`). Turn on OSD
+Hardware → "Printer (D40)" (then Reset), or use a state image made with
+`tools/w0_image.py --printer` (`W0-53-…-PRN.SST`). What it prints goes to
+a capture file in **S6** ("Printer capture"), which you make once on the
+PC and copy to the SD card, e.g. `games/Synclavier/print/PRINT.PRN`:
+
+```bash
+python3 tools/print_render.py --blank PRINT.PRN --mb 4     # empty 4 MB capture file
+```
+
+Mount it in S6 (or in the MGL: `<file delay="1" type="s" index="6"
+path="print/PRINT.PRN"/>`). Each printout is appended; 0.25 s after the
+last byte the OSD shows "Printout saved in S6". To read it, copy the
+file back and render it:
+
+```bash
+python3 tools/print_render.py PRINT.PRN page.png --pdf page.pdf
+```
+
+What prints:
+
+| Screen | Key | Printout |
+|---|---|---|
+| G Recorder Display | `h` | the screen's text |
+| K Music Notation Display | `H` | the score as drawn (staves, notes, clef, the menu frame), IDS Prism graphics; needs the VT640 configuration (`--vt640`), and takes about 40 s (the core reads the picture back line by line, as SYN-5.3 does from a VT640) |
+| B Sound File Directory (optical disks) | print command | the directory as text |
 
 **Release 5.3 with the MIDI subsystem card.** `tools/w0_image.py --midi`
 writes `W0-53-MIDI.SST`: the same machine with a MIDI card on D70–D73

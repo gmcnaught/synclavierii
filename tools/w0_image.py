@@ -4,8 +4,7 @@ image (Synclavier3's "W0 Disk Image.simg", not redistributable):
 
     w0_image.py W0IMAGE OUTDIR [--mb 30] [--newdata FILE] [--midi [--smpte]] [--fm-voices N] [--poly-mb N]
                 [--poly-bins N | --poly-voices N] [--mono] [--w1] [--vt640]
-                [--disk-us N] [--dig-stm]
-                [--disk-us N] [--multi N]
+                [--disk-us N] [--dig-stm] [--multi N] [--printer [TYPE]]
 
   OUTDIR/W0-53.IMG   the W0 disk padded to --mb megabytes, with a USER
                      subcatalog made by MONITOR's own CREATE USER (MONITOR
@@ -77,6 +76,14 @@ image (Synclavier3's "W0 Disk Image.simg", not redistributable):
                      at start-up and offers output routing; the core's OSD
                      Outputs item picks the stereo mix or one output pair;
                      the name gets -MC<N>.
+  --printer [TYPE]   a printer on the D40/D41 port (MONITOR options word 17 |
+                     o#d40 020, configuration word 19 = TYPE << 8; TYPE one
+                     of prism (default: SYN-5.3's screen hardcopy is for an
+                     IDS Paper Tiger/Prism), printronix, la34, decIII,
+                     diablo): the core appends what SYN-5.3 prints to the
+                     capture file mounted in S6 (docs/devices/d40-printer.md);
+                     the name gets -PRN. The OSD's Hardware page can add the
+                     printer to any W0 state image instead.
 
 Both are made by the simulator, so the core starts exactly where the
 lockstep traces do (sim/lockstep.py w0boot).
@@ -143,6 +150,9 @@ def main(argv=None):
                     help="the digital STM input (D57 bit 0x4000; source file in S5)")
     ap.add_argument("--multi", type=int, choices=(8, 16),
                     help="multichannel distributor outputs (D32/D33)")
+    ap.add_argument("--printer", nargs="?", const="prism", default=None,
+                    choices=("prism", "printronix", "la34", "decIII", "diablo"),
+                    help="a printer on D40 (default type prism)")
     ap.add_argument("--ork", action="store_true",
                     help="state image with the original keyboard instead of the velocity keyboard")
     a = ap.parse_args(argv)
@@ -177,12 +187,13 @@ def main(argv=None):
                           fm_voices=a.fm_voices, devices=3 if a.w1 else 2,
                           terminal="vt640" if a.vt640 else None, mouse=a.vt640, mono=a.mono,
                           scsi_block_ns=a.disk_us * 1000, scsi_seek_ns=a.seek_us * 1000,
-                          dig_stm=DigitalStm() if a.dig_stm else None, multi=a.multi)
+                          dig_stm=DigitalStm() if a.dig_stm else None, multi=a.multi,
+                          printer=a.printer)
     name = ("W0-53" + ("-MIDI" if midi else "") + ("-SMPTE" if a.smpte else "") + ("-FM%d" % a.fm_voices if a.fm_voices != 32 else "")
             + ("-P%d" % a.poly_mb if a.poly_mb != 32 else "")
             + ("-V%d" % a.poly_voices if a.poly_voices else
                "-BIN%d" % a.poly_bins if a.poly_bins != 1 else "") + ("-MONO" if a.mono else "") + ("-W1" if a.w1 else "") + ("-VT640" if a.vt640 else "") + ("-DSTM" if a.dig_stm else "")
-            + ("-MC%d" % a.multi if a.multi else ""))
+            + ("-MC%d" % a.multi if a.multi else "") + ("-PRN" if a.printer else ""))
     sst = os.path.join(a.outdir, name + ".SST")
     data = state_bytes(cpu)
     open(sst, "wb").write(data)

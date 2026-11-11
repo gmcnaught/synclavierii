@@ -36,6 +36,9 @@ name, e.g. GS (035). `pc(x)` queues one byte for D50 output
   enabled only by options bit `"100"` (`O#D44`). Polled with `P` every
   20 ms, 3-byte delta reports. SYN-5.3 draws the crosshair itself.
 
+Read-back of the graphics plane (`ESC " 0 ; y ; n c`, used by SYN-5.3's
+screen hardcopy) is described in [`d40-printer.md`](d40-printer.md) §4.
+
 ## 2. Terminal type selection
 
 ### 2.1 Configuration word

@@ -210,6 +210,33 @@ def _vt640_check(data, tag):
     return t
 
 
+def test_term_display_readback():
+    """VT640 read-back (M21, SYN-5.3's screen hardcopy): tek_plane's replies
+    equal tools/vt100.py readback_reply for every line of a drawn screen
+    sampled, after the drawing and between drawings."""
+    if not HAVE_VERILATOR:
+        print("  skip test_term_display_readback (needs verilator)")
+        return
+    from tools.vt100 import Terminal
+    cmds = b"".join(b"\x1b\"0;%d;128c" % y for y in (479, 470, 400, 333, 250, 100, 12, 0))
+    data = (VT640_STREAM + b"\x1d" + cmds + b"\x1b\"0;600;128c\x1b\"0;5;7c\x1b\"0;5;100C"
+            + b"\x1d\x20\x60\x20\x40\x2f\x7f\x2f\x5f" + cmds + b"\x18")
+    want = []
+    t = Terminal(vt640=True, reply=want.append)
+    t.feed(data)
+    tmp = tempfile.mkdtemp()
+    try:
+        src, frame, rb = (os.path.join(tmp, n) for n in ("in.bin", "frame.pgm", "rb.bin"))
+        open(src, "wb").write(data)
+        _testbench("term_display", ("hdl/core/term_display.sv", "hdl/core/tek_plane.sv"),
+                   ["+frame=" + frame, "+input=" + src, "+vt640", "+rbout=" + rb])
+        got = open(rb, "rb").read()
+    finally:
+        shutil.rmtree(tmp)
+    assert len(want) == 18 and any(len(w) > 10 for w in want)
+    assert got == b"".join(want), (got[:80], b"".join(want)[:80])
+
+
 def test_panel_mouse():
     """Mouse packets -> pointer (clamped) and panel button presses."""
     if not HAVE_VERILATOR:
@@ -836,6 +863,101 @@ def test_dev_smpte():
             smpte_stimulus(path, seed)
             out = _testbench("dev_smpte", "hdl/dev/dev_smpte.sv", args=["+stim=" + path])
             print("  " + [ln for ln in out.splitlines() if "dev_smpte OK" in ln][0])
+        finally:
+            os.unlink(path)
+
+
+def printer_stimulus(path, seed=1):
+    """Stimulus for hdl/sim/print_capture_tb.sv from sim/devices/printer.py
+    Printer: register traffic (bytes, acknowledges, interrupt enables, time)
+    as SYN-5.3's D40 driver makes it, captured into an SD image; then the
+    image is re-mounted and printed to again (appended), filled past its end,
+    replaced by a file that is not a capture file, and removed (bytes lost)."""
+    import random
+    from sim.devices.printer import Printer
+    rng = random.Random(seed)
+    p = Printer()
+    out = []
+
+    def w(r, v):
+        p.write((0o40, 0o41, 0o54)[r], v & 0xFFFF)
+        out.append("W %d %d" % (r, v & 0xFFFF))
+
+    def rd(r):
+        out.append("R %d %d" % (r, p.read((0o40, 0o41, 0o54)[r])))
+
+    def t(ns):
+        p.tick(ns)
+        out.append("T %d" % ns)
+
+    def irq():
+        out.append("I %d" % (1 if p.irq_bits() else 0))
+
+    def send(n):
+        sent = []
+        for _ in range(n):
+            while p.tx_busy > 0:
+                t(rng.choice((300, 1000, 2500, 7000)))
+                irq()
+                if rng.random() < 0.3:
+                    rd(rng.randrange(3))
+            b = rng.randrange(256)
+            w(0, b)
+            sent.append(b)
+            if rng.random() < 0.2:
+                rd(1)
+            if rng.random() < 0.1:
+                w(1, 0)                         # acknowledge
+        t(20000)
+        irq()
+        return sent
+
+    def file(want):
+        out.append("F %d" % len(want))
+        out.extend("O %d" % b for b in want)
+
+    out += ["Z 8", "M"]                         # 8 blocks: 3584 bytes of printing
+    rd(1); rd(2); irq()
+    w(2, 1); irq()
+    a = send(1500)
+    w(2, 0); irq()
+    out.append("D"); out.append("N 1")
+    file(a)
+    out.append("M")                             # mounted again: appended
+    w(2, 5)
+    a += send(600)
+    out.append("D"); out.append("N 1")
+    file(a)
+    a += send(1600)                             # past the end: the rest is lost
+    out.append("D"); out.append("N 3")
+    file(a[:3584])
+    out += ["Z 4", "M"]                         # not a capture file: starts empty
+    w(1, 0o100000 | 6 << 8)                     # 38400 baud
+    b = send(100)
+    out.append("D"); out.append("N 1")
+    file(b)
+    out.append("U")                             # no file: lost
+    send(10)
+    out.append("D"); out.append("N 2")
+    open(path, "w").write("\n".join(out) + "\n")
+
+
+def test_print_capture():
+    """The printer port and its capture file (hdl/dev/dev_printer.sv,
+    hdl/core/print_capture.sv) against sim/devices/printer.py and the
+    capture file format of tools/print_render.py."""
+    if not HAVE_VERILATOR:
+        print("  skip test_print_capture (needs verilator)")
+        return
+    import tempfile
+    for seed in (1, 2):
+        with tempfile.NamedTemporaryFile(suffix=".stim", delete=False) as f:
+            path = f.name
+        try:
+            printer_stimulus(path, seed)
+            out = _testbench("print_capture", ("hdl/dev/dev_printer.sv", "hdl/core/print_capture.sv"),
+                             args=["+stim=" + path])
+            print("  " + [ln for ln in out.splitlines() if "print_capture OK" in ln][0])
         finally:
             os.unlink(path)
 

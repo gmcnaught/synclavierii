@@ -73,6 +73,11 @@ module term_display #(
     input  logic [7:0]  vpk_chars [32],   // display: 0-15 upper line, 16-31 lower
     input  logic        vt640,          // VT640 graphics terminal (a state image's choice)
     input  logic        panel_over,     // VT640: show the panel strip over lines 384-479
+    input  logic        tick,           // simulated time (VT640 read-back delay, tek_plane)
+    input  logic [9:0]  tick_ns,
+    input  logic        rb_en,          // VT640: answer read-back requests (M21)
+    output logic        rb_valid,       //   the reply, into the terminal's input
+    output logic [7:0]  rb_data,
 
     output logic        ce_pix,
     output logic [7:0]  r,
@@ -355,6 +360,7 @@ module term_display #(
     tek_plane tek (
         .clk, .rst, .in_valid(f_any && to_tek && wstate == W_IDLE), .in_data(c),
         .ready(tek_ready), .active(tek_active),
+        .tick, .tick_ns, .rb_en(rb_en && vt640), .rb_valid, .rb_data,
         .vclk, .v_ce(ce), .v_addr(g_vaddr), .v_q(g_vq)
     );
 

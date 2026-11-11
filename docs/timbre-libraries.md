@@ -271,8 +271,10 @@ python3 tools/w0_image.py "W0 Disk Image.simg" OUT --w1                   # a st
 Sub-catalog names: SYSDISK, TIMBDSK1–9, RESYNTH1–6, TESTTIMB (or
 `NAME=FILE.stmb`). In SYN-5.3: D (Subcatalog Directory), type
 `W1:TIMBDSK3`, RETURN; the Main Menu shows "Current Catalog: W1:TIMBDSK3"
-and BANK/ENTRY recall that library; entering `W0:` again returns to
-W0:.NEWDATA.
+and BANK/ENTRY recall that library; the Timbre Directory (A) also lists
+the current catalog first among its devices (`570-DIRS:42-48`), showing
+the library's 8 banks by name (seen on the MiSTer); entering `W0:` again
+returns to W0:.NEWDATA.
 
 Verified: simulator, W1:TIMBDSK3 entered, BANK 1 ENTRY 2 → "PIPE ORGAN
 #1" (Timbre Disk 3; without entering: W0's "SIMPLE FM SINE"); MiSTer

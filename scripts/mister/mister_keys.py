@@ -6,7 +6,8 @@ Same approach as maldita.castilla-cps3/scripts/mister_keys.py.
     mister_keys.py ARG...    each ARG is typed in order:
         text:KEYS   the characters (letters, digits, space, punctuation below;
                     upper case and shifted symbols with Shift; \\r or \\n = Enter)
-        CHORD       key names joined by + (F12, ENTER, ESC, LEFTSHIFT+...)
+        CHORD       key names or characters joined by + (F12, ENTER, ESC,
+                    LEFTSHIFT+..., LEFTCTRL+c)
         sleep:S     wait S seconds
         mouse:DX,DY move a virtual mouse (Linux axes: +Y is down), in steps
         click[:S]   left button down for S seconds (default 0.3), then up
@@ -112,7 +113,7 @@ def main():
         elif arg.startswith('sleep:'):
             time.sleep(float(arg[6:]))
         else:
-            press(fd, [NAMED[k] for k in arg.split('+')])
+            press(fd, [NAMED[k] if k in NAMED else CHAR[k.lower()][0] for k in arg.split('+')])
             time.sleep(1)
     time.sleep(1)
     fcntl.ioctl(fd, UI_DEV_DESTROY)

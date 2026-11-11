@@ -81,6 +81,7 @@ module able_sim_top (
         .io_held, .tick, .tick_ns,
         .irq(dev_irq), .irq_sample, .irq_psw,
         .stall(1'b0), .halt_req, .halted, .halt_reason,
+        .nat_en(1'b0), .nat_req(), .nat_num(), .nat_ack(1'b0), .nat_wr(1'b0), .nat_result(16'd0),
         .instr_done, .instr_pc, .instr_word,
         .dbg_we, .dbg_addr, .dbg_wdata, .regs_flat, .flags
     );

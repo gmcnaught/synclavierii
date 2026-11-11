@@ -13,7 +13,10 @@
 //   dev_midi      D70-D73 MIDI subsystem card when the state image has D51
 //                 bit 8 (SYN-5.3): MIDI in through midi_card_feed (panel
 //                 controls stay with the keyboard paths), MIDI out on midi_txd;
-//   panel_mouse   the mouse: click the panel buttons shown on the screen.
+//   panel_mouse   the mouse: click the panel buttons shown on the screen;
+//   dig_stm       the digital sample-to-memory input (M18): native routines
+//                 64-76 with an audio file on SD drive 5 (S5) as the source,
+//                 when D57 has bit 0x4000 (the state image's, or dig_stm_on).
 // External memory (D60-D63: EXT_SECTORS sectors for a floppy boot, a
 // state image's own size otherwise, at most 4096) is a word port (xr_*):
 // DDR3 on MiSTer (hdl/board/ddram_word.sv), a model in simulation.
@@ -39,8 +42,9 @@ module synclavier_core #(
     input  logic        panel_over,      // VT640 terminal: panel strip over its last 96 lines
     input  logic        stall_view,      // status line: lag by stall cause instead of health
     input  logic [13:0] hw_cfg,          // OSD Hardware page (M16): card complement, taken at reset
+    input  logic        dig_stm_on,      // OSD (M18): digital STM input (D57 bit 0x4000), taken at reset
 
-    input  logic [4:0]  img_mounted,
+    input  logic [5:0]  img_mounted,
     input  logic        img_readonly,
     input  logic [63:0] img_size,
     output logic [31:0] sd_lba0,
@@ -48,11 +52,13 @@ module synclavier_core #(
     output logic [31:0] sd_lba2,
     output logic [31:0] sd_lba3,
     output logic [31:0] sd_lba4,
-    output logic [4:0]  sd_rd,
-    output logic [4:0]  sd_wr,
-    output logic [5:0]  sd_blk_cnt3,     // drives 3, 4 (SCSI disks): blocks - 1 per request
+    output logic [31:0] sd_lba5,
+    output logic [5:0]  sd_rd,
+    output logic [5:0]  sd_wr,
+    output logic [5:0]  sd_blk_cnt3,     // drives 3, 4 (SCSI disks), 5 (STM source): blocks - 1 per request
     output logic [5:0]  sd_blk_cnt4,
-    input  logic [4:0]  sd_ack,
+    output logic [5:0]  sd_blk_cnt5,
+    input  logic [5:0]  sd_ack,
     input  logic [13:0] sd_buff_addr,
     input  logic [7:0]  sd_buff_dout,
     output logic [7:0]  sd_buff_din,
@@ -141,7 +147,8 @@ module synclavier_core #(
     logic [26:0] m_addr;
     logic        m_rd, m_wr, m_ack;
     logic [15:0] m_wdata, m_rdata;
-    logic [4:0]  sd_present;
+    logic [5:0]  sd_present;
+    logic [16:0] stm_blocks;
     logic        w1_protect;
     logic [16:0] w1_blocks;
     logic [1:0]  fd_protect;
@@ -158,10 +165,10 @@ module synclavier_core #(
         .addr(m_addr), .rd(m_rd), .wr(m_wr), .wdata(m_wdata), .rdata(m_rdata), .ack(m_ack),
         .present(sd_present), .protect(fd_protect), .sectors0(fd_sectors0), .sectors1(fd_sectors1),
         .blocks2(state_blocks), .protect3(w0_protect), .blocks3(w0_blocks),
-        .protect4(w1_protect), .blocks4(w1_blocks),
+        .protect4(w1_protect), .blocks4(w1_blocks), .blocks5(stm_blocks),
         .active(led_disk),
         .img_mounted, .img_readonly, .img_size, .sd_lba0, .sd_lba1, .sd_lba2, .sd_lba3, .sd_lba4,
-        .sd_rd, .sd_wr, .sd_blk_cnt3, .sd_blk_cnt4, .sd_ack,
+        .sd_lba5, .sd_rd, .sd_wr, .sd_blk_cnt3, .sd_blk_cnt4, .sd_blk_cnt5, .sd_ack,
         .sd_buff_addr, .sd_buff_dout, .sd_buff_din, .sd_buff_wr,
         .hint(scsi_hint), .hint_drive(scsi_unit ? 3'd4 : 3'd3), .hint_blk(scsi_hint_blk),
         .probe_drive(scsi_unit ? 3'd4 : 3'd3), .probe_blk(scsi_probe_blk), .probe_hit(scsi_line_ok)
@@ -233,10 +240,26 @@ module synclavier_core #(
     logic        voice_tick;
     logic [9:0]  voice_tick_ns;
 
+    // ------------------------------------------- digital STM (M18, dig_stm.sv)
+    // D57 bit 0x4000 (D57_DIG_STM_EXISTS) from the state image, or set by the
+    // OSD at reset: SYN-5.3 then offers the digital record device, and the
+    // CPU traps native routines 64-76 to dig_stm (below).
+    logic        stm_on_q;
+    always_ff @(posedge clk) begin
+        if (cpu_rst) stm_on_q <= dig_stm_on;    // its value when reset ends (the HPS sends the OSD after power-on)
+    end
+    wire  [15:0] d57 = cpu_d57 | {1'b0, stm_on_q, 14'd0};
+    logic        nat_req, nat_ack, nat_wr;
+    logic [3:0]  nat_num;
+    logic [15:0] nat_result;
+    logic [23:0] stm_addr;
+    logic        stm_rd, stm_own, stm_pwr;
+    logic [15:0] stm_pdata;
+
     able_system #(.CLK_HZ(CLK_HZ)) sys (
         .clk, .rst(cpu_rst), .rt_enable, .lag_us, .stall_us,
         .rt_voices, .dbg_stall(1'b0), .voice_tick, .voice_tick_ns,
-        .cpu_model, .cpu_d57, .term_bits, .hw_cfg, .poly_units, .poly_bins, .poly_last, .term_vt640, .term_mouse, .scsi_block_ns, .scsi_seek_ns,
+        .cpu_model, .cpu_d57(d57), .term_bits, .hw_cfg, .poly_units, .poly_bins, .poly_last, .term_vt640, .term_mouse, .scsi_block_ns, .scsi_seek_ns,
         .dev_rd, .dev_wr, .dev_num, .dev_wdata,
         .dev_rdata, .dev_ack, .dev_nosyn, .dev_hold(scsi_hold),           // SCSI disk time
         .dev_irq(12'(mouse_irq) << 6),                // PSW bit 10: D54 (mouse)
@@ -246,7 +269,7 @@ module synclavier_core #(
         .fd_present, .fd_protect, .fd_sectors0, .fd_sectors1,
         .fd_spt0(FD_SPT), .fd_spt1(FD_SPT), .fd_sides0(FD_SIDES), .fd_sides1(FD_SIDES),
         .fd_addr(s_fd_addr), .fd_rd(s_fd_rd), .fd_wr(s_fd_wr), .fd_wdata(s_fd_wdata),
-        .fd_rdata(m_rdata), .fd_ack(m_ack && !scsi_m),
+        .fd_rdata(m_rdata), .fd_ack(m_ack && !scsi_m && !stm_own),
         .kb_host_we(kb_host_we || h_we),
         .kb_host_panel(kb_host_we ? kb_host_panel : h_panel),
         .kb_host_index(kb_host_we ? kb_host_index : h_index),
@@ -263,9 +286,11 @@ module synclavier_core #(
         .halt_req(1'b0), .halted, .halt_reason,
         .ld_mem_we, .ld_mem_addr, .ld_mem_data, .dbg_we, .dbg_addr, .dbg_wdata,
         .ld_dev_we, .ld_dev_sel, .ld_dev_addr, .ld_dev_data,
+        .nat_en(d57[14]), .nat_req, .nat_num, .nat_ack, .nat_wr, .nat_result,
         .instr_done, .instr_pc, .instr_word, .regs_flat, .flags, .irq_sample, .irq_psw,
         .irq_all, .io_held, .tick, .tick_ns, .mon_valid, .mon_wr, .mon_dev, .mon_data
     );
+
 
     // ------------------------------------------- devices outside able_system
     //   D24-D27 SCSI host with the W0 disk on SD drive 3, W1 on drive 4 (dev_scsi.sv)
@@ -318,7 +343,7 @@ module synclavier_core #(
         .present(sd_present[3]), .protect(w0_protect), .blocks(w0_blocks),
         .present1(sd_present[4]), .protect1(w1_protect), .blocks1(w1_blocks), .d_unit(scsi_unit),
         .d_addr(scsi_addr), .d_rd(scsi_rd), .d_wr(scsi_wr), .d_wdata(scsi_wdata),
-        .d_rdata(m_rdata), .d_ack(m_ack && (scsi_rd || scsi_wr))
+        .d_rdata(m_rdata), .d_ack(m_ack && (scsi_rd || scsi_wr) && !stm_own)
     );
     // D154-D157 poly synth (dev_poly.sv), on when D51 has the poly bit (a
     // state image made with poly voices); otherwise it answers as a stub
@@ -332,7 +357,8 @@ module synclavier_core #(
         .clk, .rst(cpu_rst), .enable(term_bits[10]), .bin_count(poly_bins), .size_units(poly_units),
         .last_voices(poly_last), .mono(poly_mono),
         .tick(voice_tick), .tick_ns(voice_tick_ns),
-        .sel(sel_poly), .rd(dev_rd), .wr(dev_wr), .reg_sel(dev_num[1:0]), .wdata(dev_wdata),
+        .sel(sel_poly || stm_pwr), .rd(dev_rd && !stm_pwr), .wr(dev_wr || stm_pwr),
+        .reg_sel(stm_pwr ? 2'd3 : dev_num[1:0]), .wdata(stm_pwr ? stm_pdata : dev_wdata),
         .rdata(poly_rdata), .ack(poly_ack),
         .m_addr(p_addr), .m_rd(p_rd), .m_wr(p_wr), .m_wide(p_wide), .m_wdata(p_wdata), .m_rdata(xr_rdata),
         .clearing(poly_clearing),
@@ -342,10 +368,23 @@ module synclavier_core #(
         .mix_out_valid(mix_valid), .mix_out_l(mix_l), .mix_out_r(mix_r)
     );
 
+    // Digital STM (M18): native routines 64-76 with the source on SD drive 5.
+    // Its D157 writes go into dev_poly's register port while the CPU is held
+    // in the call (it makes no I/O meanwhile); its source reads share the SD
+    // word port (stm_own, below).
+    dig_stm dstm (
+        .clk, .rst(cpu_rst), .tick, .tick_ns,
+        .src_mounted(img_mounted[5]), .src_present(sd_present[5]),
+        .nat_req, .nat_num, .r0(regs_flat[15:0]), .r1(regs_flat[31:16]), .r2(regs_flat[47:32]),
+        .nat_ack, .nat_wr, .nat_result,
+        .s_addr(stm_addr), .s_rd(stm_rd), .s_rdata(m_rdata), .s_ack(m_ack && stm_own),
+        .p_wr(stm_pwr), .p_wdata(stm_pdata), .p_ack(poly_ack && stm_pwr)
+    );
+
     always_comb begin
         dev_rdata = 16'd0; dev_ack = 1'b0; dev_nosyn = 1'b0;
         if (sel_scsi)      begin dev_rdata = scsi_rdata; dev_ack = scsi_ack; end
-        else if (sel_poly) begin dev_rdata = poly_rdata; dev_ack = poly_ack; end
+        else if (sel_poly) begin dev_rdata = poly_rdata; dev_ack = poly_ack && !stm_pwr; end
         else if (sel_midi) begin dev_rdata = midi_rdata; dev_ack = midi_ack; end
         else if (sel_mouse) begin dev_rdata = mouse_rdata; dev_ack = mouse_ack; end
         else               dev_nosyn = dev_rd || dev_wr;
@@ -355,11 +394,19 @@ module synclavier_core #(
     // then the SCSI disks (drives 3, 4) or the floppies:
     // dev_floppy: {drive, sector[9:0], word} -> {drive[2:0], block[15:0], word}
     wire scsi_m = scsi_rd || scsi_wr;
-    assign m_addr   = cpu_rst ? {1'b0, b_fd_addr} : scsi_m ? {scsi_unit ? 3'd4 : 3'd3, scsi_addr}
-                                          : {2'b00, s_fd_addr[18], 6'd0, s_fd_addr[17:0]};
-    assign m_rd     = cpu_rst ? b_fd_rd   : (scsi_m ? scsi_rd : s_fd_rd);
-    assign m_wr     = cpu_rst ? 1'b0      : (scsi_m ? scsi_wr : s_fd_wr);
+    // (dig_stm, M18: while stm_own, its read and only its)
+    assign m_addr   = cpu_rst ? {1'b0, b_fd_addr} : stm_own ? {3'd5, stm_addr}
+                    : scsi_m ? {scsi_unit ? 3'd4 : 3'd3, scsi_addr}
+                    : {2'b00, s_fd_addr[18], 6'd0, s_fd_addr[17:0]};
+    assign m_rd     = cpu_rst ? b_fd_rd   : stm_own ? stm_rd : (scsi_m ? scsi_rd : s_fd_rd);
+    assign m_wr     = cpu_rst ? 1'b0      : !stm_own && (scsi_m ? scsi_wr : s_fd_wr);
     assign m_wdata  = scsi_m ? scsi_wdata : s_fd_wdata;
+    // dig_stm: the SD word port for one source word at a time, taken when
+    // neither the SCSI host nor the floppy controller has a request open
+    always_ff @(posedge clk)
+        if (cpu_rst) stm_own <= 1'b0;
+        else if (stm_own) begin if (m_ack) stm_own <= 1'b0; end
+        else if (stm_rd && !scsi_m && !s_fd_rd && !s_fd_wr) stm_own <= 1'b1;
     // external memory port: the boot loader in reset; then D60-D63 and the
     // code cache (able_system) or poly memory (words 0x1000000 up), one
     // access at a time, granted while the port is free

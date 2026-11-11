@@ -89,6 +89,9 @@ class CPU:
         self.ns_per_transfer = ns_per_transfer
         self.mem = [0] * 0x10000
         self.trace = None  # callable(cpu, pc, word) before each instruction
+        #: M18: native routines for `PCI TO RTNV` + n, n = 64-76: an object
+        #: with call(cpu, n) (sim/devices/digstm.py DigitalStm); None: no-ops
+        self.native = None
         self.reset()
 
     # ------------------------------------------------------------------ state
@@ -320,6 +323,11 @@ class CPU:
                 self.pc = self.pc + val  # PC is already past the instruction
             else:
                 write = False
+                # RTNV (relative transfer never): a no-op on the instrument;
+                # the Synclavier3 interpreter takes it as a native routine
+                # call (-XPL/INTRPRTR). M18 traps routines 64-76 only.
+                if da == C_NEVER and self.native is not None and 0o100 <= val <= 0o114:
+                    self.native.call(self, val)
         elif dk == D_MEM:
             mem[r[da]] = val
         elif dk == D_MEMI:

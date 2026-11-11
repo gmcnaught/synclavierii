@@ -190,6 +190,31 @@ manager's boxes. The MiSTer mouse is SYN-5.3's (it draws its own
 crosshair). OSD "VT640: panel strip" shows the panel and the status line
 over the bottom 96 lines. Not on a VT640: the Audio Event Editor.
 
+**Recording from a WAV file (digital sample-to-memory).** SYN-5.3 can
+record into poly memory from the digital input Synclavier³ provides
+([`docs/devices/digital-stm.md`](../docs/devices/digital-stm.md)); in the
+core that input plays an audio file from the SD card. Convert the WAV and
+copy it to `games/Synclavier/`:
+
+```bash
+python3 tools/stm_source.py take1.wav take1.STM      # 1 or 2 channels; 44.1 or 48 kHz
+```
+
+Turn the input on with OSD Hardware "Digital STM input (S5)": On (or make
+the state image with `tools/w0_image.py --dig-stm`), Reset, and mount
+`take1.STM` as "Digital STM source" (S5). With a VT640 state image
+(`--vt640`): Main Menu **L** (Sound File Editor), **C** (Store/Recall),
+**I** (Record). The record panel shows `Mode: Dig STM Mono` and the file's
+rate (e.g. 44.1 kHz); SPACE on Mode selects Dig STM Stereo; the down arrow
+reaches Trigger (SPACE: On/Off). After "Performing level check..." press
+Return to record: the file plays into poly memory from its start, at its
+rate, as if a digital source were connected. Press Return again to stop
+(with Trigger on, SYN-5.3 trims the silence after the file's end). The new
+sound file is the keyboard timbre's; save it with **D** (Save) as usual.
+Recording keeps the source's samples bit for bit (a mono recording of a
+stereo file takes the left channel). The OSD setting takes effect at
+reset; a newly mounted file the next time SYN-5.3 uses the input.
+
 **Release 5.3 with the MIDI subsystem card.** `tools/w0_image.py --midi`
 writes `W0-53-MIDI.SST`: the same machine with a MIDI card on D70–D73
 (`docs/devices/d70-midi-subsystem.md`). SYN-5.3 then reads MIDI itself, as

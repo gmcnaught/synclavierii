@@ -135,6 +135,11 @@ module able_sys_top (
     logic [25:0] scsi_seek_ns;
     logic        voice_tick;
     logic [9:0]  voice_tick_ns;
+    wire         nat_en = 1'b0;         // native routines (M18): no-ops here
+    logic        nat_req;
+    logic [3:0]  nat_num;
+    wire         nat_ack = 1'b0, nat_wr = 1'b0;
+    wire  [15:0] nat_result = 16'd0;
 
     able_system sys (.*);
 endmodule

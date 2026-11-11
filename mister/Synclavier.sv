@@ -49,6 +49,7 @@ localparam CONF_STR = {
 	"S2,SST,State image;",
 	"S3,IMG,SCSI disk W0;",
 	"S4,IMG,SCSI disk W1;",
+	"S5,STM,Digital STM source;",
 	"-;",
 	"O[2:1],Text color,Green,Amber,White;",
 	"O[122:121],Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
@@ -63,6 +64,7 @@ localparam CONF_STR = {
 	"P1O[13],Poly voice cards,From image,Mono;",
 	"P1O[17:14],Poly memory/bin,From image,4 MB,8 MB,12 MB,16 MB,20 MB,24 MB,28 MB,32 MB,224 MB/bins;",
 	"P1O[20:18],FM voices,From image,8,16,24,32;",
+	"P1O[21],Digital STM input (S5),From image,On;",
 	"-;",
 	"T[0],Reset;",
 	"R[0],Reset and close OSD;",
@@ -75,17 +77,17 @@ wire [127:0] status;
 wire  [10:0] ps2_key;
 wire  [24:0] ps2_mouse;
 
-wire  [4:0] img_mounted;
+wire  [5:0] img_mounted;
 wire        img_readonly;
 wire [63:0] img_size;
-wire [31:0] sd_lba0, sd_lba1, sd_lba2, sd_lba3, sd_lba4;
-wire  [4:0] sd_rd, sd_wr, sd_ack;
+wire [31:0] sd_lba0, sd_lba1, sd_lba2, sd_lba3, sd_lba4, sd_lba5;
+wire  [5:0] sd_rd, sd_wr, sd_ack;
 wire [13:0] sd_buff_addr;
-wire  [5:0] sd_blk_cnt3, sd_blk_cnt4;
+wire  [5:0] sd_blk_cnt3, sd_blk_cnt4, sd_blk_cnt5;
 wire  [7:0] sd_buff_dout, sd_buff_din;
 wire        sd_buff_wr;
 
-hps_io #(.CONF_STR(CONF_STR), .VDNUM(5)) hps_io
+hps_io #(.CONF_STR(CONF_STR), .VDNUM(6)) hps_io
 (
 	.clk_sys(clk_sys),
 	.HPS_BUS(HPS_BUS),
@@ -102,14 +104,14 @@ hps_io #(.CONF_STR(CONF_STR), .VDNUM(5)) hps_io
 	.img_mounted(img_mounted),
 	.img_readonly(img_readonly),
 	.img_size(img_size),
-	.sd_lba('{sd_lba0, sd_lba1, sd_lba2, sd_lba3, sd_lba4}),
-	.sd_blk_cnt('{6'd0, 6'd0, 6'd0, sd_blk_cnt3, sd_blk_cnt4}),   // SCSI disks: 32-block reads
+	.sd_lba('{sd_lba0, sd_lba1, sd_lba2, sd_lba3, sd_lba4, sd_lba5}),
+	.sd_blk_cnt('{6'd0, 6'd0, 6'd0, sd_blk_cnt3, sd_blk_cnt4, sd_blk_cnt5}),   // SCSI disks, STM source: 32-block reads
 	.sd_rd(sd_rd),
 	.sd_wr(sd_wr),
 	.sd_ack(sd_ack),
 	.sd_buff_addr(sd_buff_addr),
 	.sd_buff_dout(sd_buff_dout),
-	.sd_buff_din('{sd_buff_din, sd_buff_din, sd_buff_din, sd_buff_din, sd_buff_din}),
+	.sd_buff_din('{sd_buff_din, sd_buff_din, sd_buff_din, sd_buff_din, sd_buff_din, sd_buff_din}),
 	.sd_buff_wr(sd_buff_wr)
 );
 
@@ -160,6 +162,7 @@ synclavier_core #(.CLK_HZ(50_000_000), .VID_CE_DIV(1)) core
 	.panel_over(status[4]),
 	.stall_view(status[5]),
 	.hw_cfg(status[20:7]),
+	.dig_stm_on(status[21]),
 
 	.img_mounted(img_mounted),
 	.img_readonly(img_readonly),
@@ -169,10 +172,12 @@ synclavier_core #(.CLK_HZ(50_000_000), .VID_CE_DIV(1)) core
 	.sd_lba2(sd_lba2),
 	.sd_lba3(sd_lba3),
 	.sd_lba4(sd_lba4),
+	.sd_lba5(sd_lba5),
 	.sd_rd(sd_rd),
 	.sd_wr(sd_wr),
 	.sd_blk_cnt3(sd_blk_cnt3),
 	.sd_blk_cnt4(sd_blk_cnt4),
+	.sd_blk_cnt5(sd_blk_cnt5),
 	.sd_ack(sd_ack),
 	.sd_buff_addr(sd_buff_addr),
 	.sd_buff_dout(sd_buff_dout),

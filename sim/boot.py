@@ -167,7 +167,7 @@ O_PVOICE = 0o200            # options: mono (3200) poly voice cards (-XPL/SYSLIT
 
 
 def boot_from_w0(image, ext_sectors=8192, target=5, devices=2, disk_mb=None, poly=None,
-                 w1=None, terminal=None, mouse=False, mono=False, **system_kw):
+                 w1=None, terminal=None, mouse=False, mono=False, dig_stm=None, **system_kw):
     """Return (cpu, layout) ready to boot MONITOR from a Release 5.3-style W0:
     image (a hard-disk .simg, e.g. Synclavier3's "W0 Disk Image.simg").
 
@@ -190,7 +190,10 @@ def boot_from_w0(image, ext_sectors=8192, target=5, devices=2, disk_mb=None, pol
     word (MONITOR is staged at sector 0); the state image records it so the
     core's OSD can set the bit at load. Writes go
     to the in-memory copies of the
-    images (cpu.w0, cpu.w1), never the files.
+    images (cpu.w0, cpu.w1), never the files. dig_stm: a
+    devices.digstm.DigitalStm (M18): the CPU's native routines 64-76
+    (cpu.native, cpu.dig_stm) and D57 bit 0x4000, so SYN-5.3 offers the
+    digital record device on its STM screen.
     """
     from tools.ned_disk import load, read_file
     from .devices.scsi import ScsiDisk
@@ -225,6 +228,11 @@ def boot_from_w0(image, ext_sectors=8192, target=5, devices=2, disk_mb=None, pol
     cpu.w0 = disk
     cpu.terminal.vt640 = terminal == "vt640"
     cpu.cmopt_xaddr = config_pointer(program) + C_CMOPT
+    if dig_stm is not None:
+        from .devices.digstm import D57_DIG_STM
+        cpu.d57 |= D57_DIG_STM
+        dig_stm.poly = cpu.poly
+    cpu.native = cpu.dig_stm = dig_stm
     cpu.w1 = None
     if w1 is not None:
         cpu.w1 = cpu.scsi.targets[4] = ScsiDisk.from_file(w1)

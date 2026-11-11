@@ -6,12 +6,15 @@
 //   drive 2     a state image for the boot loader (tools/state_image.py),
 //               read only;
 //   drive 3     a SCSI disk (W0: for dev_scsi), up to 65536 blocks;
-//   drive 4     a second SCSI disk (W1:), the same.
+//   drive 4     a second SCSI disk (W1:), the same;
+//   drive 5     the digital STM source (dig_stm.sv, M18), read only, up to
+//               65536 blocks.
 //
 // Word port (dev_floppy's fd_*, dev_scsi or the boot loader): {drive[2:0],
 // block[15:0], word[7:0]}; hold rd/wr until ack, a one-clock pulse; the clock after an
 // ack is ignored (the same handshake as the simulation RAM models). Two
-// lines are buffered: for the SCSI disks (drives 3, 4) a line is 32 blocks
+// lines are buffered: for the SCSI disks (drives 3, 4) and the STM source
+// (drive 5) a line is 32 blocks
 // (16 KB, aligned, cut at the end of the image) read with one SD request
 // (hps_io sd_blk_cnt); for the other drives one block. After an access to
 // a SCSI disk's line the next line is read into the other buffer in the
@@ -35,7 +38,7 @@ module sd_floppy (
     input  logic [15:0] wdata,
     output logic [15:0] rdata,
     output logic        ack,
-    output logic [4:0]  present,
+    output logic [5:0]  present,
     output logic [1:0]  protect,
     output logic        protect3,
     output logic [10:0] sectors0,       // floppy sizes (at most 1024)
@@ -44,8 +47,9 @@ module sd_floppy (
     output logic [16:0] blocks3,        // SCSI disk sizes (at most 65536)
     output logic [16:0] blocks4,
     output logic        protect4,
+    output logic [16:0] blocks5,        // STM source size (at most 65536)
     output logic        active,         // an SD transfer is in progress (LED)
-    input  logic [4:0]  img_mounted,
+    input  logic [5:0]  img_mounted,
     input  logic        img_readonly,
     input  logic [63:0] img_size,
     output logic [31:0] sd_lba0,
@@ -53,11 +57,13 @@ module sd_floppy (
     output logic [31:0] sd_lba2,
     output logic [31:0] sd_lba3,
     output logic [31:0] sd_lba4,
-    output logic [4:0]  sd_rd,
-    output logic [4:0]  sd_wr,
-    output logic [5:0]  sd_blk_cnt3,    // blocks - 1 of drive 3's / 4's request
+    output logic [31:0] sd_lba5,
+    output logic [5:0]  sd_rd,
+    output logic [5:0]  sd_wr,
+    output logic [5:0]  sd_blk_cnt3,    // blocks - 1 of drive 3's / 4's / 5's request
     output logic [5:0]  sd_blk_cnt4,
-    input  logic [4:0]  sd_ack,
+    output logic [5:0]  sd_blk_cnt5,
+    input  logic [5:0]  sd_ack,
     input  logic [13:0] sd_buff_addr,
     input  logic [7:0]  sd_buff_dout,
     output logic [7:0]  sd_buff_din,
@@ -141,11 +147,11 @@ module sd_floppy (
     // blocks in a SCSI disk's line at b: 32, cut at the end of the image
     function automatic logic [5:0] line_cnt(input logic [2:0] d, input logic [15:0] b);
         logic [16:0] n, left;
-        n = d == 3'd4 ? blocks4 : blocks3;
+        n = d == 3'd5 ? blocks5 : d == 3'd4 ? blocks4 : blocks3;
         left = n > {1'b0, b} ? n - {1'b0, b} : 17'd1;
         line_cnt = left >= 17'd32 ? 6'd31 : 6'(left - 17'd1);
     endfunction
-    wire [16:0] dblocks = drive == 3'd4 ? blocks4 : blocks3;
+    wire [16:0] dblocks = drive == 3'd5 ? blocks5 : drive == 3'd4 ? blocks4 : blocks3;
     wire [15:0] next_base = lbase + 16'd32;
     wire        next_ok = line && {1'b0, next_base} < dblocks && lbase != 16'hFFE0;
 
@@ -155,7 +161,8 @@ module sd_floppy (
             3'd1: sd_lba1 <= {16'd0, b};
             3'd2: sd_lba2 <= {16'd0, b};
             3'd3: sd_lba3 <= {16'd0, b};
-            default: sd_lba4 <= {16'd0, b};
+            3'd4: sd_lba4 <= {16'd0, b};
+            default: sd_lba5 <= {16'd0, b};
         endcase
     endtask
 
@@ -166,6 +173,7 @@ module sd_floppy (
         set_lba(d, b);
         sd_blk_cnt3 <= d == 3'd3 ? line_cnt(d, b) : 6'd0;
         sd_blk_cnt4 <= d == 3'd4 ? line_cnt(d, b) : 6'd0;
+        sd_blk_cnt5 <= d == 3'd5 ? line_cnt(d, b) : 6'd0;
         sd_rd[d] <= 1'b1;
         state <= S_RD;
     endtask
@@ -176,11 +184,12 @@ module sd_floppy (
             state <= S_IDLE;
             v[0] <= 1'b0; v[1] <= 1'b0; mru <= 1'b0;
             dirty <= 1'b0; wb_req <= 1'b0; pf <= 1'b0;
-            sd_rd <= 5'b00000;
-            sd_wr <= 5'b00000;
+            sd_rd <= 6'b000000;
+            sd_wr <= 6'b000000;
             sd_blk_cnt3 <= 6'd0;
             sd_blk_cnt4 <= 6'd0;
-            present <= 5'b00000;
+            sd_blk_cnt5 <= 6'd0;
+            present <= 6'b000000;
             protect <= 2'b00;
             protect3 <= 1'b0;
             protect4 <= 1'b0;
@@ -189,8 +198,9 @@ module sd_floppy (
             blocks2 <= 13'd0;
             blocks3 <= 17'd0;
             blocks4 <= 17'd0;
+            blocks5 <= 17'd0;
         end else begin
-            for (int d = 0; d < 5; d++)
+            for (int d = 0; d < 6; d++)
                 if (img_mounted[d]) begin
                     present[d] <= img_size != 64'd0;
                     if (d == 0) sectors0 <= img_size[63:19] != 0 ? 11'd1024 : 11'(img_size[18:9]);
@@ -198,6 +208,7 @@ module sd_floppy (
                     if (d == 2) blocks2 <= img_size[63:21] != 0 ? 13'd4096 : 13'(img_size[20:9]);
                     if (d == 3) blocks3 <= img_size[63:25] != 0 ? 17'd65536 : 17'(img_size[24:9]);
                     if (d == 4) blocks4 <= img_size[63:25] != 0 ? 17'd65536 : 17'(img_size[24:9]);
+                    if (d == 5) blocks5 <= img_size[63:25] != 0 ? 17'd65536 : 17'(img_size[24:9]);
                     if (d < 2) protect[d] <= img_readonly;
                     if (d == 3) protect3 <= img_readonly;
                     if (d == 4) protect4 <= img_readonly;
@@ -226,7 +237,7 @@ module sd_floppy (
             S_IDLE:
                 if (wb_req || (req && !hit && dirty)) begin   // write a block back
                     set_lba(drv[dbuf], dblk);
-                    sd_blk_cnt3 <= 6'd0; sd_blk_cnt4 <= 6'd0;
+                    sd_blk_cnt3 <= 6'd0; sd_blk_cnt4 <= 6'd0; sd_blk_cnt5 <= 6'd0;
                     sd_wr[drv[dbuf]] <= 1'b1;
                     state <= S_WR;
                 end else if (req && !hit) begin               // a miss
@@ -238,7 +249,7 @@ module sd_floppy (
                 end
             S_RD:
                 if (sd_ack[f_drive]) begin
-                    sd_rd <= 5'b00000;
+                    sd_rd <= 6'b000000;
                     state <= S_RDING;
                 end
             S_RDING:
@@ -248,7 +259,7 @@ module sd_floppy (
                 end
             S_WR:
                 if (sd_ack[drv[dbuf]]) begin
-                    sd_wr <= 5'b00000;
+                    sd_wr <= 6'b000000;
                     state <= S_WRING;
                 end
             S_WRING:

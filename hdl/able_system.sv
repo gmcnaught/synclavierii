@@ -134,6 +134,13 @@ module able_system #(
     output logic        io_held,
     output logic        tick,
     output logic [9:0]  tick_ns,
+    // native routines 64-76 (M18, able_cpu.sv): the digital STM handler
+    input  logic        nat_en,
+    output logic        nat_req,
+    output logic [3:0]  nat_num,
+    input  logic        nat_ack,
+    input  logic        nat_wr,
+    input  logic [15:0] nat_result,
     output logic        mon_valid,         // an I/O transfer completes this clock
     output logic        mon_wr,
     output logic [6:0]  mon_dev,
@@ -194,6 +201,7 @@ module able_system #(
         .io_held, .tick, .tick_ns,
         .irq, .irq_sample, .irq_psw,
         .stall, .halt_req, .halted, .halt_reason,
+        .nat_en, .nat_req, .nat_num, .nat_ack, .nat_wr, .nat_result,
         .instr_done, .instr_pc, .instr_word,
         .dbg_we, .dbg_addr, .dbg_wdata, .regs_flat, .flags
     );

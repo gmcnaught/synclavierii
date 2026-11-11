@@ -185,6 +185,9 @@ def _device_header(cpu):
                 out += struct.pack("<cBHI", b"V", 7, idx, int(v) & 0xFFFFFFFF)
         out += struct.pack("<cBHI", b"V", 7, 31, bool(kb.strict and fm.strict))
         assert kb.strict == fm.strict
+    ds = getattr(cpu, "dig_stm", None)
+    if ds is not None and not ds.idle():
+        raise ValueError("digital STM state is not the power-on state (dig_stm.sv has no load port)")
     card = getattr(cpu, "midi", None)
     if card is not None and (card.sel or card.mcha or card.fifo):
         raise ValueError("MIDI card state is not the power-on state (dev_midi.sv has no load port)")
@@ -508,7 +511,7 @@ SYSTEM_RTL = ["hdl/able_cpu.sv", "hdl/code_cache.sv", "hdl/dev/dev_rtc.sv", "hdl
 CORE_RTL = ["hdl/core/sd_floppy.sv", "hdl/dev/dev_scsi.sv", "hdl/dev/dev_poly.sv", "hdl/dev/dev_midi.sv", "hdl/dev/dev_mouse.sv",
             "hdl/core/boot_loader.sv", "hdl/core/term_display.sv", "hdl/core/tek_plane.sv",
             "hdl/core/ps2_ascii.sv", "hdl/core/midi_in.sv", "hdl/core/midi_vpk.sv", "hdl/core/midi_card_feed.sv",
-            "hdl/core/panel_mouse.sv", "hdl/core/audio_fifo.sv",
+            "hdl/core/panel_mouse.sv", "hdl/core/audio_fifo.sv", "hdl/core/dig_stm.sv",
             "hdl/core/synclavier_core.sv",
             "hdl/board/ddram_word.sv"]
 TOPS = {
@@ -570,7 +573,8 @@ def hw_cfg(voices=None, mono=False, mb=None, fm=None):
 
 
 def check(path, max_instructions=None, top="cpu", wav=None, realtime=False, frame=None,
-          state=None, w0=None, w1=None, rt_voices=False, stall=None, cfg=0):
+          state=None, w0=None, w1=None, rt_voices=False, stall=None, cfg=0, stm=None,
+          poly_dump=None):
     """Run a trace on the HDL. Returns (ok, output text). wav: write the
     system's 48 kHz PCM output (pcm_out.sv) to this WAV file. realtime:
     run the system with the throttle on (50 MHz); behaviour must not change
@@ -580,7 +584,10 @@ def check(path, max_instructions=None, top="cpu", wav=None, realtime=False, fram
     with realtime): the voices on real time (voice_clock.sv, M14); audio is
     counted instead of compared. stall (system): (instruction, clocks), hold
     the CPU that long before it fetches that instruction. cfg (board): the
-    OSD Hardware page (hw_cfg), applied to the state image as it loads."""
+    OSD Hardware page (hw_cfg), applied to the state image as it loads.
+    stm (board): a digital STM source (tools/stm_source.py) in S5 (M18).
+    poly_dump (board): write poly memory (bin 0, up to 16 MB, little-endian
+    words) to this file at the end."""
     cmd = [build(top), path] + ([str(max_instructions)] if max_instructions else [])
     env = dict(os.environ)
     if frame:
@@ -591,6 +598,10 @@ def check(path, max_instructions=None, top="cpu", wav=None, realtime=False, fram
         env["LOCKSTEP_W0"] = w0
     if w1:
         env["LOCKSTEP_W1"] = w1
+    if stm:
+        env["LOCKSTEP_STM"] = stm
+    if poly_dump:
+        env["LOCKSTEP_POLY"] = poly_dump
     if wav:
         env["LOCKSTEP_WAV"] = wav
     if realtime:
@@ -775,6 +786,25 @@ def w0_chord_actions(cpu):
     return acts
 
 
+def w0_stm_actions(cpu, record_ms=15_600, stop_ms=17_000, stereo=False):
+    """Terminal input for a W0 boot with the digital STM (M18; with
+    --vt640 --mouse, as tools/w0_image.py --vt640 --dig-stm): SYN-5.3 is at
+    its Main Menu by 10.3 s; L (Sound File Editor) at 10.6 s, C
+    (Store/Recall) at 11.3 s, I (Record) at 12.0 s: with no STM hardware
+    and the digital input present SYN-5.3 selects "Dig STM Mono" and from
+    about 14.7 s runs its level check (latch, start, then samples, toss,
+    lmax, rmax per 256 frames) (stereo: a space at 12.8 s first selects
+    "Dig STM Stereo"); Return at record_ms records (stop, latch,
+    start, then import, lmax, rmax per 256 frames); Return at stop_ms stops
+    (SYN-5.3 trims the file, writes its header to poly memory and releases
+    the input by about 18.8 s, 21.5M instructions)."""
+    ms = 1_000_000
+    keys = [(10_600, b"L"), (11_300, b"C"), (12_000, b"I"), (record_ms, b"\r"), (stop_ms, b"\r")]
+    if stereo:
+        keys.insert(3, (12_800, b" "))
+    return [(t * ms, lambda c, k=k: c.terminal.feed(k)) for t, k in keys]
+
+
 def syn53_cpu(image, skip=0):
     """Release 5.3 from a W0 image (sim.boot.boot_from_w0, 30 MB disk): boot
     to Ready, CREATE USER, SET RTP SYN-5.3, PLAY, then `skip` instructions."""
@@ -849,6 +879,12 @@ def main(argv=None):
     ap.add_argument("--fm-voices", type=int, default=8,
                     help="w0boot: FM voices installed (32: a 9600; with --vpk and no --midi: "
                          "w0_chord_actions)")
+    ap.add_argument("--dig-stm", metavar="FILE",
+                    help="w0boot: the digital STM (M18, native routines 64-76, D57 bit 0x4000) "
+                         "with this source (tools/stm_source.py); records it on SYN-5.3's "
+                         "STM screen, stereo if the source is (w0_stm_actions, in place of "
+                         "the --poly actions); "
+                         "check --top board: the source in S5")
     ap.add_argument("--vpk", action="store_true",
                     help="w0boot: the velocity keyboard instead of the ORK (with --poly: "
                          "w0_vpk_actions)")
@@ -859,7 +895,7 @@ def main(argv=None):
             k, _, v = item.partition("=")
             kw[k] = True if not v else (v if v == "max" else int(v))
         ok, text = check(a.args[0], top=a.top, wav=a.wav, realtime=a.realtime, state=a.state,
-                         w0=a.w0, w1=a.w1, cfg=hw_cfg(**kw))
+                         w0=a.w0, w1=a.w1, cfg=hw_cfg(**kw), stm=a.dig_stm)
         print(text, end="")
         return 0 if ok else 1
     t = time.time()
@@ -881,7 +917,12 @@ def main(argv=None):
         if a.midi:
             from .devices.midi import MidiSubsystem
             midi = MidiSubsystem()
+        dig_stm = None
+        if a.dig_stm:
+            from .devices.digstm import DigitalStm, Source
+            dig_stm = DigitalStm(Source.from_file(a.dig_stm))
         cpu, _ = boot_from_w0(a.args[0], poly=poly, keyboard="vpk" if a.vpk else "ork", midi=midi,
+                              dig_stm=dig_stm,
                               fm_voices=a.fm_voices, w1=a.w1, mono=a.mono,
                               terminal="vt640" if a.vt640 else None, mouse=a.mouse,
                               scsi_block_ns=a.disk_us * 1000, scsi_seek_ns=a.seek_us * 1000)
@@ -912,12 +953,14 @@ def main(argv=None):
     actions = []
     if a.mode == "ork-lm-note":
         actions = ork_lm_note_actions(cpu, dbg, a.args[0])
-    if a.mode == "w0boot" and a.poly:
+    if a.mode == "w0boot" and a.poly and not a.dig_stm:
         actions = (w0_midi_actions(cpu) if a.midi and a.vpk else
                    w0_chord_actions(cpu) if a.vpk and a.fm_voices > 8 else
                    w0_vpk_actions(cpu) if a.vpk else w0_poly_actions(cpu))
         if a.vpk and a.poly_bins > 1 and not a.midi and a.fm_voices == 8:
             actions = w0_bin_actions(cpu) + actions        # CLARA3 into bin 1
+    if a.mode == "w0boot" and a.dig_stm:
+        actions += w0_stm_actions(cpu, stereo=cpu.dig_stm.source.channels == 2)
     if a.mode == "w0boot" and a.type:
         text = a.type.encode("latin-1")
         actions.append((11_000_000_000, lambda c: c.terminal.feed(text)))
@@ -926,6 +969,9 @@ def main(argv=None):
                actions=actions, audio=a.audio)
     if a.mode == "monitor" or (a.mode == "w0boot" and a.commands):
         print(cpu.terminal.text()[-600:], file=sys.stderr)
+    if a.mode == "w0boot" and a.dig_stm:
+        print("digital STM calls: %s" % ", ".join("%d x%d" % kv for kv in sorted(cpu.dig_stm.calls.items())),
+              file=sys.stderr)
     print("recorded %d instructions in %.1f s -> %s%s" % (
         n, time.time() - t, path, " (halted: %s)" % (cpu.halted,) if cpu.halted else ""),
         file=sys.stderr)

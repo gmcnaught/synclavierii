@@ -76,7 +76,7 @@ are [OBS source] only.
 
 Without `o#d40` the keys call `no.printer` (an error message). The Main
 Menu's "<PF3> Music Printing" is a separate NED program (the MONITOR's
-PLOT command) that is not on the W0 image; nothing here concerns it.
+PLOT command, `W0:.SYSTEM:.SPLT-7`): §3.4.
 
 ### 3.0 What NED's manuals say about the printer [OBS manuals]
 
@@ -168,8 +168,9 @@ printer port's RS-232 stream, whatever the protocol: IDS Prism graphics
 for the hardcopy, ASCII for the text dumps. `tools/print_render.py
 --extract OUT CAPTURE` writes them alone (to send to a real printer or
 another converter); the PNG/PDF rendering understands the IDS codes and
-text. The "<PF3> Music Printing" program (§3) is in the published NED
-source but not on the Synclavier³ W0 image: `Able/MPLT` in
+text. The "<PF3> Music Printing" program (§3) is on the Synclavier³ W0
+image (`W0:.SYSTEM:.SPLT-7` and five data/prolog files) and in the
+published NED source: `Able/MPLT` in
 `jbemond/Software` (101 files; `MPLT/COMPILE` builds `*SPLT-7`), with a
 PostScript printer driver `MPLT/PSPACK` (D40 or D42 port, XON/XOFF, baud
 rate set by the program). LASERCOM (and PRNTBAUD, SYMED) are only named in
@@ -197,11 +198,14 @@ NED's source and installed by `tools/music_printing.py`:
   handshake as compiled could not succeed with a real printer either:
   `COMPARE` is exact, the expected status line ends in CR, and PSPACK keeps
   the LF that ends a status message (`MPLT/PSPACK` WHEN D40INT) [INF].
-* `install W0.IMG OUTDIR` (or `tools/w0_image.py --music-printing OUTDIR`)
-  writes `.SPLT-7`, `.SAUX-7`, `.SCWT-7`, `.SFRM-7`, `.SLIB-7`, `.SPRO-7`
-  (the PostScript prolog with NEDMusicFont, converted to an NED text file
-  as AbleDiskTool does) into W0:.SYSTEM. Synclavier3's `.SYSTEM` catalog
-  is full, so the entries of six optical/tape utilities are reused.
+* The Synclavier³ W0 already has all six files. Its `.SPLT-7` waits for
+  the printer like the source does (in the simulator: CTRL-T only,
+  "Waiting for printer to respond"); its `.SAUX-7`, `.SCWT-7`, `.SFRM-7`,
+  `.SLIB-7` and `.SPRO-7` equal the source's. `install W0.IMG OUTDIR` (or
+  `tools/w0_image.py --music-printing OUTDIR`) therefore replaces
+  `.SPLT-7` in place and leaves the rest (files with the same contents are
+  not written; `.SPRO-7` is compared after the text conversion
+  AbleDiskTool does).
 
 Use: a VT640 and a printer (`w0_image.py --vt640 --printer
 --music-printing OUTDIR`), PF3 from SYN-5.3, Operation Mode **Print**

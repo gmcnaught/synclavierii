@@ -234,7 +234,7 @@ def test_subcatalog_and_replace():
     path = _tmp(small)
     try:
         p, start, w1 = si.import_sound(disk, path, "SND", subcat="SUB")
-        assert p == "SUB/SND" and start == 8                    # after SUB's 4 catalog sectors
+        assert p == "SUB/SND" and start == 5                    # after SUB's 1 catalog sector (type 6: 256 words)
         try:
             si.import_sound(disk, path, "SND", subcat="SUB")
         except ValueError:
@@ -246,7 +246,7 @@ def test_subcatalog_and_replace():
     finally:
         os.unlink(path)
     ents = {e[0]: e[1:] for e in walk(load_bytes(disk))}
-    assert start2 == 8 + len(w1) // SECTOR_WORDS                # old sectors freed, appended
+    assert start2 == 5 + len(w1) // SECTOR_WORDS                # old sectors freed, appended
     assert ents["/SUB/SND"] == (5, start2, len(w2) // SECTOR_WORDS, len(w2) & 0xFFFF)
     assert read_file(load_bytes(disk), "SUB/SND")[:len(w2)] == w2
     # replacing with a smaller file reuses the allocation

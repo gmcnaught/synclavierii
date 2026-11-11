@@ -32,6 +32,8 @@ def test_postscript_cleanup():
 
 
 def test_install_on_w0():
+    """Install leaves every other file's contents as they were (a large,
+    type-7 .SYSTEM catalog: 128 entries), and puts the given data in."""
     raw = os.environ.get("SYNCLAVIER_W0_RAW")
     if not raw:
         print("  skip test_install_on_w0 (SYNCLAVIER_W0_RAW not set)")
@@ -39,32 +41,30 @@ def test_install_on_w0():
     out = os.environ.get("MUSIC_PRINTING_OUT")
     if out:
         files = music_printing.mplt_files(out)
-    else:                                       # stand-ins with the real sizes' shape
-        files = [(n, bytes((i * 7 + k) & 0xFF for k in range(2 * (300 + 97 * i))), t)
+    else:                                       # stand-ins: some fit their slots, .SCWT-7 does not
+        files = [(n, bytes((i * 7 + k) & 0xFF for k in range(2 * (600 + 97 * i))), t)
                  for i, (n, _f, t) in enumerate(music_printing.FILES)]
     from tools.w0_image import prepared_disk
     disk = bytearray(prepared_disk(raw, 30, None))
-    before = {p: (t, s, ln) for p, t, s, ln, w in walk(load_bytes_(disk))}
-    done = music_printing.install(disk, files)
-    assert [d[1] for d in done] == music_printing.VICTIMS
     with tempfile.TemporaryDirectory() as d:
         img = os.path.join(d, "W0.IMG")
         open(img, "wb").write(disk)
+        W0 = load(img)
+        before = {p: list(read_file(W0, p)) for p, t, s, ln, w in walk(W0) if t not in (6, 7)}
+        assert "/.SYSTEM/.HELP" in before and "/.SYSTEM/.SPLT-7" in before
+        done = music_printing.install(disk, files)
+        open(img, "wb").write(disk)
         W = load(img)
+        names = {"/.SYSTEM/" + n for n, _d, _t in files}
+        for p, words in before.items():
+            if p not in names:
+                assert list(read_file(W, p)) == words, p
         for name, data, typ in files:
             got = read_file(W, "/.SYSTEM/" + name)
             assert struct.pack(">%dH" % len(got), *got)[:len(data)] == data, name
-        after = {p: (t, s, ln) for p, t, s, ln, w in walk(W)}
-    for p, v in before.items():                 # every other file where it was
-        if p.split("/")[-1] not in music_printing.VICTIMS:
-            assert after[p] == v, p
-    again = music_printing.install(disk, files)  # a second install updates in place
-    assert [d[1] for d in again] == [n for n, _d, _t in files]
-
-
-def load_bytes_(disk):
-    from tools.ned_disk import load_bytes
-    return load_bytes(disk)
+    if out:                                     # Synclavier3's W0 has the data files
+        assert dict(done)[".SPLT-7"] == "replaced", done
+        assert all(a == "unchanged" for n, a in done if n in (".SAUX-7", ".SCWT-7", ".SFRM-7", ".SLIB-7")), done
 
 
 if __name__ == "__main__":

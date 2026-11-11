@@ -69,6 +69,11 @@ localparam CONF_STR = {
 	"P1O[27],SMPTE reader (MTC in),From image,On;",
 	"P1O[29],Printer (D40),From image,On;",
 	"O[34:31],Outputs (multichannel),Stereo mix,1-2,3-4,5-6,7-8,9-10,11-12,13-14,15-16;",
+	"P2,CRT Adjust;",
+	"P2O[40],CRT Adjust,Off,On;",
+	"H1P2O[45:41],CRT H-Size,0,+1,+2,+3,+4,+5,+6,+7,+8,+9,+10,-12,-11,-10,-9,-8,-7,-6,-5,-4,-3,-2,-1;",
+	"H1P2O[49:46],CRT H-Position,0,+4,+8,+12,+16,+20,+24,+28,-32,-28,-24,-20,-16,-12,-8,-4;",
+	"H1P2O[53:50],CRT V-Shift,0,+1,+2,+3,+4,+5,+6,+7,-8,-7,-6,-5,-4,-3,-2,-1;",
 	"-;",
 	"T[0],Reset;",
 	"R[0],Reset and close OSD;",
@@ -103,7 +108,7 @@ hps_io #(.CONF_STR(CONF_STR), .VDNUM(7)) hps_io
 
 	.buttons(buttons),
 	.status(status),
-	.status_menumask(16'd0),
+	.status_menumask({14'd0, ~status[40], 1'b0}),   // H1: CRT Adjust items while On
 
 	.ps2_key(ps2_key),
 	.ps2_mouse(ps2_mouse),
@@ -310,14 +315,37 @@ ddram_word ext_memory
 	.DDRAM_WE(DDRAM_WE)
 );
 
+// CRT Adjust (OSD page 2): picture position (sync timing) and width (line
+// resampling) for a CRT; Off is an exact passthrough (hdl/core/crt_adjust.sv).
+// The settings are static; one register into the video clock.
+reg  [13:0] crt_set;
+always @(posedge clk_vid) crt_set <= status[53:40];
+wire  [4:0] crt_hs_idx = crt_set[5:1];
+wire signed [4:0] crt_hsize = (crt_hs_idx <= 5'd10) ? crt_hs_idx : (crt_hs_idx - 5'd23);
+wire        c_hs, c_vs, c_hblank, c_vblank;
+wire  [7:0] c_r, c_g, c_b;
+crt_adjust crt
+(
+	.clk(clk_vid),
+	.ce(ce_pix),
+	.enable(crt_set[0]),
+	.hsize(crt_hsize),
+	.hpos(crt_set[9:6]),
+	.vpos(crt_set[13:10]),
+	.r_in(r), .g_in(g), .b_in(b),
+	.hs_in(hs), .vs_in(vs), .hblank_in(hblank), .vblank_in(vblank),
+	.r_out(c_r), .g_out(c_g), .b_out(c_b),
+	.hs_out(c_hs), .vs_out(c_vs), .hblank_out(c_hblank), .vblank_out(c_vblank)
+);
+
 assign CLK_VIDEO = clk_vid;
 assign CE_PIXEL  = ce_pix;
-assign VGA_DE = ~(hblank | vblank);
-assign VGA_HS = hs;
-assign VGA_VS = vs;
-assign VGA_R  = r;
-assign VGA_G  = g;
-assign VGA_B  = b;
+assign VGA_DE = ~(c_hblank | c_vblank);
+assign VGA_HS = c_hs;
+assign VGA_VS = c_vs;
+assign VGA_R  = c_r;
+assign VGA_G  = c_g;
+assign VGA_B  = c_b;
 
 assign AUDIO_S   = 1;
 assign AUDIO_L   = audio_l;

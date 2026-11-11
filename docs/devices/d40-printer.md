@@ -117,8 +117,8 @@ on the MiSTer and in the simulator, which agree). Cause, in SYN-5.3:
 In the simulator (VT640, empty sequence) the print changes sectors
 `TRD.PTR` (34 words), `+1` (6) and `+3` (48); nothing outside
 `TRD.PTR..+3`. A full refresh puts the screen right: **CTRL-X** (it turns
-the instruction box off and redraws everything; in the simulator the
-status box, clef and bar line are back), or leave and re-enter K. The
+the instruction box off and redraws everything; in the simulator and on
+the MiSTer the status box, clef and bar line are back), or leave and re-enter K. The
 printed page itself is correct (it is read before the refresh). The core
 runs NED's code unchanged, so this is kept; a real instrument with the same
 software would do the same [INF].

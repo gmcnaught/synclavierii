@@ -11,8 +11,9 @@
 //   the pen is down (Bresenham, both ends); point: one pixel;
 //   ESC FF clear, pen up; ESC / n d data level (0 set, 1 clear, 2 XOR);
 //   ESC | c c and ESC \ c skipped; other ESC c ignored (sizes: one size);
-//   alpha: printable -> 8 x 14 cell, lower-left at the position, glyph on
-//   cell lines 1-12 (font row (line-1)*2/3), x += 8; BS x -= 8, CR x = 0,
+//   alpha: printable -> 8 x 14 cell, lower-left at the position, the 5 x 7
+//   glyph (font5x7.svh) on columns 1-5, cell lines 2-12 from the top (line
+//   l = 12 - gl from the bottom: font row 6 - l*2/3), x += 8; BS x -= 8, CR x = 0,
 //   LF y -= 14.
 //   ESC " p ; y ; n c   read back (M21, SYN-5.3's screen hardcopy): n (at
 //   most 128) 5-pixel groups of line y (0 = bottom) from x = 0, coded as
@@ -43,7 +44,7 @@ module tek_plane (
     input  logic [14:0] v_addr,         // word: row * 40 + x / 16
     output logic [15:0] v_q
 );
-    `include "font8x8.svh"
+    `include "font5x7.svh"
 
     localparam int WORDS = 640 * 480 / 16;
 
@@ -165,11 +166,13 @@ module tek_plane (
         onscreen = x >= 0 && x < 640 && y >= 0 && y < 480;
     endfunction
 
-    // the glyph pixel at (gl, gc): cell lines 1-12 from the top, font row (gl-1)*2/3
-    wire [3:0] g_l1  = gl - 4'd1;
-    wire [2:0] g_row = 3'((5'(g_l1) * 5'd2) / 5'd3);
-    wire [7:0] g_bits = font8x8({gch, g_row});
-    wire       g_on  = gl >= 4'd1 && gl <= 4'd12 && g_bits[gc];
+    // the glyph pixel at (gl, gc): cell lines 2-12 from the top (line 12 - gl
+    // from the bottom, font row 6 - line*2/3), columns 1-5 (font bit gc - 1)
+    wire [3:0] g_ln  = 4'd12 - gl;
+    wire [2:0] g_row = 3'd6 - 3'((5'(g_ln) * 5'd2) / 5'd3);
+    wire [4:0] g_bits = font5x7({gch, g_row});
+    wire [2:0] g_col = gc - 3'd1;
+    wire       g_on  = gl >= 4'd2 && gl <= 4'd12 && gc >= 3'd1 && gc <= 3'd5 && g_bits[g_col];
     wire signed [11:0] g_x = cx + 12'(gc);
     wire signed [11:0] g_y = cy + 12'sd13 - 12'(gl);
 

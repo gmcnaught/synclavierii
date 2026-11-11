@@ -65,9 +65,10 @@ for a VT640): a 640 x 480 x 1 graphics plane, y up, drawn by a Tektronix
               (readback_reply) goes to `reply` (Terminal(reply=callable));
               other ESC " ... finals are ignored
   alpha       printable: an 8 x 14 cell whose lower-left corner is the
-              graphics position; the 8 x 8 glyph covers cell lines 1-12
-              from the top (each font row 1.5 times: row = (line-1)*2/3),
-              then x += 8; BS x -= 8, CR x = 0, LF y -= 14; data level
+              graphics position; the 5 x 7 glyph (tools/gen_font.py
+              glyphs57, X.Org 5x7) on columns 1-5 and lines 1-11 above the
+              position, each font row 1.5 times (line l from the bottom,
+              0-10: row 6 - l*2//3; row 6 is the descender), then x += 8; BS x -= 8, CR x = 0, LF y -= 14; data level
               applies.
 Lines (Bresenham, both end points) and points use the data level; with
 XOR a shared end point of two vectors is flipped twice [CHOICE].
@@ -345,19 +346,18 @@ class Terminal:
                 y0 += sy
 
     def glyph(self, ch):
-        from tools.gen_font import glyphs
-        if not hasattr(self, "_font"):
-            self._font = glyphs()
-        k = self.size + 1
-        for line in range(14 * k):
-            ln = line // k                     # cell line 0-13, from the top
-            if not 1 <= ln <= 12:
-                continue
-            row = (ln - 1) * 2 // 3
-            bits = self._font[ch][row]
-            for col in range(8 * k):
-                if bits >> (col // k) & 1:
-                    self.plot(self.gx + col, self.gy + 14 * k - 1 - line)
+        """A graphics-mode (alpha) character: the 5 x 7 font, rows 1.5 times
+        [CHOICE: a thin font about the size of a Tek 4010 character at
+        640 x 480, so music notation's note heads (o, #) fit a staff space]."""
+        from tools.gen_font import glyphs57
+        if not hasattr(self, "_font57"):
+            self._font57 = glyphs57()
+        g = self._font57[ch]
+        for line in range(11):                 # from the bottom
+            bits = g[6 - line * 2 // 3]
+            for col in range(5):
+                if bits >> col & 1:
+                    self.plot(self.gx + 1 + col, self.gy + 1 + line)
 
     def tek(self, c):
         if self.gesc is not None:                  # ESC sequences in graphics

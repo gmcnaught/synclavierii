@@ -173,6 +173,13 @@ not change it) or one output pair, 1-2 … 13-14, as if headphones were
 plugged into those two jacks. It takes effect at once; without the
 distributor it does nothing.
 
+**Timbre libraries on W1:.** `tools/timbre_disk.py W1-TIMBRES.IMG
+*.stmb` puts each converted library (`tools/stmb.py convert`) in its own
+sub-catalog; with a `--w1` state image and the disk in S4, choose a
+library in SYN-5.3 with D (Subcatalog Directory), `W1:TIMBDSK3`, RETURN,
+and the panel's BANK/ENTRY buttons play from it
+(`docs/timbre-libraries.md`).
+
 **A second SCSI disk (W1:).** `tools/w0_image.py --w1` keeps W1 (SCSI
 target 4) in MONITOR's device table (`W0-53-W1.SST`); mount the second
 disk image as S4 (`<file delay="2" type="s" index="4" path="W1.IMG"/>`

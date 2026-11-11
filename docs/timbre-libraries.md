@@ -244,3 +244,38 @@ Not converted (listed in the reports):
 | Polyphony (`TBPIPolyphony`) | 236 | not the NED field: NED keeps the voice limit in misc word 0 bits 8–15 (`182-UPD2`; 0 = all voices). In the pairs, `Polyphony 2` occurs with limits 0, 4 and 128, and limits 1, 4, 90, 128 occur without the key, so the text does not carry it; written as 0 |
 | Pedal/keyboard stereo modes (1–4) | ? | no distinct text; not recoverable |
 | PINFO dynamic envelope (`pi_denvl/h`), TINFO velocity words 56–57 | — | not in the text; written as 0 |
+
+## Library disk: all libraries on W1: (2026-11-10)
+
+`W0:.NEWDATA` holds one library: 8 banks of 8 timbres. That is a limit of
+one `.NEWDATA` file, not of SYN-5.3 [OBS]:
+
+* the panel's BANK/ENTRY recall looks for `.NEWDATA` in the **current
+  catalog** first, then in the system catalog (W0:)
+  (`SYNRSOU/11-TIMB/162-TMB2` `FIND.NEW.BANK`, `SEARCH(NEWDATA, TRUE,
+  ACTIVE.LEVEL)` then level 0);
+* the Timbre Directory (A) reads `.NEWDATA` from the current catalog or
+  any device (`SYNSOU/DIRMOD/570-DIRS` `COMPUTE.AVAILABLE.DEVICES`,
+  `575-TIMB`).
+
+So, as with NED's timbre floppies, each library can sit in its own
+sub-catalog on a separate W1: image, and W0: never has to be rebuilt to
+add timbres:
+
+```bash
+python3 tools/stmb.py convert "timbres/fm-download/.../Timbre Disk 3" -o timbres/fm-stmb/Timbre-Disk-3.stmb
+python3 tools/timbre_disk.py W1-TIMBRES.IMG timbres/fm-stmb/*.stmb        # 17 libraries: 17 MB
+python3 tools/w0_image.py "W0 Disk Image.simg" OUT --w1                   # a state image with W1:
+```
+
+Sub-catalog names: SYSDISK, TIMBDSK1–9, RESYNTH1–6, TESTTIMB (or
+`NAME=FILE.stmb`). In SYN-5.3: D (Subcatalog Directory), type
+`W1:TIMBDSK3`, RETURN; the Main Menu shows "Current Catalog: W1:TIMBDSK3"
+and BANK/ENTRY recall that library; entering `W0:` again returns to
+W0:.NEWDATA.
+
+Verified: simulator, W1:TIMBDSK3 entered, BANK 1 ENTRY 2 → "PIPE ORGAN
+#1" (Timbre Disk 3; without entering: W0's "SIMPLE FM SINE"); MiSTer
+(.62, `W0-53-W1.SST`, image in S4): same, the note plays, 0 underruns.
+`tests/test_timbre_disk.py`.
+

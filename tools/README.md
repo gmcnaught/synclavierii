@@ -109,3 +109,12 @@ program as NED's release build does, with the printer handshake off, and
 installs it on a W0 image (`docs/devices/d40-printer.md` §3.4). Nothing it
 builds is committed.
 
+## `stmb.py`, `timbre_disk.py`: timbre libraries
+
+```bash
+python3 tools/stmb.py convert "LIBRARY FOLDER" -o LIB.stmb        # NED FM library text -> .NEWDATA
+python3 tools/timbre_disk.py W1-TIMBRES.IMG LIB1.stmb LIB2.stmb   # a W1: with one sub-catalog per library
+```
+
+See `docs/timbre-libraries.md`.
+

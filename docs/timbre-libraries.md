@@ -281,3 +281,7 @@ Verified: simulator, W1:TIMBDSK3 entered, BANK 1 ENTRY 2 → "PIPE ORGAN
 (.62, `W0-53-W1.SST`, image in S4): same, the note plays, 0 underruns.
 `tests/test_timbre_disk.py`.
 
+The same disk can carry sequences: `tools/timbre_disk.py --seq
+DEMOS:N=FILE.sseq` adds a sub-catalog of `.SQnDATA` files, which SEQUENCE
++ button N recalls once it is the current catalog
+([`sequences.md`](sequences.md)).

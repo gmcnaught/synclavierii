@@ -11,11 +11,12 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# NED disk images, timbre banks, sound files, sound programs, images built
+# NED disk images, timbre banks, sound files, sound programs, sequences
+# (generated ones too: tools/seq_record.py), MIDI/MusicXML downloads, images built
 # from them, state images, ROM dumps, built cores, photos.
-FORBIDDEN = (".simg", ".stmb", ".ssnd", ".sprg", ".img", ".sst", ".bin",
+FORBIDDEN = (".simg", ".stmb", ".ssnd", ".sprg", ".sseq", ".img", ".sst", ".bin",
              ".rom", ".rbf", ".jpg", ".jpeg", ".png", ".tif", ".tiff",
-             ".pdf", ".docx", ".zip")
+             ".pdf", ".docx", ".zip", ".mid", ".midi", ".mxl")
 MAX_BYTES = 256 * 1024     # the largest tracked file is under 100 KB
 
 

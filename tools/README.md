@@ -114,7 +114,22 @@ builds is committed.
 ```bash
 python3 tools/stmb.py convert "LIBRARY FOLDER" -o LIB.stmb        # NED FM library text -> .NEWDATA
 python3 tools/timbre_disk.py W1-TIMBRES.IMG LIB1.stmb LIB2.stmb   # a W1: with one sub-catalog per library
+python3 tools/timbre_disk.py W1.IMG --seq DEMOS:1=chorale.sseq     # sequences as W1:DEMOS/.SQnDATA
 ```
 
 See `docs/timbre-libraries.md`.
+
+## `seq_record.py`: demo sequences
+
+```bash
+python3 tools/seq_record.py record PIECE.txt|.mid --w0 W0-53.IMG --slot 1 --sseq OUT.sseq
+python3 tools/seq_record.py view --w0 W0-53.IMG --w1 W1.IMG --catalog W1:DEMOS --slot 1 --piece PIECE.txt --png OUT
+python3 tools/seq_record.py show OUT.sseq                         # header and notes of a sequence file
+python3 tools/seq_record.py convert IN.mid OUT.txt [--split 1,2] [--shift BEATS]
+```
+
+Records a piece (Standard MIDI File or note list; one part per track) in
+the simulator through SYN-5.3's panel (RECORD, timed keys, STOP) and saves
+it with ENTRY WRITE + SEQUENCE + n, then copies `.SQnDATA` out. The pieces
+in `data/sequences/` are public domain or CC0. See `docs/sequences.md`.
 

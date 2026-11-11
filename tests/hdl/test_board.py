@@ -966,6 +966,15 @@ def test_print_capture():
             os.unlink(path)
 
 
+def test_crt_adjust():
+    """CRT Adjust: Off is a passthrough; H-Size resamples each line about its
+    centre; H-Position / V-Shift move only the sync pulses."""
+    if not HAVE_VERILATOR:
+        print("  skip test_crt_adjust (needs verilator)")
+        return
+    _testbench("crt_adjust", "hdl/core/crt_adjust.sv")
+
+
 def test_ps2_ascii():
     if not HAVE_VERILATOR:
         print("  skip test_ps2_ascii (needs verilator)")

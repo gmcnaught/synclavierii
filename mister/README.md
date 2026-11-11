@@ -220,6 +220,15 @@ manager's boxes. The MiSTer mouse is SYN-5.3's (it draws its own
 crosshair). OSD "VT640: panel strip" shows the panel and the status line
 over the bottom 96 lines. Not on a VT640: the Audio Event Editor.
 
+**CRT Adjust (OSD page).** For a CRT on the analog output (31 kHz,
+640 × 480): **CRT Adjust** On shows **CRT H-Position** (steps of 4
+pixels) and **CRT V-Shift** (lines), which move only the sync pulses, so
+the HDMI picture stays where it is, and **CRT H-Size** (−12 … +10: the
+pixel period is (32 + n) / 32 pixels about the centre of the line; minus
+gives black borders, plus cuts the edges), which changes the picture on
+HDMI too. Off passes the video through unchanged
+(`hdl/core/crt_adjust.sv`).
+
 **Recording from a WAV file (digital sample-to-memory).** SYN-5.3 can
 record into poly memory from the digital input Synclavier³ provides
 ([`docs/devices/digital-stm.md`](../docs/devices/digital-stm.md)); in the

@@ -96,3 +96,16 @@ SYN-5.3 records with its digital STM input: a 512-byte header (`SYNCSTM1`,
 channels, rate in 100 Hz units, frames) and the samples as big-endian
 words. Format and behaviour: [`docs/devices/digital-stm.md`](../docs/devices/digital-stm.md).
 Standard library only.
+
+## `music_printing.py`: NED Music Printing from source
+
+```bash
+python3 tools/music_printing.py build ~/src/jbemond-Software mp   # XPL compiler + *SPLT-7
+python3 tools/music_printing.py install W0-53.IMG mp              # into W0:.SYSTEM
+```
+
+Builds NED's XPL compiler (clang++, macOS) and NED's Music Printing
+program as NED's release build does, with the printer handshake off, and
+installs it on a W0 image (`docs/devices/d40-printer.md` §9). Nothing it
+builds is committed.
+

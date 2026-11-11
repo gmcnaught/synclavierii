@@ -174,9 +174,48 @@ source but not on the Synclavier³ W0 image: `Able/MPLT` in
 PostScript printer driver `MPLT/PSPACK` (D40 or D42 port, XON/XOFF, baud
 rate set by the program). LASERCOM (and PRNTBAUD, SYMED) are only named in
 `UTILCAT/WINSTALL` as files copied from the Music Printing disk; their
-source is not in the repository. Running Music Printing on the core would
-need `*SPLT-7` built with NED's XPL compiler (`Code/Sources/XPLProcessors`)
-[not done]; its output would land in the capture file unchanged.
+source is not in the repository. Music Printing runs on the core: §9.
+
+## 9. Music Printing (PF3): PostScript scores
+
+NED's Music Printing program, "Synclavier Music Engraving System"
+(Program Version G.3 Model D, "Supports Release M - 5.3"), is built from
+NED's source and installed by `tools/music_printing.py`:
+
+* `build SOFTWARE OUTDIR` compiles NED's XPL compiler for macOS (the
+  "XPL Compiler" Xcode target with clang++; four SCSI/InterChange helpers
+  a command-line compile never calls are stubbed), then the XPL libraries
+  and `Able/MPLT` as NED's release build does (`Sync3Builder`:
+  `XPL/COMALL`, `MPLT/COMPILE` → `*SPLT-7`).
+* One line of the program is changed: `PS_PRINTER_WRITE_ONLY` (MPLT/LITS)
+  = 1 instead of `interp_is_running`. With it 0 the program first sends
+  CTRL-T and waits for a PostScript printer's `%%[ status: idle ]%%`
+  (`MPLT/HARDSORC` `AQUIRE_PRINTER`), then asks whether `NEDMusicFont` is
+  loaded; the capture file never answers, so it would wait for ever
+  ("Waiting for printer to respond", seen in the simulator). Under
+  Synclavier3 the program runs write-only; this does the same. [OBS] The
+  handshake as compiled could not succeed with a real printer either:
+  `COMPARE` is exact, the expected status line ends in CR, and PSPACK keeps
+  the LF that ends a status message (`MPLT/PSPACK` WHEN D40INT) [INF].
+* `install W0.IMG OUTDIR` (or `tools/w0_image.py --music-printing OUTDIR`)
+  writes `.SPLT-7`, `.SAUX-7`, `.SCWT-7`, `.SFRM-7`, `.SLIB-7`, `.SPRO-7`
+  (the PostScript prolog with NEDMusicFont, converted to an NED text file
+  as AbleDiskTool does) into W0:.SYSTEM. Synclavier3's `.SYSTEM` catalog
+  is full, so the entries of six optical/tape utilities are reused.
+
+Use: a VT640 and a printer (`w0_image.py --vt640 --printer
+--music-printing OUTDIR`), PF3 from SYN-5.3, Operation Mode **Print**
+(`2` on the Main Menu's first field), RETURN. The program sends the
+prolog and the page description over D40 (Printer Type 8x11 laser by
+default; G.3 has only PostScript types: laser and typesetter);
+`tools/print_render.py CAPTURE score.png --pdf score.pdf` writes
+`score.ps` (LF line ends, CTRL-D and `exitserver` removed, which
+Ghostscript refuses) and renders it with Ghostscript if installed; `--extract`
+gives the bytes for a real PostScript printer (9600 baud, §3.0).
+
+Verified: simulator and MiSTer (.62) produce the same 45,105 bytes for
+the empty sequence's score; Ghostscript renders a treble staff, common
+time, a whole rest, the final bar line and the page number.
 
 ## 4. VT640 read-back [OBS decoder, CHOICE reply]
 

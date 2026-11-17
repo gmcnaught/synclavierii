@@ -101,6 +101,29 @@ analysis (Hann, 1 s at 0.3–1.3 s, ±15-bin harmonic exclusion):
   are host parameters. The modulator harmonics are on the ENGINE tab of
   the screen view (the manual's TIME SLICES).
 
+### Output level and pan law (2026-11-17)
+
+A4 sine, one partial/voice at full level; Synclavier V "simple sine
+(clean)" with effects bypassed; the core through `sim/voice.py` + `sim/pcm.py`
+(VOL 255, envelope 255; NED's peak of 250 is −0.15 dB less):
+
+| | Synclavier V (timbre volume 0 dB) | core | V − core |
+|---|---|---|---|
+| hard left, peak | 0.501 (−6.0 dBFS) | 0.248 (−12.1 dBFS) | +6.1 dB |
+| centre, peak per channel | 0.354 (−9.0 dBFS) | 0.124 (−18.1 dBFS) | +9.1 dB |
+
+* Timbre volume is true dB (0 / −6 / −12 / −20 → 0 / −6.0 / −12.0 / −20.0
+  dB); the preset's default is −10 dB. Velocity 127 / 100 / 64: no effect
+  in this preset.
+* Pan law: Synclavier V is equal-power (centre = 1/√2 of hard left);
+  the core is linear (centre = 1/2), a [CHOICE] because the 256 × 8 pan-law
+  PROM is not dumped (`fm-voice.md`). A PROM suggests a non-linear law;
+  Synclavier V's equal-power law agrees [INFERRED].
+* Level matching for A/B listening: +6 dB on the core (or −6 dB on
+  Synclavier V). Synclavier V's absolute level is Arturia's choice; the
+  core's gain (one voice = 1/4 of full scale) leaves headroom for four
+  full voices.
+
 ## Headless capture with pedalboard
 
 Spotify `pedalboard` (Python 3.12 venv; no wheel for 3.15) loads

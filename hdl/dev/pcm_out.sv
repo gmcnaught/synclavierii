@@ -50,15 +50,19 @@ module pcm_out (
     logic signed [XW+FIR_W-1:0] s3_pl, s3_pr;
     logic signed [AW-1:0] acc_l, acc_r;
 
+    // (no parameter-sized casts: Quartus 17 rejects them; signed assignments extend)
+    localparam logic signed [AW+15:0] PMAX = 32767;
+    localparam logic signed [AW+15:0] PMIN = -32768;
     function automatic logic signed [15:0] pcm(input logic signed [AW-1:0] a);
-        logic signed [AW+15:0] p, q;
+        logic signed [AW+15:0] ae, p, q;
         logic [38:0] r;
-        p = ((AW+16)'(a) <<< 15) - (AW+16)'(a);     // a x 32767
+        ae = a;
+        p = (ae <<< 15) - ae;                       // a x 32767
         q = p >>> 39;                               // floor
         r = p[38:0];
         if (r > 39'h40_0000_0000 || (r == 39'h40_0000_0000 && q[0])) q = q + 1'b1;
-        if (q > (AW+16)'(32767)) pcm = 16'sd32767;
-        else if (q < -(AW+16)'(32768)) pcm = -16'sd32768;
+        if (q > PMAX) pcm = 16'sd32767;
+        else if (q < PMIN) pcm = -16'sd32768;
         else pcm = q[15:0];
     endfunction
 
@@ -85,7 +89,7 @@ module pcm_out (
                 wp <= wp + 1'b1;
                 count <= count + 1'b1;
             end
-            due <= due + 3'(fall_due) - 3'(start);
+            due <= due + {2'd0, fall_due} - {2'd0, start};
             if (start) begin
                 busy <= 1'b1;
                 j <= '0;
@@ -110,12 +114,15 @@ module pcm_out (
             s2_xr <= s1_zero ? '0 : rd_r;
             // S2 -> S3
             s3_ok <= s2_ok; s3_first <= s2_first; s3_last <= s2_last;
-            s3_pl <= (XW+FIR_W)'(s2_xl) * (XW+FIR_W)'(s2_c);
-            s3_pr <= (XW+FIR_W)'(s2_xr) * (XW+FIR_W)'(s2_c);
+            s3_pl <= s2_xl * s2_c;                  // signed, extended to the product width
+            s3_pr <= s2_xr * s2_c;
             // S3: sum
-            if (s3_ok) begin
-                acc_l <= (s3_first ? AW'(0) : acc_l) + AW'(s3_pl);
-                acc_r <= (s3_first ? AW'(0) : acc_r) + AW'(s3_pr);
+            if (s3_ok && s3_first) begin
+                acc_l <= s3_pl;
+                acc_r <= s3_pr;
+            end else if (s3_ok) begin
+                acc_l <= acc_l + s3_pl;
+                acc_r <= acc_r + s3_pr;
             end
             fin <= s3_ok && s3_last;
             // S4: PCM

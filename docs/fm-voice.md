@@ -187,7 +187,7 @@ hardware; only the final mix is floating point.
 | Carrier sample | wave memory `TIM` & 31, unsigned, DAC offset binary around 128 | wave data **[OBS]** (NED `COMPUTE.WAVE`: scaled to 0–255 around the DC point; flat = 128); offset **[CHOICE]** |
 | Level | (w − 128) × envelope × `VOL`, linear | **[CHOICE]**: MDAC/DAC laws unknown |
 | Pan | right = pan / 256, left = 1 − right (`ISHC` bits 7–2) | **[CHOICE]**: pan PROM not dumped |
-| Output | sampled at 48 kHz × 4, box filter to 48 kHz | **[CHOICE]**; hardware DACs change at each voice's step rate, analog filtering unknown |
+| Output | sampled at 48 kHz × 16 (768 kHz), 512-tap FIR (21 kHz) to 48 kHz (`sim/pcm.py`, M23) | **[CHOICE]**; hardware DACs change at each voice's step rate, analog filtering unknown. At 48 kHz × 4 with a box filter (before M23) staircase images aliased in at −50 to −60 dB; now ≤ −71 dB, the level of the staircase low-pass filtered without sampling |
 
 Checks (`tests/sim/test_voice.py`, `test_rtp.py`):
 

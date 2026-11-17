@@ -39,10 +39,12 @@ Per voice (channels 2v, 2v+1):
   * Pan: linear, right = pan / 256, left = 1 - right (pan 0 = all left,
     128 = centre) [CHOICE: the 256 x 8 pan-law PROM is not dumped].
 
-Output samples are taken at a fixed rate (rate x oversample) and box
-filtered down to `rate`. On hardware each voice's DAC changes at its own
-step rate (256 x f) and the analog stages filter it; that reconstruction is
-not modelled.
+Output samples are taken at a fixed rate (rate x oversample, 768 kHz by
+default) and decimated to `rate` by the FIR of sim/pcm.py (pcm_out.sv). On
+hardware each voice's DAC changes at its own step rate (256 x f) and the
+analog stages filter the staircase; sampling at 768 kHz and this filter
+keep the staircase images out of the audio band (sim/pcm.py). Other
+oversample factors average (box filter), as before M23.
 """
 import math
 import struct
@@ -50,6 +52,8 @@ from fractions import Fraction
 
 from .fm import K_HZ, WAVE_MEMORIES, Interpolator, ishc, modulation_offset, \
     oscillator, wave_memory_number
+from .pcm import DECIM
+from .pcm_fir import COEFFS, SUM_BITS, TAPS
 
 #: Oscillator tick rate: the step rate at ONU 7, increment = divisor [INFERRED].
 OSC_CLOCK = Fraction(256 * 128 * 440 * 91, 246)
@@ -218,10 +222,12 @@ class FMSynth:
 FULL_SCALE = 128 * 256 * 256 * 256
 
 
-def render(log, start_ns=None, end_ns=None, rate=48_000, oversample=4, voices=8):
+def render(log, start_ns=None, end_ns=None, rate=48_000, oversample=DECIM, voices=8):
     """Replay `log` (time_ns, channel word, function, value) from its start
     and return stereo float samples [(l, r), ...] for start_ns..end_ns at
-    `rate`. Writes before start_ns (wave memory loads) are applied first."""
+    `rate`. Writes before start_ns (wave memory loads) are applied first.
+    oversample = DECIM: sim/pcm.py's FIR (unquantized; pcm.frames gives the
+    16-bit PCM); any other factor: the mean of `oversample` samples."""
     synth = FMSynth(voices)
     log = sorted(log, key=lambda e: e[0])
     if start_ns is None:
@@ -232,12 +238,23 @@ def render(log, start_ns=None, end_ns=None, rate=48_000, oversample=4, voices=8)
     n = int((end_ns - start_ns) * sub // 1_000_000_000)
     out = []
     i = 0
+    fir = oversample == DECIM
+    hl, hr = [0] * TAPS, [0] * TAPS          # newest first (FIR)
+    norm = float(1 << SUM_BITS) * FULL_SCALE
     acc_l = acc_r = 0.0
     for k in range(n):
         t = start_ns + k * 1_000_000_000 // sub
         while i < len(log) and log[i][0] <= t:
             synth.write(*log[i])
             i += 1
+        if fir:
+            l, r = synth.sample_int(t)
+            hl.insert(0, l); hl.pop()
+            hr.insert(0, r); hr.pop()
+            if k % DECIM == DECIM - 1:
+                out.append((sum(c * x for c, x in zip(COEFFS, hl)) / norm,
+                            sum(c * x for c, x in zip(COEFFS, hr)) / norm))
+            continue
         l, r = synth.sample(t)
         acc_l += l
         acc_r += r
@@ -281,7 +298,7 @@ def main(argv=None):
     ap.add_argument("csv")
     ap.add_argument("wav")
     ap.add_argument("--rate", type=int, default=48_000)
-    ap.add_argument("--oversample", type=int, default=4)
+    ap.add_argument("--oversample", type=int, default=DECIM)
     ap.add_argument("--gain", type=float, default=0.25)
     a = ap.parse_args(argv)
     samples = render(read_fm_csv(a.csv), rate=a.rate, oversample=a.oversample)

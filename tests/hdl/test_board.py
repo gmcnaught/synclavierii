@@ -1106,7 +1106,7 @@ def test_board_state_image_ork_lm():
         n = record(cpu, path, 5_000_000, actions=actions, audio=True)
         ok, text = check(path, top="board", state=state, frame=frame)
         assert ok, text
-        assert "state matches" in text and "804572 audio samples" in text, text
+        assert "state matches" in text and "3218287 audio samples" in text, text
         term, panel, inverted, display = frame_text(frame)
     finally:
         shutil.rmtree(tmp)

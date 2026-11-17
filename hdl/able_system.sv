@@ -103,7 +103,7 @@ module able_system #(
     output logic [7:0]  vpk_chars [32],
     output logic [7:0]  vpk_dp [4],
 
-    // audio: one sample (sums over the voices) per 1/192000 s of simulated time
+    // audio: one sample (sums over the voices) per 1/768000 s of simulated time
     output logic        audio_valid,
     output logic signed [39:0] audio_l,
     output logic signed [39:0] audio_r,
@@ -175,11 +175,11 @@ module able_system #(
     logic [15:4] irq;
     logic        stall;
 
-    logic        rt_stall, fm_stall;
+    logic        rt_stall, fm_stall, pcm_stall;
     logic [6:0]  lost_ns;
     throttle #(.CLK_HZ(CLK_HZ)) pace (.clk, .rst, .enable(rt_enable), .tick, .tick_ns, .stall(rt_stall),
                                       .lag_us, .lost_ns);
-    assign stall = rt_stall || fm_stall || dbg_stall;
+    assign stall = rt_stall || fm_stall || pcm_stall || dbg_stall;
 
     // voice time: the CPU's ticks, or real time (M14)
     voice_clock #(.CLK_HZ(CLK_HZ)) vclk (
@@ -249,7 +249,7 @@ module able_system #(
         else if (io_wait && io_dev[6:2] == 5'b11011)  cause = 3'(STALL_POLY);
         else if (io_wait && sel_xm)                   cause = 3'(STALL_XMEM);
         else if (io_wait)                             cause = 3'(STALL_IO);
-        else if (fm_stall)                            cause = 3'(STALL_FM);
+        else if (fm_stall || pcm_stall)               cause = 3'(STALL_FM);
         else                                          cause = 3'(STALL_RUN);
     end
     logic [10:0] stall_ns [7];
@@ -417,7 +417,7 @@ module able_system #(
 
     pcm_out pcm (
         .clk, .rst, .in_valid(audio_valid), .in_l(audio_l), .in_r(audio_r),
-        .out_valid(pcm_valid), .out_l(pcm_l), .out_r(pcm_r)
+        .out_valid(pcm_valid), .out_l(pcm_l), .out_r(pcm_r), .stall(pcm_stall)
     );
 
     assign dev_rd    = sel_ext && io_rd;

@@ -13,15 +13,17 @@ voice.FULL_SCALE = 2**31):
   x' = x >> IN_SHIFT                              (floor; |x'| < 2**23 for 32 voices)
 every DECIM inputs, with the newest at n:
   acc = sum(COEFFS[j] x x'[n - j], j = 0 .. TAPS-1)   (x' = 0 before the first)
-  pcm = clip(round_half_even(acc x 32767 / 2**(SUM_BITS + 33 - IN_SHIFT)))
-which is the old gain: full scale of one voice x 1/4 -> 32767.
+  pcm = clip(round_half_even(acc x 32767 / 2**(SUM_BITS + 35 - IN_SHIFT)))
+so one voice at full level, hard-panned, is 1/16 of full scale (M23; it was
+1/4, and 32 voices clipped: a dense 32-voice organ chorale clipped 2.25 % of
+samples at 1/4 and peaks at -5.6 dBFS at 1/16).
 """
 from .pcm_fir import COEFFS, SUM_BITS, TAPS
 
 DECIM = 16                      # 768 kHz -> 48 kHz
 IN_RATE = 48_000 * DECIM
 IN_SHIFT = 14
-OUT_SHIFT = SUM_BITS + 33 - IN_SHIFT
+OUT_SHIFT = SUM_BITS + 35 - IN_SHIFT          # 41: gain 1/16
 
 
 def _round_shift(p, s):

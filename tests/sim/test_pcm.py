@@ -31,12 +31,22 @@ def test_filter_shape():
     assert gain_db(26000) < -90 and gain_db(60000) < -90
 
 
+def test_pan_law():
+    """Equal power (M23): hard left full, centre -3 dB a side, power constant."""
+    from sim.pan_law import PAN_L, PAN_R
+    r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "gen_pan_law.py"), "--check"],
+                       capture_output=True, text=True)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert (PAN_L[0], PAN_R[0]) == (256, 0) and (PAN_L[32], PAN_R[32]) == (181, 181)
+    assert all(abs(PAN_L[p] ** 2 + PAN_R[p] ** 2 - 65536) < 400 for p in range(64))
+
+
 def test_pcm_out_arithmetic():
-    """One voice at full level reaches 1/4 of full scale, as before M23."""
+    """One voice at full level, hard-panned, reaches 1/16 of full scale (M23; was 1/4)."""
     p = pcm.PcmOut()
     full = voice.FULL_SCALE
     frames = [f for f in (p.push(full, -full) for _ in range(pcm.DECIM * 40)) if f]
-    assert frames[-1] == (8192, -8192), frames[-1]       # round(32767 / 4)
+    assert frames[-1] == (2048, -2048), frames[-1]       # round(32767 / 16)
     assert frames[0] != frames[-1]                        # the window fills over 32 frames
     assert pcm._round_shift(5, 1) == 2 and pcm._round_shift(7, 1) == 4 and pcm._round_shift(-5, 1) == -2
 

@@ -109,7 +109,9 @@ def test_pure_wave_pitch_and_level():
     x = [l + r for l, r in s[RATE // 10:]]      # skip the attack
     f = frequency(*regs)
     a = goertzel(x, f)
-    expect = 127.5 / 128 * 250 / 256 * 255 / 256   # (w-128) x env x VOL, centre pan sums to 1
+    from sim.pan_law import PAN_L, PAN_R
+    centre = (PAN_L[32] + PAN_R[32]) / 256          # equal power (M23): 2 x 181/256
+    expect = 127.5 / 128 * 250 / 256 * 255 / 256 * centre   # (w-128) x env x VOL x pan
     assert abs(a / expect - 1) < 0.01, (a, expect)
     assert goertzel(x, 2 * f) < 0.01 * a and goertzel(x, 3 * f) < 0.01 * a
 

@@ -193,7 +193,8 @@ bit 0) is 8 unless the state image says otherwise (device 5 index 16;
   mixes: about 50 clocks for 32 voices, of the 65 the 50 MHz MiSTer clock
   has per 1.3 µs. `pcm_out.sv` decimates to 48 kHz with a 512-tap FIR
   (`sim/pcm.py`, `tools/gen_pcm_fir.py`), one multiply-accumulate a clock
-  per channel; at 192 kHz with a 4-sample mean (before M23) the voice
+  per channel, gain 1/16 (one full voice, hard-panned; was 1/4, so 32
+  voices clipped); at 192 kHz with a 4-sample mean (before M23) the voice
   staircase's images aliased into the audio band at −50 to −60 dB.
   Cost: with 32 voices the engine is busy about 60 % of the time, and every
   D160–D163 access waits for it, so with the voices on real time the CPU's
@@ -213,8 +214,9 @@ bit 0) is 8 unless the state image says otherwise (device 5 index 16;
   its next use (Python: `acc %= divisor` on a write). The closed form is
   the same however the ticks are split, so this equals Python's lazy
   advance.
-* Mix: s = (w − 128) × envelope × `VOL`; left += s × (256 − pan),
-  right += s × pan. Output: two 40-bit sums per sample
+* Mix: s = (w − 128) × envelope × `VOL`; left += s × PAN_L[pan >> 2],
+  right += s × PAN_R[pan >> 2] (equal power, `pan_law.svh`, M23; before:
+  256 − pan and pan). Output: two 40-bit sums per sample
   (`FMSynth.sample_int`). FM interface accesses wait while the engine has
   work; the CPU waits before its next fetch only when an event arrives
   while another is still being done.

@@ -25,7 +25,8 @@
 //       offset = (SINE[mod point] x index) >> (8 - shift) & 255
 //       w      = WAVE[TIM & 31][(car point + offset) & 255]
 //       s      = (w - 128) x envelope x VOL
-//       left  += s x (256 - pan), right += s x pan    (pan = ISHC & 374)
+//       left  += s x PAN_L[pan >> 2], right += s x PAN_R[pan >> 2]   (pan = ISHC & 374;
+//       equal power, pan_law.svh, M23; linear 256 - pan / pan before)
 //     = FMSynth.sample_int;
 //   catch-up before a pitch or interpolator write (functions 0-2, 10-12)
 //     and before a D160 read with function 12: that voice advanced to now
@@ -97,6 +98,7 @@ module dev_fm #(
     input  logic [63:0] ld_voice_data
 );
     `include "sine_rom.svh"
+    `include "pan_law.svh"
 
     localparam int VB = $clog2(MAXV);                     // voice (RAM address) bits
     localparam logic [39:0] OSC_NUM = 40'd656015360;      // ticks per ns = NUM / D
@@ -323,7 +325,8 @@ module dev_fm #(
     logic [7:0]  g_vk, g_vol, g_pan;
     logic signed [25:0] h_s;
     logic signed [17:0] p_p;
-    logic [7:0]  p_vol, p_pan, h_pan;
+    logic [7:0]  p_vol, p_pan;
+    logic [8:0]  h_pl, h_pr;                    // pan law factors (full = 256)
     logic signed [39:0] sum_l, sum_r;
     wire  mix = mode == M_SAMPLE;
 
@@ -345,8 +348,8 @@ module dev_fm #(
     // (w - 128) x envelope, then x VOL a clock later (timing)
     wire signed [17:0] g_p = 18'(g_w) * $signed({10'd0, g_vk});
     wire signed [25:0] p_s = 26'(p_p) * $signed({18'd0, p_vol});
-    wire signed [39:0] h_add_r = 40'(h_s) * $signed({32'd0, h_pan});
-    wire signed [39:0] h_add_l = 40'(h_s) * $signed(40'd256 - {32'd0, h_pan});
+    wire signed [39:0] h_add_r = 40'(h_s) * $signed({31'd0, h_pr});
+    wire signed [39:0] h_add_l = 40'(h_s) * $signed({31'd0, h_pl});
 
     // ------------------------------------------- multichannel routing (M19)
     // tags read at F (q at G); the pair's four routes {rr, rl, lr, ll} at G
@@ -654,7 +657,7 @@ module dev_fm #(
             vp_ok <= vg_ok;
             p_p <= g_p; p_vol <= g_vol; p_pan <= g_pan; p_rb <= g_rb;
             vh_ok <= vp_ok;
-            h_s <= p_s; h_pan <= p_pan; h_rb <= p_rb;
+            h_s <= p_s; {h_pl, h_pr} <= pan_law(p_pan[7:2]); h_rb <= p_rb;
 
             // ---- H: each side to the output's left/right (the stereo mix:
             // left to left, right to right); I: accumulate

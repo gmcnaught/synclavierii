@@ -186,7 +186,8 @@ hardware; only the final mix is floating point.
 | FM | carrier address = (carrier point + (m × index) >> (8 − shift)) & 255 | **[INFERRED]** card analysis |
 | Carrier sample | wave memory `TIM` & 31, unsigned, DAC offset binary around 128 | wave data **[OBS]** (NED `COMPUTE.WAVE`: scaled to 0–255 around the DC point; flat = 128); offset **[CHOICE]** |
 | Level | (w − 128) × envelope × `VOL`, linear | **[CHOICE]**: MDAC/DAC laws unknown |
-| Pan | right = pan / 256, left = 1 − right (`ISHC` bits 7–2) | **[CHOICE]**: pan PROM not dumped |
+| Pan | equal power (M23): left/right = 256 cos/sin((π/2) pan/256) / 256 (`ISHC` bits 7–2; `sim/pan_law.py`, `tools/gen_pan_law.py`); centre −3 dB a side | **[INFERRED]**: pan PROM not dumped; a PROM implies a non-linear law and Arturia Synclavier V is equal-power (`tuning-references.md`). Linear (right = pan/256) before M23 |
+| Output gain | one voice at full level, hard-panned = 1/16 of 16-bit full scale (`sim/pcm.py`, `pcm_out.sv`, M23; was 1/4) | **[CHOICE]**: the 9600's output stage is not documented; at 1/4 a dense 32-voice organ chorale clipped 2.25 % of samples, at 1/16 it peaks at −5.6 dBFS (−2.6 with equal power) |
 | Output | sampled at 48 kHz × 16 (768 kHz), 512-tap FIR (21 kHz) to 48 kHz (`sim/pcm.py`, M23) | **[CHOICE]**; hardware DACs change at each voice's step rate, analog filtering unknown. At 48 kHz × 4 with a box filter (before M23) staircase images aliased in at −50 to −60 dB; now ≤ −71 dB, the level of the staircase low-pass filtered without sampling |
 
 Checks (`tests/sim/test_voice.py`, `test_rtp.py`):

@@ -3,10 +3,10 @@
 //   x' = in >>> 14 (floor)
 //   every 16th input, newest at n:
 //     acc = sum(fir_coeff(j) x x'[n - j], j = 0 .. 511)   (x' = 0 before the first)
-//     pcm = clip(round_half_even(acc x 32767 / 2^39))
+//     pcm = clip(round_half_even(acc x 32767 / 2^41))
 // fir_coeff (pcm_fir.svh, tools/gen_pcm_fir.py): a 512-tap low-pass at
-// 21 kHz with integer taps summing to 2^20, so the gain is the old one
-// (one voice at full level = 1/4 of full scale). The filter keeps the voice
+// 21 kHz with integer taps summing to 2^20. Gain (M23): one voice at full
+// level, hard-panned, = 1/16 of full scale (was 1/4; 32 voices clipped). The filter keeps the voice
 // staircase's images (256 x f and up) out of the audio band.
 //
 // One multiply-accumulate a clock per channel: 512 clocks a sum, of the
@@ -55,12 +55,12 @@ module pcm_out (
     localparam logic signed [AW+15:0] PMIN = -32768;
     function automatic logic signed [15:0] pcm(input logic signed [AW-1:0] a);
         logic signed [AW+15:0] ae, p, q;
-        logic [38:0] r;
+        logic [40:0] r;
         ae = a;
         p = (ae <<< 15) - ae;                       // a x 32767
-        q = p >>> 39;                               // floor
-        r = p[38:0];
-        if (r > 39'h40_0000_0000 || (r == 39'h40_0000_0000 && q[0])) q = q + 1'b1;
+        q = p >>> 41;                               // floor
+        r = p[40:0];
+        if (r > 41'h100_0000_0000 || (r == 41'h100_0000_0000 && q[0])) q = q + 1'b1;
         if (q > PMAX) pcm = 16'sd32767;
         else if (q < PMIN) pcm = -16'sd32768;
         else pcm = q[15:0];

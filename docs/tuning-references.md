@@ -116,13 +116,16 @@ A4 sine, one partial/voice at full level; Synclavier V "simple sine
   dB); the preset's default is −10 dB. Velocity 127 / 100 / 64: no effect
   in this preset.
 * Pan law: Synclavier V is equal-power (centre = 1/√2 of hard left);
-  the core is linear (centre = 1/2), a [CHOICE] because the 256 × 8 pan-law
-  PROM is not dumped (`fm-voice.md`). A PROM suggests a non-linear law;
-  Synclavier V's equal-power law agrees [INFERRED].
-* Level matching for A/B listening: +6 dB on the core (or −6 dB on
-  Synclavier V). Synclavier V's absolute level is Arturia's choice; the
-  core's gain (one voice = 1/4 of full scale) leaves headroom for four
-  full voices.
+  the core was linear (centre = 1/2), a [CHOICE] because the 256 × 8
+  pan-law PROM is not dumped (`fm-voice.md`). A PROM suggests a non-linear
+  law; Synclavier V's equal-power law agrees [INFERRED]. **The core is
+  equal-power since M23** (`tools/gen_pan_law.py`).
+* Level: the table above is the core at gain 1/4. Since M23 the core's gain
+  is 1/16 (32 voices clipped at 1/4), so one full voice hard-panned is
+  −24.1 dBFS peak and Synclavier V is 18.1 dB louder; centred, with equal
+  power, −27.1 dBFS, also 18.1 dB below Synclavier V. For A/B listening,
+  +18 dB on the core recording (or −18 dB on Synclavier V). Synclavier V's
+  absolute level is Arturia's choice, not the instrument's.
 
 ## Headless capture with pedalboard
 

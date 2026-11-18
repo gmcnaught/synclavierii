@@ -33,12 +33,15 @@ Voice model (sections 3.1-3.7) [INF, CHOICES marked]:
     (PSRON reads 0). Comparing the position (not a separate counter) makes
     a PSWL rewrite on a sounding voice take effect (audition while loading);
   * PSON bit 0 rising resets the position to 0 (start of the table);
-  * every 40 us (25 kHz) the envelope counter and the volume ramps step
-    while the envelope or a volume is still moving [CHOICE: settled
-    counters hold, so stepping on demand and stepping continuously agree]
+  * every 40 us (25 kHz) the envelope counter, accumulator, value and the
+    volume ramps step. The counter and accumulator run while the envelope
+    is settled (NEWDIAGS/LOGCAT/LAMP tests 1-4); a settled voice is
+    brought up to date in closed form when it is next touched
+    (PolyVoice.catch_up), so stepping on demand and continuously agree
     (sections 3.5, 3.6): ECNT counts to 4096 and reloads EMOD; then EACU +=
-    EINC and on its wrap EVAL moves toward ELIM by EDEL; each current volume
-    moves toward its destination by max(1, |difference| >> 9);
+    EINC + 1 and on its wrap EVAL moves toward ELIM by EDEL; each current
+    volume moves up by max(1, difference >> 9) or down by
+    (dest - cur) >> 9 (arithmetic; -8 becomes -7);
   * an odd voice whose even neighbour has FC 59 (even stereo master) set
     plays the word after its master's position (interleaved stereo frames);
   * output of a voice [CHOICE: the mix is not in the source]: the word at
@@ -62,8 +65,8 @@ PSADEVSM = 59
 #: FC after a PSD write (section 1.3); FCs not listed stay.
 SUCCESSOR = {0: 1, 1: 2, 2: 3, 3: 4, 4: 5, 5: 6, 6: 7, 7: 8, 8: 9, 9: 10,
              16: 17, 17: 18, 20: 21, 21: 22,
-             33: 35, 35: 38, 38: 32, 32: 34, 34: 36, 36: 37,
-             40: 42, 42: 41, 41: 43,
+             33: 35, 35: 38, 38: 32, 32: 34, 34: 36, 36: 37, 37: 33,
+             40: 42, 42: 41, 41: 43, 43: 40,
              25: 0, 26: 0, 27: 28}
 
 ENV_REGS = {PSECNT: "ecnt", PSEMOD: "emod", PSEACU: "eacu", PSEINC: "einc",
@@ -95,6 +98,7 @@ class PolyVoice:
         self.rcur = self.rdest = self.lcur = self.ldest = 0
         self.out = 0                 # current sample (signed)
         self.slave = False           # follows the even voice below (FC 59)
+        self.et = 0                  # envelope ticks applied (catch_up)
 
     def set_word(self, fc, value):
         self.words[fc] = value & 0xFFFF
@@ -114,10 +118,12 @@ class PolyVoice:
                 and self.lcur == self.ldest)
 
     def env_tick(self):
+        """One 40 us tick. LAMP (NEWDIAGS/LOGCAT/LAMP) tests 3-5: PSEINC is
+        written as increment - 1 (0 adds 1, 4095 adds 4096)."""
         self.ecnt += 1
         if self.ecnt >= 4096:
             self.ecnt = self.emod & 0xFFF
-            self.eacu += self.einc & 0xFFF
+            self.eacu += (self.einc & 0xFFF) + 1
             if self.eacu >= 4096:
                 self.eacu -= 4096
                 d = self.edel & 0xFFF
@@ -128,12 +134,35 @@ class PolyVoice:
         self.rcur = _ramp(self.rcur, self.rdest)
         self.lcur = _ramp(self.lcur, self.ldest)
 
+    def catch_up(self, et):
+        """Bring a settled voice to envelope tick `et`. The counter and
+        accumulator run whether or not the envelope moves (LAMP tests 1-4
+        count them with EVAL = ELIM = 0); while settled nothing else
+        changes, so `et - self.et` ticks are applied in closed form."""
+        k = et - self.et
+        self.et = et
+        if k <= 0:
+            return
+        first = 4096 - self.ecnt                  # ticks to the first wrap
+        if k < first:
+            self.ecnt += k
+            return
+        n = 4096 - self.emod                      # then one wrap every n
+        wraps = 1 + (k - first) // n
+        self.ecnt = self.emod + (k - first) % n
+        self.eacu = (self.eacu + wraps * (self.einc + 1)) & 0xFFF
+
 
 def _ramp(cur, dest):
+    """Volume ramp, every 40 us. LAMP tests 8-11: up by max(1, diff >> 9);
+    down by the arithmetic shift (dest - cur) >> 9, i.e. -ceil(diff / 512),
+    with -8 made -7 ("correct for hardware tri-z obfuscation")."""
     if cur == dest:
         return cur
-    step = max(1, abs(dest - cur) >> 9)
-    return cur + step if dest > cur else cur - step
+    if dest > cur:
+        return cur + max(1, (dest - cur) >> 9)
+    step = (dest - cur) >> 9
+    return cur + (-7 if step == -8 else step)
 
 
 class PolySynth(Device):
@@ -217,6 +246,7 @@ class PolySynth(Device):
         if fc == PSRON:
             return v.on
         if fc in ENV_REGS:
+            v.catch_up(self.env_tick)
             return getattr(v, ENV_REGS[fc]) & 0xFFFF
         if fc < 8:
             return v.words[fc]
@@ -271,6 +301,7 @@ class PolySynth(Device):
             if not v.on & 1:
                 v.out = 0
         elif fc in ENV_REGS:
+            v.catch_up(self.env_tick)
             setattr(v, ENV_REGS[fc], value & 0xFFF)
         elif fc == PSADEVSM:
             v.master = value & 1
@@ -326,7 +357,9 @@ class PolySynth(Device):
                 self.env_tick += 1
                 for v in voices:
                     if not v.settled():
+                        v.catch_up(self.env_tick - 1)
                         v.env_tick()
+                        v.et = self.env_tick
         self.done_ns = t_end
 
     def _rate(self, v, b):

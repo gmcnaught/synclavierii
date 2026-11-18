@@ -41,27 +41,36 @@ def pcm(acc):
     return max(-32768, min(32767, q))
 
 
+#: taps oldest-first, for a history kept oldest-first (COEFFS[0] = newest)
+_RCOEFFS = tuple(reversed(COEFFS))
+
+
+def fir(history):
+    """sum(COEFFS[j] x history[-1 - j]): the filter at the newest entry of an
+    oldest-first list (at least TAPS long)."""
+    return sum(c * x for c, x in zip(_RCOEFFS, history[-TAPS:]))
+
+
 class PcmOut:
     """pcm_out.sv: push 768 kHz (left, right) integer sums; every DECIM-th
     push returns a (left, right) 16-bit frame, otherwise None."""
 
     def __init__(self):
-        self.hl = [0] * TAPS          # newest first
+        self.hl = [0] * TAPS          # oldest first; trimmed now and then
         self.hr = [0] * TAPS
         self.count = 0
 
     def push(self, left, right):
-        self.hl.insert(0, left >> IN_SHIFT)
-        self.hl.pop()
-        self.hr.insert(0, right >> IN_SHIFT)
-        self.hr.pop()
+        self.hl.append(left >> IN_SHIFT)
+        self.hr.append(right >> IN_SHIFT)
         self.count += 1
         if self.count < DECIM:
             return None
         self.count = 0
-        acc_l = sum(c * x for c, x in zip(COEFFS, self.hl))
-        acc_r = sum(c * x for c, x in zip(COEFFS, self.hr))
-        return pcm(acc_l), pcm(acc_r)
+        if len(self.hl) > 8 * TAPS:
+            del self.hl[:-TAPS]
+            del self.hr[:-TAPS]
+        return pcm(fir(self.hl)), pcm(fir(self.hr))
 
 
 def frames(samples):
@@ -83,3 +92,45 @@ def write_wav(path, frames_):
         f.write(b"RIFF" + struct.pack("<I", 36 + len(data)) + b"WAVE")
         f.write(b"fmt " + struct.pack("<IHHIIHH", 16, 1, 2, 48_000, 48_000 * 4, 4, 16))
         f.write(b"data" + struct.pack("<I", len(data)) + data)
+
+
+def _instant(origin_ns, k):
+    return origin_ns + k * 1_000_000_000 // IN_RATE
+
+
+def render_frames(log, start_ns, end_ns, voices=8, origin_ns=None):
+    """pcm_out.sv's 16-bit frames for a window of a D162 write log
+    (sim/voice.py FMSynth at the 768 kHz instants origin + k x 1e9 // 768000,
+    origin = start_ns by default). Frame j is the filter at instant
+    k_start + 16j + 15, k_start the first instant at or after start_ns, which
+    must begin a group of DECIM. The filter is warmed up over the TAPS
+    instants before k_start (the voice state there is rebuilt by replaying
+    the log), so windows that meet join into exactly one longer call: a
+    long render can be split across processes."""
+    from .voice import FMSynth
+    if origin_ns is None:
+        origin_ns = start_ns
+    k_start = -(-(start_ns - origin_ns) * IN_RATE // 1_000_000_000)
+    while _instant(origin_ns, k_start - 1) >= start_ns:
+        k_start -= 1
+    while _instant(origin_ns, k_start) < start_ns:
+        k_start += 1
+    if k_start % DECIM:
+        raise ValueError("start_ns does not begin a group of %d instants" % DECIM)
+    k_end = k_start
+    while _instant(origin_ns, k_end) < end_ns:
+        k_end += DECIM
+    log = sorted(log, key=lambda e: e[0])
+    synth = FMSynth(voices)
+    out = PcmOut()
+    frames = []
+    i = 0
+    for k in range(k_start - TAPS, k_end):
+        t = _instant(origin_ns, k)
+        while i < len(log) and log[i][0] <= t:
+            synth.write(*log[i])
+            i += 1
+        f = out.push(*synth.sample_int(t))
+        if f is not None and k >= k_start:
+            frames.append(f)
+    return frames

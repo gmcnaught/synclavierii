@@ -51,6 +51,28 @@ def test_pcm_out_arithmetic():
     assert pcm._round_shift(5, 1) == 2 and pcm._round_shift(7, 1) == 4 and pcm._round_shift(-5, 1) == -2
 
 
+def test_render_frames_join():
+    """Windows of render_frames that meet equal one call (FIR warm-up), and
+    equal PcmOut over the same instants."""
+    regs = fm.registers(230, 191, 3)
+    log = _sine_log(*regs)
+    log.append((12_000_000, 1, voice.FN_LIM, 0))                 # release inside the window
+    whole = pcm.render_frames(log, 5_000_000, 25_000_000, voices=1, origin_ns=0)
+    parts = (pcm.render_frames(log, 5_000_000, 15_000_000, voices=1, origin_ns=0)
+             + pcm.render_frames(log, 15_000_000, 25_000_000, voices=1, origin_ns=0))
+    assert len(whole) == 960 and whole == parts
+    synth, out, ref, i = voice.FMSynth(1), pcm.PcmOut(), [], 0
+    for k in range(25_000_000 * pcm.IN_RATE // 1_000_000_000):
+        t = k * 1_000_000_000 // pcm.IN_RATE
+        while i < len(log) and log[i][0] <= t:
+            synth.write(*log[i])
+            i += 1
+        f = out.push(*synth.sample_int(t))
+        if f is not None and t >= 5_000_000:
+            ref.append(f)
+    assert ref == whole and max(abs(l) for l, _ in whole) > 1000
+
+
 def _sine_log(onu, nnu, inc):
     t = 1000
     log = [(t, 1, voice.FN_TIM, 32), (t, 1, voice.FN_ZMA, 0)]

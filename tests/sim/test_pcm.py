@@ -45,7 +45,7 @@ def test_pcm_out_arithmetic():
     """One voice at full level, hard-panned: 1/16 of full scale at FM level
     0 dB (M23), 1/4 at the default +12 dB (#76), each OSD step 6 dB."""
     full = voice.FULL_SCALE
-    want = {0: 8192, 1: 16384, 2: 4096, 3: 2048}         # round(32767 x 2**(dB/6) / 16)
+    want = {0: 8192, 1: 16384, 2: 32767, 3: 2048}        # round(32767 x 2**(dB/6) / 16)
     for level, v in want.items():
         p = pcm.PcmOut(level, False)
         frames = [f for f in (p.push(full, -full) for _ in range(pcm.DECIM * 40)) if f]

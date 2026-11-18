@@ -584,7 +584,7 @@ def main(argv=None):
     r.add_argument("--poly-bins", type=int, default=1)
     r.add_argument("--wav", help="also keep the audio as this WAV")
     r.add_argument("--fm-level", type=int, default=0, choices=range(4),
-                   help="OSD FM level code: 0 +12 dB (default), 1 +18, 2 +6, 3 0 dB")
+                   help="OSD FM level code: 0 +12 dB (default), 1 +18, 2 +24, 3 0 dB")
     r.add_argument("--poly-level", type=int, default=0, choices=range(4),
                    help="OSD Poly level code: 0 +6 dB (default), 1 +12, 2 0, 3 -6 dB")
     r.add_argument("--limiter-off", action="store_true", help="OSD Limiter Off: clip at 16 bits")

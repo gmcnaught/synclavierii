@@ -9,7 +9,7 @@
 //     x_poly = y x RECIP(d) >>> ps     (RECIP: 1302 -> 51543, 1303 -> 51503, else 0)
 //     x' = sat27((fm >>> fs) + x_poly)                to pcm_out
 //   fs, ps by the OSD FM level / Poly level codes (#76; sim/pcm.py
-//   fm_shift, poly_shift): fm_level 0-3 = +12/+18/+6/0 dB: fs 12/11/13/14;
+//   fm_shift, poly_shift): fm_level 0-3 = +12/+18/+24/0 dB: fs 12/11/10/14;
 //   poly_level 0-3 = +6/+12/0/-6 dB: ps 19/18/20/21.
 //   After reset t_prev = 0, the next boundary is tick 0, P_cur = 0.
 //
@@ -108,7 +108,7 @@ module poly_box (
         case (lv)
             2'd0: fm_x = 39'(f >>> 12);
             2'd1: fm_x = 39'(f >>> 11);
-            2'd2: fm_x = 39'(f >>> 13);
+            2'd2: fm_x = 39'(f >>> 10);
             default: fm_x = 39'(f >>> 14);
         endcase
     endfunction

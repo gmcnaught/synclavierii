@@ -31,9 +31,9 @@ IN_SHIFT = 14                                 # FM at 0 dB
 OUT_SHIFT = SUM_BITS + 35 - IN_SHIFT          # 41: one voice 1/16 at 0 dB
 
 #: OSD level codes (status bits, 0 = the first option = the default) to dB
-#: (#76): FM level +12/+18/+6/0 dB, Poly level +6/+12/0/-6 dB. Whole 6 dB
+#: (#76): FM level +12/+18/+24/0 dB, Poly level +6/+12/0/-6 dB. Whole 6 dB
 #: steps, so a level is a shift.
-FM_LEVEL_DB = (12, 18, 6, 0)
+FM_LEVEL_DB = (12, 18, 24, 0)
 POLY_LEVEL_DB = (6, 12, 0, -6)
 
 

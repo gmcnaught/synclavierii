@@ -214,12 +214,18 @@ user's mixer did (the 9600's levels are [UNK]).
 
 | item | codes 0 / 1 / 2 / 3 | shift (sim `fm_shift`, `poly_shift`) |
 |---|---|---|
-| FM level | **+12** / +18 / +6 / 0 dB | FM sum `>>>` 12 / 11 / 13 / 14 |
+| FM level | **+12** / +18 / +24 / 0 dB | FM sum `>>>` 12 / 11 / 10 / 14 |
 | Poly level | **+6** / +12 / 0 / −6 dB | poly `y·RECIP >>>` 19 / 18 / 20 / 21 |
 | Limiter | **On** / Off | — |
 
 0 dB is the level before #76. At the defaults one FM voice is 1/4 of full
-scale. Steps are whole 6 dB so a level is a shift (`poly_box.sv`).
+scale; at +24 dB it is full scale, about the 9600 figure the user quoted
+(single voice −1 dB peak, +3 dB per doubling of voices; source document
+not in the repo, [UNK]). +3 dB per doubling is uncorrelated voices adding
+in power: 32 voices average 15 dB over one, which a 16-bit output holds
+only through the limiter (so the 9600's −1 dB is presumably an analog
+reference with headroom above it [INF]). Steps are whole 6 dB so a level
+is a shift (`poly_box.sv`).
 
 **Limiter** (`pcm_limit.sv` = `sim/pcm.py` `Limiter`, after `pcm_out`'s
 filter, which now gives v unclipped, |v| < 2^21). One gain G/2^24 for both

@@ -53,7 +53,7 @@ module poly_box (
     logic [2:0]  fq_wp, fq_rp;
     logic [3:0]  fq_n;                            // FM samples waiting
     // P values come, in order
-    logic signed [26:0] pl [32], pr [32];
+    logic [53:0] pq [32];                         // {left, right}
     logic [4:0]  pq_wp, pq_rp;
     logic [5:0]  pq_n;
     logic [31:0] debt;                            // boundaries passed without their P (late)
@@ -77,6 +77,8 @@ module poly_box (
     wire  [47:0] d_w = t_head - t_prev;
     wire         bnd = en && nb < t_head;         // a boundary inside the interval
     wire         p_have = pq_n != 6'd0;
+    wire  [53:0] p_head = pq[pq_rp];
+    wire signed [26:0] h_l = p_head[53:27], h_r = p_head[26:0];
     wire         go = st == 4'd0 && fq_n != 4'd0 && (!bnd || p_have || fq_n == 4'd8);
     wire         p_take = go && bnd && p_have;
     wire         p_drop = p_valid && debt != 32'd0;
@@ -120,7 +122,7 @@ module poly_box (
                 fq_wp <= fq_wp + 3'd1;
             end
             if (p_valid && !p_drop) begin
-                pl[pq_wp] <= 27'(p_l); pr[pq_wp] <= 27'(p_r);
+                pq[pq_wp] <= {p_l[26:0], p_r[26:0]};
                 pq_wp <= pq_wp + 5'd1;
             end
             pq_n <= pq_n + 6'(p_valid && !p_drop) - 6'(p_take);
@@ -139,8 +141,8 @@ module poly_box (
                     if (bnd) begin
                         w_old <= 13'(nb - t_prev);
                         w_new <= 13'(t_head - nb);
-                        n_l <= p_have ? pl[pq_rp] : c_l;
-                        n_r <= p_have ? pr[pq_rp] : c_r;
+                        n_l <= p_have ? h_l : c_l;
+                        n_r <= p_have ? h_r : c_r;
                         nb <= nb + F0_NS;
                     end else begin
                         w_old <= 13'(d_w); w_new <= 13'd0;
@@ -177,8 +179,8 @@ module poly_box (
             endcase
             // P_cur moves on when the boundary is used
             if (go && bnd) begin
-                c_l <= p_have ? pl[pq_rp] : c_l;
-                c_r <= p_have ? pr[pq_rp] : c_r;
+                c_l <= p_have ? h_l : c_l;
+                c_r <= p_have ? h_r : c_r;
             end
         end
     end

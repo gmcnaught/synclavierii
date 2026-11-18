@@ -575,13 +575,16 @@ def build(top="cpu", force=False):
             os.path.getmtime(exe) > max(os.path.getmtime(s) for s in srcs):
         return exe
     os.makedirs(mdir, exist_ok=True)          # older Verilator does not create parents
-    subprocess.run(["verilator", "--cc", "--exe", "--build", "-O3", "-Wall", "-Wno-fatal",
+    b = subprocess.run(["verilator", "--cc", "--exe", "--build", "-O3", "-Wall", "-Wno-fatal",
                     "--x-assign", "unique", "--x-initial", "unique",
                     "-I" + os.path.join(ROOT, "hdl", "dev"), "-I" + os.path.join(ROOT, "hdl", "core"),
                     "--top-module", name, "-Mdir", mdir, "-o", "V" + name,
                     "-CFLAGS", "-O2 " + " ".join(defines)]
                    + [x for x in srcs if not x.endswith(".svh")],
-                   check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                   capture_output=True, text=True)
+    if b.returncode:
+        errs = [ln for ln in (b.stdout + b.stderr).splitlines() if "%Error" in ln or "error:" in ln]
+        raise RuntimeError("verilator build of %s failed:\n%s" % (top, "\n".join(errs[:40])))
     return exe
 
 

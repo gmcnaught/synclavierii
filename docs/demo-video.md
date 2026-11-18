@@ -176,8 +176,12 @@ keyboard / SYN-5.3's key range:
   (beats 24-36); the restrike ends the held note (one key per pitch), so
   that note is 4.35 s shorter.
 * The three lowest bass notes (B1, A1, B1: NED keys 9-11, the VPK's lowest
-  keys) were saved an octave up (B2, A2) [UNK: whether SYN-5.3's recorder
-  or the sequence format moves keys below 12].
+  keys) are stored as B2/A2 in 4-word records with the LOWER.KEY bit set
+  (word 4 bit 6, `SYNLITS/SYNCLITS:185`): the 6-bit key field holds MIDI
+  36-98 only. SYN-5.3 plays them as B1/A1 (the render has their third
+  harmonics, 185 and 165 Hz, which B2/A2 do not). `seq_notes` ignored the
+  bit until 2026-11-17 and reported them as 3 missing + 3 extra; with it,
+  both tracks check out complete.
 
 ## Velocity layers: CONCERT GRAND-16 (2026-11-17)
 

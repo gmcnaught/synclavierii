@@ -127,6 +127,69 @@ A4 sine, one partial/voice at full level; Synclavier V "simple sine
   +18 dB on the core recording (or −18 dB on Synclavier V). Synclavier V's
   absolute level is Arturia's choice, not the instrument's.
 
+## M24: FM index, envelopes and chorus against the sim (2026-11-17)
+
+`tools/sv_capture.py` (53 notes, Synclavier V licensed copy, preset
+"Simple Sine (Clean)", effects bypassed, partial and timbre chorus 1.0 =
+off, held level flat to 0.00 dB) against `tools/sv_compare.py render`:
+the same settings as one-partial `NN-Entry.txt` timbres through
+`tools/stmb.py`, bank 0 of `06-TIMBD`, Release L ORK-LM in the simulator
+(key 45 = A 440, key 36 = C 261.6). Results: `out/sv-compare.json`
+(192 kHz) and `out/sv-compare-333k.json`.
+
+**FM index.** Synclavier V: β = 1.533 × F.M. Amount × F.M. Modulation ×
+index level (0–100), from phase-modulation fits within 0.4 dB at Amount
+0.02–0.2, index 6.25–100, ratios 1 and 2 (14 captures; Amount 0.01 gives
+1.23, β > 40 cannot be fitted below 20 kHz). The factory presets mostly use
+Amount 0.4 × Modulation 0.4; there β = 0.02453 rad per NED index unit
+(text `IEnvPeak` 0–1000 = Synclavier V level × 10). The core's model,
+2π × 255 / 65536 = 0.02445 per unit, is 0.3 % lower; the sim reproduces
+its model within 0.5–3.5 % (integer truncation at small indices). The
+index attack rises linearly in both.
+
+**Interpolator clock (M24).** At 192 kHz the sim's volume attacks were
+1.72–1.81× Synclavier V's and the initial decays 1.5–3×. The timbre stores
+attack times in 0.5625 ms units, so the clock is 333 1/3 kHz, the rate
+NED itself states ("333333 * INCR - MATCHES CLOCK RATE OF SYNTH",
+`144-TIM1`; `fm-voice.md`); at that clock:
+
+| | Synclavier V | sim, 333 1/3 kHz | sim, 192 kHz |
+|---|---|---|---|
+| attack 0.1 / 0.5 / 1 / 2 s, time to 99 % | 0.098 / 0.495 / 0.990 / 1.965 s | 0.105 / 0.488 / 0.980 / 1.958 | 0.177 / 0.858 / 1.698 / 3.375 |
+| attack 1 s, time to 50 % | 0.490 | 0.492 | 0.860 |
+| index attack 1 s (β at 2.4 rad, P 100) reaches peak | 1.0 s | 1.0 s | 1.8 s |
+| initial decay 0.25 s → sustain 50: halfway / 90 % | 0.037 / 0.065 s | 0.033 / 0.070 | 0.057 / 0.145 |
+| initial decay 1 s → sustain 50: halfway / 90 % | 0.105 / 0.242 s | 0.120 / 0.282 | 0.220 / 0.583 |
+| initial decay 1 s → sustain 25: halfway / 90 % | 0.180 / 0.417 s | 0.220 / 0.495 | 0.420 / 1.282 |
+| final decay 1 s ("Match Synclavier® II"): −6 / −20 / −40 dB | 0.28 / 0.68 / 0.88 s | 0.41 / 0.87 / 1.02 | 0.77 / — / — |
+| final decay 0.25 s: −6 / −20 / −40 dB | 0.07 / 0.17 / 0.21 s | 0.16 / 0.27 / 0.30 | 0.25 / — / — |
+
+* Attacks match within 12 ms; initial decays within 0–20 %.
+* Final decays: the sim's starts about 0.1 s later (−0.4 dB vs −2.0 dB
+  at 0.1 s after key-up) and is shallower at first; the end (−40 dB) is
+  0.09–0.14 s later. Not explained: Release L's key-up path (key scan,
+  10 ms exponential steps) against Synclavier V's own decay model.
+  The 2 s final-decay capture overlaps the throw-away note's tail and is
+  left out.
+* Delay 0.5 s: note starts at 0.506 s (Synclavier V) and 0.521 s (sim).
+
+**Levels.** Envelope levels 100 / 50 / 25 / 10 / 2.5: −6.02 / −12.04 /
+−20.0 / −32.0 dB in Synclavier V and −6.02 / −12.11 / −19.98 / −32.37 dB
+in the sim (linear amplitude). Partial volume is true dB in Synclavier V.
+
+**Chorus and tuning.** Beat rates with chorus 1.002 / 1.01 / 1.05 at A4
+and C4 agree within 0.02 Hz (0.903 vs 0.907 Hz, …, 22.039 vs 22.040 Hz).
+Chorus 2.005 plays at 2.0053 (Synclavier V) and 2.0041 (sim, −1 c), 0.504
+at 0.5041 in both. Partial tuning +10 c: +10.6 c vs +8.1 c; −10 c: −10.8 c
+in both. The differences are the `.STAB-6` table rounding (±2.6 c).
+
+**Synclavier V notes.** Chorus 1.0 is "off": 0.0 adds a chorus voice at a
+ratio near 0, which beats at ~0.9 Hz (the first M24 capture had it and was
+discarded). Ratio and chorus parameters are linear, raw = value / 16 (the
+display's rounding hides errors). Decay shape "True Exponential" renders
+NaN samples (v2.7). The earlier envelope and FM notes above were taken
+without these settings checked; the M24 values supersede them.
+
 ## Headless capture with pedalboard
 
 Spotify `pedalboard` (Python 3.12 venv; no wheel for 3.15) loads
@@ -148,6 +211,12 @@ Spotify `pedalboard` (Python 3.12 venv; no wheel for 3.15) loads
   notes in 512-sample blocks with `reset=False`, paced in real time, and
   sets the close event. The first note after a change can be dropped;
   render a throw-away note first.
+* `tools/sv_capture.py OUT` does all of this; the user selects the preset,
+  checks the ENGINE tab (modulator harmonic 1 only) and creates `OUT/GO`.
+  It aborts unless the patch is a pure sine with a flat held level.
+  `tools/sv_compare.py render IMAGE OUT` renders the matching sim notes
+  (under `pypy3` when present: same output, ~6× faster) and
+  `tools/sv_compare.py report SV SIM` measures both.
 
 ## Capture protocol
 

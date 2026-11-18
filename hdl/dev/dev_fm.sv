@@ -38,7 +38,7 @@
 // pass. The closed form (accumulator += n x (INC + 1) mod divisor, one
 // point step per 2^(7 - ONU) wraps) gives the same state however the ticks
 // are split, so this is exactly Python's lazy advance. Interpolators the
-// same way: their 192 kHz clocks (tick/tick_ns, 24 / 125000 per ns) are
+// same way: their 333 1/3 kHz clocks (one per 3000 ns of tick_ns, M24) are
 // counted (mod 4), each channel keeps the count it has had, and a pass or
 // catch-up applies the difference with sim/fm.py Interpolator.advance_to's
 // closed form (a clock at the sample instant counts as before it). So one
@@ -110,7 +110,7 @@ module dev_fm #(
     logic        ext_in, ext_out;
     logic [15:0] adc [8];
     logic [2:0]  adc_select;
-    logic [17:0] rem;                           // (time x 24) mod 125000
+    logic [17:0] rem;                           // time mod 3000 ns (interpolator clock, M24)
     logic [5:0]  nvoices;
     logic [7:0]  wave [8192] /* verilator public */;   // public: board bench reads it
 
@@ -210,9 +210,11 @@ module dev_fm #(
         else if (tick) to_next_nxt = to_next - 14'(tick_ns);
     end
 
-    wire [17:0] rem_next = rem + 18'(tick_ns) * 18'd24;   // up to 148,975: 18 bits
-    wire        interp_now = tick && rem_next >= 18'd125000;
-    wire        interp_first = 18'(rem) + 18'(d) * 18'd24 >= 18'd125000;   // at or before the instant
+    // interpolator clock: one per 3000 ns (333 1/3 kHz, sim/fm.py ENV_CLOCK_NS);
+    // a tick is at most 999 ns, so at most one clock per tick
+    wire [17:0] rem_next = rem + 18'(tick_ns);
+    wire        interp_now = tick && rem_next >= 18'd3000;
+    wire        interp_first = 18'(rem) + 18'(d) >= 18'd3000;   // at or before the instant
 
     wire   busy = clearing || running || pend_s || settle != 2'd0;
     assign stall = running && pend_s;
@@ -557,7 +559,7 @@ module dev_fm #(
             end
 
             // ---- events from the CPU's ticks (after the passes: a new event wins)
-            if (tick) rem <= interp_now ? rem_next - 18'd125000 : rem_next;
+            if (tick) rem <= interp_now ? rem_next - 18'd3000 : rem_next;
             if (sample_now) begin
                 pend_s <= 1'b1;
                 pend_g <= g + 6'(n_a);

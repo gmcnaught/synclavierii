@@ -67,15 +67,26 @@ def log_frequency_hz(freq_num):
 #
 #   counter steps/s = ENV_CLOCK_HZ * (ADD + 1) / (256 * (256 - DIV))
 #
-# ENV_CLOCK_HZ is inferred from COMPUTE.INTERP.NUMBERS (Synclavier II case):
-# full-scale time T ms -> adder 256, divisor 0.75 T, i.e. one step per
-# 0.75 T / N ms for N steps of full scale. The index envelope's full scale
-# is 256 steps (limit = 2 x peak, peak < 128), giving 0.75 x 256 = 192
-# steps per ms; the volume envelope's is 250 (limit = level/4, level 1000),
-# giving 187.5. Uncertain to ~3 % until measured on hardware.
+# COMPUTE.INTERP.NUMBERS (Synclavier II case) turns a full-scale time T
+# into adder 256, divisor 0.75 T, i.e. one step per 0.75 T / N clocks for N
+# steps of full scale (index: 256 steps, limit = 2 x peak, peak < 128;
+# volume: 250, limit = level/4, level 1000). Read as ms, T gives a clock of
+# 192 (index) or 187.5 kHz (volume): the model's value until M24. But the
+# timbre stores attack times in 0.5625 ms units (PAR.LIMITS: 26667 = 15 s;
+# the Synclavier3 text/binary pairs, docs/timbre-libraries.md), and
+# COMPUTE.INTERP.NUMBERS is given that stored value, so the clock is
+# 187.5 kHz x 16/9 = 333 1/3 kHz. Arturia Synclavier V agrees: its attacks
+# (0.1-2 s, volume and index) match the model within 12 ms at this clock and
+# were 1.72-1.81x too slow at 192 kHz (docs/tuning-references.md, M24).
+# [OBS] NED states the rate: 144-TIM1's software interpolator for the mono
+# sampling channel uses "333333 * INCR - MATCHES CLOCK RATE OF SYNTH", and
+# 181-UPD1 displays attack as stored x 36864/65536 ms. The index envelope's
+# 256-step scale makes it 2.4 % slower than its nominal time at this clock.
 
-#: Interpolator input clock in Hz [INFERRED from NED's time -> rate code].
-ENV_CLOCK_HZ = 192_000
+#: Interpolator input clock period in ns: one clock per 3 us (333 1/3 kHz).
+ENV_CLOCK_NS = 3000
+#: The same as a frequency (for rates; time is counted in whole ns / ENV_CLOCK_NS).
+ENV_CLOCK_HZ = 1_000_000_000 / ENV_CLOCK_NS
 
 
 def interp_rate(div, add):
@@ -117,7 +128,7 @@ class Interpolator:
     """Prescaler + rate accumulator + up/down counter of one channel.
 
     Integer model of the structure above, advanced in whole clock ticks of
-    ENV_CLOCK_HZ. `at_limit()` is the comparator that D160 bit 0 reports
+    ENV_CLOCK_NS. `at_limit()` is the comparator that D160 bit 0 reports
     (inverted) while function 12 is selected: NED and Release L select the
     limit function, write the limit (twice, "for hardware accuracy") and
     read bit 0, 0 = limit reached.
@@ -133,7 +144,7 @@ class Interpolator:
         self.ticks = 0         # clocks consumed so far
 
     def advance_to(self, time_ns):
-        target = time_ns * ENV_CLOCK_HZ // 1_000_000_000
+        target = time_ns // ENV_CLOCK_NS
         n = target - self.ticks
         if n <= 0:
             return

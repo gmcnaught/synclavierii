@@ -106,8 +106,8 @@ def test_fm_limit_status_and_wave_memory():
     fm.write(0o161, 0o12)
     fm.write(0o162, 250)                     # attack to 250 at full rate
     assert fm.read(0o160) & 1 == 1
-    fm.tick(1_000_000)                       # 1 ms = 192 steps
-    assert fm.read(0o160) & 1 == 1 and fm.interp[1].value == 192
+    fm.tick(300_000)                         # 300 us = 100 steps (one per 3 us, M24)
+    assert fm.read(0o160) & 1 == 1 and fm.interp[1].value == 100
     fm.tick(1_000_000)
     assert fm.read(0o160) & 1 == 0 and fm.interp[1].value == 250
     fm.write(0o160, 0o20)                    # absent channel

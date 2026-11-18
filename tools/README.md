@@ -117,6 +117,8 @@ python3 tools/timbre_disk.py W1-TIMBRES.IMG LIB1.stmb LIB2.stmb   # a W1: with o
 python3 tools/timbre_disk.py W1.IMG --seq DEMOS:1=chorale.sseq     # sequences as W1:DEMOS/.SQnDATA
 python3 tools/timbre_disk.py W1.IMG FM/*.stmb --samples Original-NED-Sample-Patch-Libraries  # + sampled libraries
 python3 tools/sample_library.py Original-NED-Sample-Patch-Libraries [--all-sounds]     # list what --samples adds
+python3 tools/sample_pitch.py scan Original-NED-Sample-Patch-Libraries   # data/sample-pitch.tsv: recorded pitch per sound file
+python3 tools/sample_pitch.py check Original-NED-Sample-Patch-Libraries  # the patch transpositions it corrects
 ```
 
 `sample_library.py` packs the NED sample/patch banks into 18 libraries by

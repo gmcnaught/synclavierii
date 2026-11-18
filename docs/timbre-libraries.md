@@ -427,3 +427,54 @@ Verified:
   sound files found in DDR3 poly memory (`/dev/mem`); `W1:SYNTH2` BANK 5
   ENTRY 1: "SYN51 PAD 1.93", its 6 sound files in poly memory. Not yet
   listened to.
+
+### Patch transpositions an octave off (2026-11-17)
+
+The sample libraries are Synclavier Regen exports (the patch `.stmb`
+binaries, the `NN-Entry.txt` texts and the `.caf` sound files). In whole
+families the recorded pitch is an octave below the patch's transposition
+key, so on the core (and in the simulator, which the HDL matches) FULL
+PIANO played A4 at 220 Hz and C4 at 130.8 Hz.
+
+* How SYN-5.3 pitches a patch entry [OBS]: the type-1 frame's `PT.TRA`
+  (word 10, low byte = key, middle C = 36; `SYNLITS/PRMLITS:271-276`) is
+  the key that plays the file at its own rate: `303-SUB3` MRLCH = 2816 +
+  1024 − `COMPUTE.PATCH.XPOS(PT.TRA)` + TOFFS − SRATE, and
+  `COMPUTE.PATCH.XPOS` is `COMPUTE.KBD.PITCH`'s formula (`190-NEW0`), so
+  FREQ.NUM there is 3840: 50 kHz at the recorded pitch. The simulator
+  does exactly that (key A4 in FULL PIANO's PNOA#340 entry, PT.TRA A#4:
+  the file one semitone down, 220 Hz = its A#3 recording).
+* The rates are not the cause: in every header data.end × rate ×
+  channels = the valid data (all 2,075 files; FULL PIANO's 14 at 50 kHz),
+  and the Regen text's patch-list rate is not used by the conversion.
+* Regen's text and binary agree (`PNODTA40/22-Entry.txt` PNOA#540: keys
+  90-96, transpose 94 = MIDI A#6; binary PT.TRA 70 = 94 − 24). Its
+  transposition keys follow the file names read with NED's octave numbers
+  (C3 = middle C); TPT, SSX, TSX, most FLT were recorded that way, but PNO
+  (both pianos), VLN, HRP, FHN, TBN, FLG, GTR, EBS, ABS, HPC and SYN41-51
+  were recorded an octave lower (their names read with standard octaves).
+* Second witness: Arturia ships PNOA#540 unchanged (`Synclavier
+  V/Factory/Piano - loud.wav`, identical samples) and gives it root key
+  A#5 (preset "Random Grains 2", `Partial File MIDI Key 5` = 82): the
+  recorded pitch, not Regen's A#6.
+
+Correction (`tools/sample_pitch.py`, applied by `sample_library.py` and
+`timbre_disk.py --samples`; `--no-pitch-fix` keeps the exports' keys):
+`sample_pitch.py scan` measures each patch-list file's fundamental
+(16384-point spectrum, subharmonic summation over 8 harmonics) into
+`data/sample-pitch.tsv`. A file's key is its measurement when the octave
+is clear (margin ≥ 0.15) and the pitch class is the name's note; low notes
+with a weak fundamental take their name group's relation (e.g. PNO?40:
+12 of 12 recorded at their name with standard octaves). A patch entry
+moves by exactly ±12 only when that key is an octave from PT.TRA and
+matches the name's note; everything else is left as exported.
+
+Result (2026-11-17): 1,735 of 3,646 patch entries, 306 sound files
+moved up an octave in pitch (PT.TRA −12), 3 down (4 entries on CHI chimes,
+inharmonic, least certain; 2 on FLTDTA42 flutes). W1-SAMPLES built with
+and without the correction differs in exactly 1,735 words, all PT.TRA
+words in the library `.NEWDATA` files; built without it, it is identical
+to the image on the .62. Simulator, FULL PIANO from the corrected W1:
+A4, C4 and A5 sound at their pitch (the octave below at −40 dB or less);
+A2's fundamental is 16 dB under its second harmonic, as low piano notes
+are, with nothing at 55 Hz. Not yet played on the .62.

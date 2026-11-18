@@ -70,6 +70,8 @@ wait 1
 type F
 key ENTER
 wait 12
+key CTRL-X                  # hide the instructions: the staves use the whole screen
+wait 12
 record
 wait 2
 button start

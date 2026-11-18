@@ -23,7 +23,7 @@ fps: 30                     # video frame rate (default 30)
 
 type D                      # terminal characters (0.1 s apart)
 type W1:RESYNTH5
-key ENTER                   # ENTER ESC UP DOWN LEFT RIGHT TAB BACKSPACE F1-F4
+key ENTER                   # ENTER ESC UP DOWN LEFT RIGHT TAB BACKSPACE F1-F4 CTRL-A..Z
 wait 4                      # seconds
 program 21                  # MIDI program change: BANK 3, ENTRY 6 (as midi_vpk.sv)
 type F

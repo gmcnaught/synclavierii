@@ -18,7 +18,7 @@ line begins a comment; times in seconds):
                                 #   state image made with w0_image.py --baud)
 
     type D                      # terminal characters, as typed
-    key ENTER                   # ENTER ESC UP DOWN LEFT RIGHT TAB BACKSPACE F1-F4
+    key ENTER                   # ENTER ESC UP DOWN LEFT RIGHT TAB BACKSPACE F1-F4 CTRL-A..Z
     wait 3                      # let time pass
     record                      # the video starts here; steps before set up
     button seqb                 # tap a VPK panel button (name or PBN; hold 0.1 s, then 0.3 s)
@@ -67,6 +67,10 @@ from tools.seq_record import fold, note_number, read_piece  # noqa: E402
 KEYS = {"ENTER": b"\r", "ESC": b"\x1b", "TAB": b"\t", "BACKSPACE": b"\x08",
         "UP": b"\x0b", "DOWN": b"\x0a", "LEFT": b"\x08", "RIGHT": b"\x0c",
         "F1": b"\x1bOP", "F2": b"\x1bOQ", "F3": b"\x1bOR", "F4": b"\x1bOS"}
+#: CTRL-A ... CTRL-Z: letter & 037, as ps2_ascii.sv sends Ctrl + a letter
+KEYS.update(("CTRL-%c" % c, bytes([ord(c) & 31])) for c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+#: mister_keys.py names where they differ from KEYS'
+BOARD_KEYS = {"CTRL-%c" % c: "LEFTCTRL+%c" % c.lower() for c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ"}
 TAP_HOLD, TAP_GAP = 0.1, 0.3          # a `button` step (as seq_record.py)
 TYPE_GAP = 0.1                        # between typed characters
 GREEN = (0x33, 0xFF, 0x66)
@@ -192,7 +196,8 @@ def parse(path, text=None):
             elif op == "key":
                 for k in args:
                     if k.upper() not in KEYS:
-                        raise ValueError("unknown key %r (%s)" % (k, " ".join(KEYS)))
+                        raise ValueError("unknown key %r (ENTER ESC TAB BACKSPACE UP DOWN LEFT RIGHT "
+                                         "F1-F4 CTRL-A..CTRL-Z)" % k)
                     s.events.append((t, "term", k.upper()))
                     t += TYPE_GAP
             elif op == "button":
@@ -498,7 +503,7 @@ def board_events(s):
             last = None
             continue
         if isinstance(data, str):
-            arg = data
+            arg = BOARD_KEYS.get(data, data)
         else:
             c = data.decode("latin-1")
             if not " " <= c <= "~":

@@ -94,6 +94,13 @@ def test_errors():
             raise AssertionError(text)
 
 
+def test_ctrl_keys():
+    s = compile_("key CTRL-X ctrl-p\n")
+    assert [d for _t, _k, d in s.events] == ["CTRL-X", "CTRL-P"]
+    assert demo.KEYS["CTRL-X"] == b"\x18" and demo.KEYS["CTRL-P"] == b"\x10"
+    assert [d for _t, _k, d in demo.board_events(s)] == [["LEFTCTRL+x", "LEFTCTRL+p"]]
+
+
 def test_board_events():
     s = compile_("type A:\nkey ENTER\nnote A4 0.1\ntype x\nwait 1\ntype y\n")
     assert [(round(t, 3), k, d) for t, k, d in demo.board_events(s)] == [

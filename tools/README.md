@@ -121,6 +121,13 @@ python3 tools/sample_pitch.py scan Original-NED-Sample-Patch-Libraries   # data/
 python3 tools/sample_pitch.py check Original-NED-Sample-Patch-Libraries  # the patch transpositions it corrects
 ```
 
+`synx.py` converts Arturia Synclavier V banks (`.synx`), the source of the FM
+libraries: `convert BANK.synx -o LIB.stmb [--report R] [--regen TEXT_DIR]`
+(`--regen` adds the Regen text's real-time effects and index adjust; encoded by
+`stmb.encode_entry`), `list`, `dump BANK NAME`, `verify BANK TEXT_DIR`
+(frame blocks against the Regen text). Format, mappings and what the
+`.synx` does not carry: `docs/timbre-libraries.md`.
+
 `sample_library.py` packs the NED sample/patch banks into 18 libraries by
 instrument family and copies each `.caf` back to the NED sound file it
 was exported from (`SNCL` chunk + samples). See `docs/timbre-libraries.md`.

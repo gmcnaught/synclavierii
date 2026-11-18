@@ -134,6 +134,10 @@ python3 tools/stmb.py verify timbres/Original-NED-Sample-Patch-Libraries   # reg
 python3 tools/stmb.py list FILE.stmb
 ```
 
+(Since 2026-11-18 the FM libraries are converted from the Synclavier V
+`.synx` banks instead; see "Synclavier V banks" below. This text path
+stays for AM-DATA and the sample libraries.)
+
 Output: one 2000-sector file per folder (17 files, `timbres/fm-stmb/`,
 git-ignored), each read back record by record after writing; `--report`
 lists per entry what was not converted.
@@ -244,6 +248,157 @@ Not converted (listed in the reports):
 | Polyphony (`TBPIPolyphony`) | 236 | not the NED field: NED keeps the voice limit in misc word 0 bits 8–15 (`182-UPD2`; 0 = all voices). In the pairs, `Polyphony 2` occurs with limits 0, 4 and 128, and limits 1, 4, 90, 128 occur without the key, so the text does not carry it; written as 0 |
 | Pedal/keyboard stereo modes (1–4) | ? | no distinct text; not recoverable |
 | PINFO dynamic envelope (`pi_denvl/h`), TINFO velocity words 56–57 | — | not in the text; written as 0 |
+
+### Synclavier V banks (`.synx`, 2026-11-18): the conversion source
+
+Source: `timbres/Synclavier II Timbres/` (git-ignored), 17
+`Synclavier_Bank_*.synx` (Arturia, dated 2016-05-31): the same 17 libraries
+as the Regen text export, 941 presets, every one paired by name with an
+`NN-Entry.txt` (Test Timbres' "1111 - Sine Wave" has no text entry). The
+FM libraries are now converted from these, so the core's timbres and the
+Synclavier V reference (`tuning-references.md`) start from the same data.
+**TOMDTA43 is not in the pack** (it is a sample library); no frame holds
+any of TOMDTA43 entries 12–18's 28 coefficient sets.
+
+```bash
+python3 tools/synx.py convert "timbres/Synclavier II Timbres/Synclavier_Bank_System Disk Timbres.synx" \
+    -o timbres/fm-synx/System-Disk.stmb --report timbres/fm-synx/System-Disk.txt \
+    --regen "timbres/fm-download/Original NED FM Timbre Libraries/System Disk"
+python3 tools/timbre_disk.py out/images/W1-SYNX.IMG timbres/fm-synx/*.stmb     # 17 libraries, 17 MB
+python3 tools/synx.py verify BANK.synx TEXT_DIR      # harmonic/frame blocks vs the Regen text
+python3 tools/synx.py dump BANK.synx NAME            # frames of one preset
+```
+
+`convert` decodes each preset into the Regen text keys and encodes it with
+`stmb.encode_entry`, so the NED encoding is shared with the text path.
+Bank/entry come from the preset number (`LLBE - name`); the Regen export
+orders some libraries differently (System Disk: synx 1212 Church Bell,
+Regen 12 Galactic Cymbal).
+
+#### Format [OBS]
+
+A stored zip of presets `<library>/<NNNN> - <name>`; a preset is a Boost
+text archive (`serialization::archive 10`): length-prefixed parameter
+names with normalised values (0–1), then binary blocks
+`<len> <name> <size> <bytes>`. `Partial P Frame F` (P 1–12, F 0–50) = 112
+float32 LE:
+
+| Floats | Content | Mapping (NED text → float) |
+|---|---|---|
+| 0 | frame enable | 1 / 0 |
+| 1, 2 | delay, splice time (`TFPIDelay`, `TFPISpliceTime`) | time taper (below) |
+| 4 | pitch coarse (`TFPIPitchC`) | 0.5 + semitones / 96 (±48; beyond: stored 0) |
+| 5 | pitch fine (`TFPIPitchF`) | 0.5 + cents / 250 |
+| 6 | frame volume (`TFPIVolume`) | percent taper |
+| 8 | 1 on the loop-end frame | `PTPIFrameLoopEnd` |
+| 10 | loop start / 50 (on the loop-end frame) | `PTPIFrameLoopStart` |
+| 3, 7 / 9, 11–15 | constant 1 / 0 | unknown |
+| 16–39 | carrier harmonics 1–24 | percent taper |
+| 40–63 | carrier phases 1–24 | (0°, 0), (34, 0.136), (144, 0.356), (180, 0.5), (216, 0.644), (326, 0.864), (360, 1); 64 steps of 5.625° |
+| 64–111 | modulator harmonics and phases (Synclavier V only) | in all 13,310 enabled frames: harmonic 1 = 1, rest 0, phases 0 (NED's sine modulator) |
+
+Frame 0 is the partial's own harmonic set. Partials 5–12 are never used; a
+partial is in use when its Partial Volume is not "Off".
+
+Parameters (`/Library/Arturia/Synclavier V/resources/Synclavier V.xml`):
+item lists store item index / (N − 1) and name their values (e.g.
+`Sync125_0CentsList`, 2501 items, −125.0…+125.0 cents; `Sync9OctaveList`
+6.875 Hz × 2^i; `SyncVolume50DBList` Off, −49.9…0.0 dB;
+`Sync100PercentList` and `Sync360DegreesList` non-uniform, generated in
+`synx.py`). `SynclavierTable(...)` tapers are compiled into the plugin;
+their breakpoints, fitted to the pairs (residuals ≤ 0.5 % of values, all
+explained below):
+
+| Table | Used for | Breakpoints (value, normalised) |
+|---|---|---|
+| Sync30_000 | envelope times, vibrato attack, portamento rate, frame delay/splice | (0 s, 0), (0.05, 0.2), (0.1, 0.3), (0.2, 0.38), (0.5, 0.5), (1, 0.6), (2, 0.68), (4, 0.76), (10, 0.88), (15, 0.92), (30, 1) |
+| Sync100_0 | volume peak/sustain (%), harmonics, frame volume; index peak/sustain (0–1000) at × 10 | (0, 0), (8, 0.32), (20, 0.56), (50, 0.8), (100, 1); 19.6 / 19.7 % stored 0.5403 / 0.5423 |
+| Sync50Herz | vibrato, tremolo, repeat rate | (0 Hz, 0), (5, 0.4), (10, 0.6), (20, 0.76), (50, 1) |
+| Sync25_000Semitones | vibrato depths, pitch bend depth | (0, 0), (1, 0.4), (5, 0.72), (20, 0.96), (25, 1) |
+| SyncDecayAdjust | volume decay adjust | 1 + x / 0.8 |
+
+#### What the `.synx` does not carry [OBS]
+
+* **Real-time effects:** all 941 presets hold the same 5 modulation slots
+  (pitch bend → tuning, sustain pedal → note sustain, velocity → volume,
+  mod wheel → vibrato depth). The Regen text has RTE lines in 417 entries
+  (`--regen` adds them).
+* **Index envelope adjust** (`IEnvAdj`; "Harmonic Adjust" is commented out
+  in the XML): 178 partials in 79 entries (`--regen` adds them).
+* Negative FM ratios (Synclavier V: 0–16): 31 partials. Pitch bend depth:
+  12 entries hold the 2-semitone default where the text has another value.
+* Names: the file name, without `/ # *` (`W/wind Source*` → `Wwind Source`).
+
+#### Real-time effects and index adjust from the Regen text (`--regen`)
+
+`--regen TEXT_DIR` adds, per preset, the matching Regen entry's
+`SynclavierEM*` lines and `IEnvAdj` values (partials in use only). Match:
+same name, then fewest harmonic/frame differences, then the same bank/entry
+number. 4 presets have same-name Regen entries with different RTE data
+(Timbre Disk 3 "Trumpet" 16/18, Resynth 4 "Tympani" 88/71/72, Timbre Disk 8
+"BASS ORGAN WEATH" 41/51); the report names them. Encoding is
+`stmb.encode_rte`: only SYN-5.3 TINFO RTE bits are written; Regen
+sources/destinations with no pinned NED bit are dropped and listed (367
+uses, as in the text path). With `--regen`, all 40 RTE words and the
+decay-adjust word equal the text path's in all 941 presets.
+
+Could Regen carry effects the timbres never had? [OBS] In the 462
+sample-library pairs (NED binary + Regen text) RTE slots 1–7 agree in all
+462 and slot 0 in 459; the 3 others have a dynamic-envelope bit in the
+binary and none in the text. The one FM timbre with a NED binary (System
+Disk "W/wind Source*", Synclavier³ demo bank) has a velocity routing
+(slot 0, partial 1, sampled bit 7) and no EM line in the text. Both point
+to Regen dropping routings, none to it adding them. The velocity → volume
+line is not an exporter default: 52 of 64 Resynth 1 entries, 1 of 64 in
+Timbre Disk 8, 0 in Test Timbres. [UNKNOWN] Without NED binaries of the FM
+libraries, an added routing cannot be excluded. Velocity and pressure
+routings need the velocity/pressure keyboard (VPK, which the core
+emulates for SYN-5.3); a 1980 Synclavier II with the original keyboard has
+no such inputs.
+
+#### How Synclavier V stores NED data [OBS]
+
+* FM off: `Partial Modulation` (F.M. amount) 0, the index envelope at its
+  reset values (peak and sustain 1000, attack 3 ms, final decay 0.1 s) in
+  all 398 partials whose Regen text has no index peak or sustain. NED has
+  0 there (sample-library binaries: every omitted index envelope word is 0
+  in 639–657 partials). `convert` writes index peak and sustain 0 and
+  clears an attack of 3 ms or final decay of 0.1 s.
+* Rates of features that are off hold reset values (tremolo 5 Hz in 1,803
+  partials, repeat 5 Hz, portamento 0.225); `convert` writes them only
+  while tremolo depth, repeat/arpeggiate or portamento is on, as the text
+  does.
+
+#### Cross-check against the Regen path
+
+All 941 presets encoded both ways (`synx.py convert` and `stmb.py
+convert`) and compared word by word, real-time-effect words excluded:
+276,632 words in 140 field positions (partial parameters, frame words 0–43,
+PINFO, TINFO, misc), 1,907 differ, in 39 positions; 101 positions agree in
+every preset. The differences:
+
+| Field | Partials | Cause |
+|---|---|---|
+| glide bits / rate | 136 / 369 | 33 presets have portamento on in the `.synx` with their own rates, off in the text (the text writes `PortOnOff` only as 1); sources disagree, `.synx` kept |
+| decay adjust (index part) | 178 | `IEnvAdj` not in the `.synx`; equal with `--regen` |
+| PINFO / frame volume | 47 / 149 | 0.1 dB steps in the `.synx` (231 vs 232) |
+| FM ratio | 31 | negative ratios |
+| timbre name | ~190 | punctuation |
+| pitch bend depth | 12 | lost in the `.synx` |
+| frame count | 11 | the `.synx` has one frame after the loop end (splice 0, the loop-end frame's harmonics, lower volume); not in the text; kept |
+| partial present | 14 | text partials with default content only; Volume Off in the `.synx` (silent either way) |
+| Tympani entries, 6 others | < 25 each | several presets named "Tympani" (name pairing ambiguous); single-value disagreements |
+| frame pitch, splice | 21 / 5 | pitch beyond ±48 semitones stored 0, +5 stored 3.875, 0.1 s splice stored 0 |
+
+Found on the way, in the Regen path: `stmb.py` read an omitted `VEnvPeak`
+as 100. Regen writes `VEnvPeak 100.0` explicitly 2,132 times and `0.0`
+never, and the `.synx` holds 0 for 236 of the 253 partials without the
+key (e.g. Resynth 1 "Strings #1": attack 1.25 s to peak 0, initial decay
+7.8 s up to sustain 100); the sample-library pairs never omit it. The
+default is now 0 (`stmb.py verify` unchanged). Likewise Regen writes
+`TremSync` only as 0 (359 times), so an omitted key means sync on, which
+the `.synx` confirms in 183 partials; `stmb.py`'s stereo-mode code reads an
+omitted key as off (not changed; affects only the text path).
 
 ## Library disk: all libraries on W1: (2026-11-10)
 

@@ -228,11 +228,23 @@ class Library:
         self.name, self.newdata, self.sounds, self.listing = name, newdata, sounds, listing
 
 
-def libraries(root, all_sounds=False):
-    """(libraries, {sound name: .caf path}, missing {name: [library]})."""
+def libraries(root, all_sounds=False, pitch_fix=True, fix_log=None):
+    """(libraries, {sound name: .caf path}, missing {name: [library]}).
+    pitch_fix: correct patch-list transpositions (PT.TRA) by an octave where
+    data/sample-pitch.tsv shows the file was recorded an octave from its
+    key (tools/sample_pitch.py); fix_log collects (timbre, file, key,
+    semitones, reason) per patch entry."""
     cafs = caf_index(root)
     out, used, missing = [], set(), {}
-    for name, banks in group_banks(bank_sources(root)):
+    sources = bank_sources(root)
+    if pitch_fix:
+        from tools.sample_pitch import correct_timbre, read_table
+        table = read_table()
+        for _f, _b, ts in sources:
+            for t in ts:
+                if t:
+                    correct_timbre(t, table, fix_log)
+    for name, banks in group_banks(sources):
         sounds, listing = [], []
         for n, (folder, fb, ts) in enumerate(banks):
             listing.append((n + 1, folder, fb, [t.get("name", "") if t else "" for t in ts]))
@@ -272,8 +284,10 @@ def main(argv=None):
     ap.add_argument("root", help="the Original-NED-Sample-Patch-Libraries folder")
     ap.add_argument("--all-sounds", action="store_true", help="also the sound files no timbre uses")
     ap.add_argument("--report", help="write the listing to FILE")
+    ap.add_argument("--no-pitch-fix", action="store_true",
+                    help="keep the exports' patch transpositions (tools/sample_pitch.py)")
     a = ap.parse_args(argv)
-    libs, cafs, missing = libraries(a.root, a.all_sounds)
+    libs, cafs, missing = libraries(a.root, a.all_sounds, not a.no_pitch_fix)
     text = report(libs, cafs)
     if a.report:
         open(a.report, "w").write(text + "\n")

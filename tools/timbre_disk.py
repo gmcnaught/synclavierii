@@ -129,6 +129,8 @@ def main(argv=None):
                     help="the Original NED Sample/Patch Libraries folder (tools/sample_library.py)")
     ap.add_argument("--all-sounds", action="store_true",
                     help="with --samples: also the sound files no timbre uses (SOUNDS1, ...)")
+    ap.add_argument("--no-pitch-fix", action="store_true",
+                    help="with --samples: keep the exports' patch transpositions (tools/sample_pitch.py)")
     a = ap.parse_args(argv)
     seqs = {}
     for arg in a.seq:
@@ -142,7 +144,11 @@ def main(argv=None):
     samples = []
     if a.samples:
         from tools.sample_library import caf_sound, libraries as sample_libraries
-        libs_s, cafs, missing = sample_libraries(a.samples, a.all_sounds)
+        fix_log = []
+        libs_s, cafs, missing = sample_libraries(a.samples, a.all_sounds, not a.no_pitch_fix, fix_log)
+        moved = sum(1 for *_x, d, why in fix_log if why == "ok")
+        if moved:
+            print("pitch fix: %d patch entries moved by an octave (tools/sample_pitch.py check)" % moved)
         for s, where in sorted(missing.items()):
             print("missing sound file %s (%s)" % (s, ", ".join(sorted(set(where)))))
         conv = {}

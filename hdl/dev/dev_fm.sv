@@ -18,13 +18,15 @@
 // Engine. Channel state is in RAMs, even and odd channels apart, so a
 // voice (channels 2v, 2v+1) is one RAM address. Work is done one voice a
 // clock, in passes over the voices:
-//   sample instant (start + floor(k x 1e9 / 192000) ns, 48 kHz x 4):
+//   sample instant (start + floor(k x 1e9 / 768000) ns, 48 kHz x 16; pcm_out.sv
+//   decimates):
 //     every oscillator and interpolator advanced to the instant, then the
 //     voices mixed:
 //       offset = (SINE[mod point] x index) >> (8 - shift) & 255
 //       w      = WAVE[TIM & 31][(car point + offset) & 255]
 //       s      = (w - 128) x envelope x VOL
-//       left  += s x (256 - pan), right += s x pan    (pan = ISHC & 374)
+//       left  += s x PAN_L[pan >> 2], right += s x PAN_R[pan >> 2]   (pan = ISHC & 374;
+//       equal power, pan_law.svh, M23; linear 256 - pan / pan before)
 //     = FMSynth.sample_int;
 //   catch-up before a pitch or interpolator write (functions 0-2, 10-12)
 //     and before a D160 read with function 12: that voice advanced to now
@@ -40,8 +42,8 @@
 // counted (mod 4), each channel keeps the count it has had, and a pass or
 // catch-up applies the difference with sim/fm.py Interpolator.advance_to's
 // closed form (a clock at the sample instant counts as before it). So one
-// pass per 5.2 us does all the work: about 40 clocks for 32 voices, of the
-// 260 a 50 MHz MiSTer clock has. CPU accesses to D160-D163 wait while the
+// pass per 1.3 us does all the work: about 40 clocks for 32 voices, of the
+// 65 a 50 MHz MiSTer clock has. CPU accesses to D160-D163 wait while the
 // engine has work (no simulated time passes); the CPU itself waits
 // (`stall`) only if a sample instant arrives while the last is still being
 // done.
@@ -92,10 +94,11 @@ module dev_fm #(
     input  logic [12:0] ld_addr,
     input  logic [31:0] ld_data,
     input  logic        ld_voice_we,  // voice engine: 0-15 channel {acc, pre, point},
-    input  logic [5:0]  ld_voice_addr,//   32 rr, 33 {phase, to_next}
+    input  logic [5:0]  ld_voice_addr,//   32 rr, 33 phase << 12 | to_next
     input  logic [63:0] ld_voice_data
 );
     `include "sine_rom.svh"
+    `include "pan_law.svh"
 
     localparam int VB = $clog2(MAXV);                     // voice (RAM address) bits
     localparam logic [39:0] OSC_NUM = 40'd656015360;      // ticks per ns = NUM / D
@@ -166,7 +169,7 @@ module dev_fm #(
     // sample instants
     logic [39:0] rr;                            // (time x NUM) mod D
     logic [13:0] to_next;                       // ns from now to the next sample instant
-    logic [1:0]  phase;                         // index of that sample mod 3
+    logic [3:0]  phase;                         // index of that sample mod 12
     function automatic logic [2:0] osc_n(input logic [39:0] x);
         osc_n = 3'd0;
         for (int k = 1; k <= 7; k++)
@@ -196,12 +199,13 @@ module dev_fm #(
     wire [2:0]  n_a   = osc_n(x_a);
     wire [39:0] rr_all = x_all - OSC_D * 40'(n_all);
     wire [39:0] rr_a   = x_a - OSC_D * 40'(n_a);
-    wire [13:0] period = phase == 2'd2 ? 14'd5209 : 14'd5208;
+    // 1e9 / 768000 = 1302 + 1/12 ns: eleven periods of 1302, then one of 1303
+    wire [13:0] period = phase == 4'd11 ? 14'd1303 : 14'd1302;
     // to_next as this clock leaves it (the ROM's address)
     always_comb begin
         to_next_nxt = to_next;
         if (rst) begin
-            if (ld_voice_we && ld_voice_addr == 6'd33) to_next_nxt = ld_voice_data[13:0];
+            if (ld_voice_we && ld_voice_addr == 6'd33) to_next_nxt = {2'd0, ld_voice_data[11:0]};
         end else if (sample_now) to_next_nxt = to_next + period - 14'(tick_ns);
         else if (tick) to_next_nxt = to_next - 14'(tick_ns);
     end
@@ -321,7 +325,8 @@ module dev_fm #(
     logic [7:0]  g_vk, g_vol, g_pan;
     logic signed [25:0] h_s;
     logic signed [17:0] p_p;
-    logic [7:0]  p_vol, p_pan, h_pan;
+    logic [7:0]  p_vol, p_pan;
+    logic [8:0]  h_pl, h_pr;                    // pan law factors (full = 256)
     logic signed [39:0] sum_l, sum_r;
     wire  mix = mode == M_SAMPLE;
 
@@ -343,8 +348,8 @@ module dev_fm #(
     // (w - 128) x envelope, then x VOL a clock later (timing)
     wire signed [17:0] g_p = 18'(g_w) * $signed({10'd0, g_vk});
     wire signed [25:0] p_s = 26'(p_p) * $signed({18'd0, p_vol});
-    wire signed [39:0] h_add_r = 40'(h_s) * $signed({32'd0, h_pan});
-    wire signed [39:0] h_add_l = 40'(h_s) * $signed(40'd256 - {32'd0, h_pan});
+    wire signed [39:0] h_add_r = 40'(h_s) * $signed({31'd0, h_pr});
+    wire signed [39:0] h_add_l = 40'(h_s) * $signed({31'd0, h_pl});
 
     // ------------------------------------------- multichannel routing (M19)
     // tags read at F (q at G); the pair's four routes {rr, rl, lr, ll} at G
@@ -497,7 +502,10 @@ module dev_fm #(
                 end
             end
             if (ld_voice_we && ld_voice_addr == 6'd32) rr <= ld_voice_data[39:0];
-            if (ld_voice_we && ld_voice_addr == 6'd33) {phase, to_next} <= ld_voice_data[15:0];
+            if (ld_voice_we && ld_voice_addr == 6'd33) begin
+                phase <= ld_voice_data[15:12];
+                to_next <= {2'd0, ld_voice_data[11:0]};
+            end
         end else begin
             // ---- CPU registers
             if (ack && wr) begin
@@ -560,7 +568,7 @@ module dev_fm #(
                 rr <= rr_all;
                 g <= 6'(n_all) - 6'(n_a);
                 to_next <= to_next_nxt;
-                phase <= phase == 2'd2 ? 2'd0 : phase + 2'd1;
+                phase <= phase == 4'd11 ? 4'd0 : phase + 4'd1;
             end else if (tick) begin
                 rr <= rr_all;
                 g <= g + 6'(n_all);
@@ -649,7 +657,7 @@ module dev_fm #(
             vp_ok <= vg_ok;
             p_p <= g_p; p_vol <= g_vol; p_pan <= g_pan; p_rb <= g_rb;
             vh_ok <= vp_ok;
-            h_s <= p_s; h_pan <= p_pan; h_rb <= p_rb;
+            h_s <= p_s; {h_pl, h_pr} <= pan_law(p_pan[7:2]); h_rb <= p_rb;
 
             // ---- H: each side to the output's left/right (the stereo mix:
             // left to left, right to right); I: accumulate

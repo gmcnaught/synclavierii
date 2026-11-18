@@ -593,34 +593,37 @@ def _wav_rms_diff(a_path, b_path):
     return err, sig
 
 
-def _check_voice_clock(fm_voices, chan_offset, exact):
+def _check_voice_clock(fm_voices, chan_offset, exact, tol):
     (ok_c, text_c), (ok_s, text_s), (ok_p, text_p), (err, sig) = _voice_clock_runs(fm_voices, chan_offset)
     # voices on CPU time: lockstep exact, silent while the CPU is held
     assert ok_c, text_c
     m = _STALL.search(text_c)
     assert m and int(m.group(1)) == 50_000 and int(m.group(2)) <= 1, text_c
     # voices on real time: the CPU's trace still matches; 1 ms of samples
-    # (192 at 192 kHz), all sounding, play during the stall, and the sample
+    # (768 at 768 kHz), all sounding, play during the stall, and the sample
     # count follows real time
     assert ok_s, text_s
     m = _RT.search(text_s)
     assert m, text_s
     samples, want, stalled, st_n, st_nz = (int(m.group(1)), float(m.group(2)), int(m.group(3)),
                                            int(m.group(4)), int(m.group(5)))
-    assert stalled == 50_000 and abs(st_n - 192) <= 1 and st_nz == st_n, text_s
+    assert stalled == 50_000 and abs(st_n - 768) <= 1 and st_nz == st_n, text_s
     assert abs(samples - want) <= 2, text_s
     # no stall: real time and simulated time agree to within the throttle's
-    # slack. A register write lands at the voice time it arrives at: with 8
-    # voices that is the same side of every sample instant as in Python
-    # (sample for sample); with 32, a D160-D162 access waits for the engine
-    # (real time, no simulated time), so some writes land a sample instant
-    # later: the audio is Python's with that timing jitter
+    # slack. A register write lands at the voice time it arrives at; a
+    # D160-D162 access waits for the engine (real time, no simulated time),
+    # so some writes land a sample instant (1.3 us, M23) later: the audio is
+    # Python's with that timing jitter. (At 192 kHz, before M23, 8 voices'
+    # passes were short enough that none did.)
     assert ok_p, text_p
     m = _RT.search(text_p)
     assert m and int(m.group(7)) > 20_000, text_p
     if exact:
         assert int(m.group(6)) == 0, text_p
-    assert sig > 1000 and err < 0.1 * sig, (err, sig)
+    # 32 voices at 768 kHz (M23): the engine is busy ~60 % of the time, so the
+    # CPU's D160-D162 accesses wait more and its writes drift a few us later
+    # in voice time over the run (8 voices: 0.4 % of the signal, 32: 9-13 %)
+    assert sig > 1000 and err < tol * sig, (err, sig)
 
 
 def test_system_voice_clock():
@@ -629,7 +632,7 @@ def test_system_voice_clock():
     if not HAVE_VERILATOR:
         print("  skip test_system_voice_clock (verilator not found)")
         return
-    _check_voice_clock(8, 0, exact=True)
+    _check_voice_clock(8, 0, exact=False, tol=0.02)   # sample-exact before M23; now 0.4 % rms
 
 
 def test_system_voice_clock_32_voices():
@@ -637,7 +640,7 @@ def test_system_voice_clock_32_voices():
     if not HAVE_VERILATOR:
         print("  skip test_system_voice_clock_32_voices (verilator not found)")
         return
-    _check_voice_clock(32, 48, exact=False)
+    _check_voice_clock(32, 48, exact=False, tol=0.2)
 
 
 def _nonzero_samples(path):

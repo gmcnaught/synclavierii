@@ -244,12 +244,12 @@ def _device_header(cpu):
 
 
 OSC_NUM, OSC_D = 656015360, 123_000_000_000      # sim/voice.py OSC_CLOCK = NUM / D per ns
-SAMPLE_RATE = 192_000                             # render instants: 48 kHz x 4
+SAMPLE_RATE = 768_000                             # render instants: 48 kHz x 16 (sim/pcm.py)
 
 
 class _Audio:
     """A live sim/voice.py FMSynth fed from the FM interface's log, sampled
-    at the render instants start + k x 1e9 // 192000 (start = trace start)."""
+    at the render instants start + k x 1e9 // 768000 (start = trace start)."""
 
     def __init__(self, fm, multi=None):
         from .voice import FMSynth
@@ -561,7 +561,7 @@ TOPS = {
     "board": ("board_top", SYSTEM_RTL + CORE_RTL + ["hdl/sim/board_top.sv"], ["-DBOARD"]),
 }
 INCLUDES = ["hdl/core/boot_defaults.svh", "hdl/core/font8x8.svh", "hdl/core/font6x10.svh", "hdl/core/fontglass.svh", "hdl/core/midi_tables.svh", "hdl/core/panel_labels.svh",
-            "hdl/dev/sine_rom.svh", "hdl/dev/fm_num_rom.svh"]
+            "hdl/dev/sine_rom.svh", "hdl/dev/fm_num_rom.svh", "hdl/dev/pcm_fir.svh", "hdl/dev/pan_law.svh"]
 
 
 def build(top="cpu", force=False):
@@ -682,18 +682,11 @@ def check(path, max_instructions=None, top="cpu", wav=None, realtime=False, fram
 
 
 def expected_wav(trace_path, wav_path):
-    """The WAV sim/voice.py render() + write_wav() give for the audio samples
-    in a trace (groups of 4 from the trace start). Returns the frame count."""
-    from .voice import FULL_SCALE, write_wav
-    samples = [s for s in _trace_audio(trace_path)]
-    frames = []
-    for i in range(0, len(samples) - 3, 4):
-        acc_l = acc_r = 0.0
-        for l, r in samples[i:i + 4]:
-            acc_l += l / FULL_SCALE
-            acc_r += r / FULL_SCALE
-        frames.append((acc_l / 4, acc_r / 4))
-    write_wav(wav_path, frames)
+    """The WAV pcm_out.sv gives for the audio samples in a trace: sim/pcm.py's
+    decimator from the trace start. Returns the frame count."""
+    from . import pcm
+    frames = pcm.frames(list(_trace_audio(trace_path)))
+    pcm.write_wav(wav_path, frames)
     return len(frames)
 
 

@@ -531,7 +531,7 @@ int main(int argc, char** argv) {
 #ifdef SYSTEM
             top->ld_voice_we = 1;
             top->ld_voice_addr = 32; top->ld_voice_data = rr; tick();
-            top->ld_voice_addr = 33; top->ld_voice_data = ((uint64_t)phase << 14) | to_next; tick();
+            top->ld_voice_addr = 33; top->ld_voice_data = ((uint64_t)phase << 12) | to_next; tick();
             top->ld_voice_we = 0;
             for (int c = 0; c < nch; c++) {             // device 5, index 32 + 16c + 9
                 uint16_t acc = t.u16(); uint8_t pre = t.u8(), point = t.u8();
@@ -804,8 +804,13 @@ int main(int argc, char** argv) {
             fail(n, "HDL stuck (state does not advance)");
     }
 #ifdef SYSTEM_DEVICES
-    // the last samples finish mixing a few clocks after the trace ends
-    for (int i = 0; i < 64; i++) {                 // (the engine runs on after a halt)
+    // the last samples finish mixing a few clocks after the trace ends, and
+    // pcm_out's last sums (512 clocks each) after that; the CPU is held so no
+    // new sample instants come (the engine runs on after a halt)
+#ifdef SYSTEM
+    top->dbg_stall = 1;
+#endif
+    for (int i = 0; i < 64 + 2048; i++) {
         top->dev_ack = top->dev_nosyn = top->dev_hold = 0;
         top->clk = 0; top->eval();
 #ifdef BOARD
@@ -844,8 +849,8 @@ int main(int argc, char** argv) {
             rt_compared++;
             if (rt_audio[i] != want_audio[i]) rt_differ++;
         }
-        // 192 kHz sample instants in the real time since reset
-        double real = cycles * 20.0, want = real * 192000.0 / 1e9;
+        // 768 kHz sample instants in the real time since reset
+        double real = cycles * 20.0, want = real * 768000.0 / 1e9;
         std::printf("rt voices: %llu samples in %.0f ns of real time (%.1f expected); "
                     "stall %llu clocks: %llu samples, %llu nonzero; %llu of %llu differ from Python\n",
                     (unsigned long long)samples, real, want, (unsigned long long)stalled,

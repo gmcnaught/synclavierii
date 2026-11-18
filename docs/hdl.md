@@ -188,10 +188,19 @@ bit 0) is 8 unless the state image says otherwise (device 5 index 16;
 
 * Channel state is in small RAMs, even and odd channels apart, so a voice
   is one address; the engine works one voice per clock. One pass per
-  sample instant (Python's render instants, start + ⌊k × 10⁹ / 192000⌋
-  ns) brings every oscillator and interpolator up to the instant and
-  mixes: about 50 clocks for 32 voices, of the 260 the 50 MHz MiSTer clock
-  has per 5.2 µs. A pitch or interpolator write, or a D160 read with
+  sample instant (Python's render instants, start + ⌊k × 10⁹ / 768000⌋
+  ns, M23) brings every oscillator and interpolator up to the instant and
+  mixes: about 50 clocks for 32 voices, of the 65 the 50 MHz MiSTer clock
+  has per 1.3 µs. `pcm_out.sv` decimates to 48 kHz with a 512-tap FIR
+  (`sim/pcm.py`, `tools/gen_pcm_fir.py`), one multiply-accumulate a clock
+  per channel, gain 1/16 (one full voice, hard-panned; was 1/4, so 32
+  voices clipped); at 192 kHz with a 4-sample mean (before M23) the voice
+  staircase's images aliased into the audio band at −50 to −60 dB.
+  Cost: with 32 voices the engine is busy about 60 % of the time, and every
+  D160–D163 access waits for it, so with the voices on real time the CPU's
+  writes land up to a few µs later in voice time than before
+  (`test_system_voice_clock_32_voices`). Open: let D160/D161 (channel and
+  function select) skip the wait. A pitch or interpolator write, or a D160 read with
   function 12, first brings that voice up to now (a one-voice pass).
 * Interpolators: their 192 kHz clocks are counted (mod 4); each channel
   keeps the count it has had and is given the difference with the closed
@@ -205,8 +214,9 @@ bit 0) is 8 unless the state image says otherwise (device 5 index 16;
   its next use (Python: `acc %= divisor` on a write). The closed form is
   the same however the ticks are split, so this equals Python's lazy
   advance.
-* Mix: s = (w − 128) × envelope × `VOL`; left += s × (256 − pan),
-  right += s × pan. Output: two 40-bit sums per sample
+* Mix: s = (w − 128) × envelope × `VOL`; left += s × PAN_L[pan >> 2],
+  right += s × PAN_R[pan >> 2] (equal power, `pan_law.svh`, M23; before:
+  256 − pan and pan). Output: two 40-bit sums per sample
   (`FMSynth.sample_int`). FM interface accesses wait while the engine has
   work; the CPU waits before its next fetch only when an event arrives
   while another is still being done.
@@ -228,12 +238,12 @@ the bench compares every HDL sample with them.
 | ORK-LM `ork-lm-note` (timbre 0, C4 for 0.5 s: 96,238 nonzero samples) | 804,572 | identical |
 | Voice test program (FM index ramp with shift 2, pan, `VOL`, loaded wave memory, pitch and octave change while sounding, release) | 21,032 (20,954 nonzero) | identical |
 | The same on channels 48–63 of a 32-voice engine (`test_system_voice_engine_32_voices`) | > 5,000 nonzero | identical |
-| 48 kHz WAV from `pcm_out.sv` vs `render()` + `write_wav()`: ORK-LM C4 (201,143 frames), voice test program | — | byte-identical |
+| 48 kHz WAV from `pcm_out.sv` vs `sim/pcm.py`: ORK-LM C4 (201,143 frames), voice test program | — | byte-identical |
 
 Each of these engine faults is caught: no reduction after a pitch write,
 envelope taken after a clock that lands exactly on the sample instant,
 shifter off by one, pan without masking the shift bits, points added
-without pulses, sample period 5208 ns throughout, envelope always before
+without pulses, sample period 1302 ns throughout, envelope always before
 the clock.
 
 ## VT640 graphics terminal (`hdl/core/tek_plane.sv`, M13)

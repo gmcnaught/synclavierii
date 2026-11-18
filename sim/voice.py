@@ -36,13 +36,18 @@ Per voice (channels 2v, 2v+1):
     the ROM is not dumped; NED's software sine table is centred the same
     way, 198-SYN2].
   * Envelope MDAC and volume DAC linear, 8 bits each [CHOICE].
-  * Pan: linear, right = pan / 256, left = 1 - right (pan 0 = all left,
-    128 = centre) [CHOICE: the 256 x 8 pan-law PROM is not dumped].
+  * Pan: equal power, left/right = PAN_L/PAN_R[pan >> 2] / 256
+    (sim/pan_law.py, tools/gen_pan_law.py: 256 cos/sin of (pi/2) pan/256;
+    centre 181/256 = -3 dB a side) [INFERRED, M23: the 256 x 8 pan PROM is not
+    dumped; Arturia Synclavier V is equal-power; linear before M23]
+    (pan 0 = all left, 128 = centre).
 
-Output samples are taken at a fixed rate (rate x oversample) and box
-filtered down to `rate`. On hardware each voice's DAC changes at its own
-step rate (256 x f) and the analog stages filter it; that reconstruction is
-not modelled.
+Output samples are taken at a fixed rate (rate x oversample, 768 kHz by
+default) and decimated to `rate` by the FIR of sim/pcm.py (pcm_out.sv). On
+hardware each voice's DAC changes at its own step rate (256 x f) and the
+analog stages filter the staircase; sampling at 768 kHz and this filter
+keep the staircase images out of the audio band (sim/pcm.py). Other
+oversample factors average (box filter), as before M23.
 """
 import math
 import struct
@@ -50,6 +55,9 @@ from fractions import Fraction
 
 from .fm import K_HZ, WAVE_MEMORIES, Interpolator, ishc, modulation_offset, \
     oscillator, wave_memory_number
+from .pan_law import PAN_L, PAN_R
+from .pcm import DECIM
+from .pcm_fir import COEFFS, SUM_BITS, TAPS
 
 #: Oscillator tick rate: the step rate at ONU 7, increment = divisor [INFERRED].
 OSC_CLOCK = Fraction(256 * 128 * 440 * 91, 246)
@@ -173,7 +181,7 @@ class FMSynth:
         return (w - 128) * env
 
     def sample_int(self, time_ns):
-        """Integer output at time_ns: (sum of s x (256 - pan), sum of s x pan)
+        """Integer output at time_ns: (sum of s x PAN_L[pan >> 2], sum of s x PAN_R[pan >> 2])
         over the voices, s = (w - 128) x envelope x VOL. This is what the
         HDL voice engine (hdl/dev/dev_fm.sv) computes. With a multichannel
         distributor (self.multi) and an output pair selected, each voice's
@@ -195,12 +203,12 @@ class FMSynth:
                 pan, _ = ishc(mod.fn13)
                 if pair:
                     from .devices.multi import route_pair
-                    sl, sr = route_pair(s * (256 - pan), s * pan, multi.fm_tags(v), pair)
+                    sl, sr = route_pair(s * PAN_L[pan >> 2], s * PAN_R[pan >> 2], multi.fm_tags(v), pair)
                     left += sl
                     right += sr
                     continue
-                right += s * pan
-                left += s * (256 - pan)
+                right += s * PAN_R[pan >> 2]
+                left += s * PAN_L[pan >> 2]
         return left, right
 
     def sample(self, time_ns):
@@ -218,10 +226,12 @@ class FMSynth:
 FULL_SCALE = 128 * 256 * 256 * 256
 
 
-def render(log, start_ns=None, end_ns=None, rate=48_000, oversample=4, voices=8):
+def render(log, start_ns=None, end_ns=None, rate=48_000, oversample=DECIM, voices=8):
     """Replay `log` (time_ns, channel word, function, value) from its start
     and return stereo float samples [(l, r), ...] for start_ns..end_ns at
-    `rate`. Writes before start_ns (wave memory loads) are applied first."""
+    `rate`. Writes before start_ns (wave memory loads) are applied first.
+    oversample = DECIM: sim/pcm.py's FIR (unquantized; pcm.frames gives the
+    16-bit PCM); any other factor: the mean of `oversample` samples."""
     synth = FMSynth(voices)
     log = sorted(log, key=lambda e: e[0])
     if start_ns is None:
@@ -232,12 +242,23 @@ def render(log, start_ns=None, end_ns=None, rate=48_000, oversample=4, voices=8)
     n = int((end_ns - start_ns) * sub // 1_000_000_000)
     out = []
     i = 0
+    fir = oversample == DECIM
+    hl, hr = [0] * TAPS, [0] * TAPS          # newest first (FIR)
+    norm = float(1 << SUM_BITS) * FULL_SCALE
     acc_l = acc_r = 0.0
     for k in range(n):
         t = start_ns + k * 1_000_000_000 // sub
         while i < len(log) and log[i][0] <= t:
             synth.write(*log[i])
             i += 1
+        if fir:
+            l, r = synth.sample_int(t)
+            hl.insert(0, l); hl.pop()
+            hr.insert(0, r); hr.pop()
+            if k % DECIM == DECIM - 1:
+                out.append((sum(c * x for c, x in zip(COEFFS, hl)) / norm,
+                            sum(c * x for c, x in zip(COEFFS, hr)) / norm))
+            continue
         l, r = synth.sample(t)
         acc_l += l
         acc_r += r
@@ -247,9 +268,10 @@ def render(log, start_ns=None, end_ns=None, rate=48_000, oversample=4, voices=8)
     return out
 
 
-def write_wav(path, samples, rate=48_000, gain=0.25):
-    """16-bit stereo WAV. gain: full scale per voice (default 1/4, so four
-    voices at full level reach full scale). Returns the number of clipped
+def write_wav(path, samples, rate=48_000, gain=1 / 16):
+    """16-bit stereo WAV. gain: full scale per voice (default 1/16 as
+    pcm_out.sv since M23: 32 voices at full level, centred, peak at -3 dB
+    over full scale only if all in phase; it was 1/4). Returns the number of clipped
     samples."""
     clipped = 0
     frames = bytearray()
@@ -281,8 +303,8 @@ def main(argv=None):
     ap.add_argument("csv")
     ap.add_argument("wav")
     ap.add_argument("--rate", type=int, default=48_000)
-    ap.add_argument("--oversample", type=int, default=4)
-    ap.add_argument("--gain", type=float, default=0.25)
+    ap.add_argument("--oversample", type=int, default=DECIM)
+    ap.add_argument("--gain", type=float, default=1 / 16)
     a = ap.parse_args(argv)
     samples = render(read_fm_csv(a.csv), rate=a.rate, oversample=a.oversample)
     clipped = write_wav(a.wav, samples, a.rate, a.gain)

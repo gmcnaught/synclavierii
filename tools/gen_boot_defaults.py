@@ -49,7 +49,7 @@ def entries():
     o = _Audio(cpu.fm).header()
     rr, to_next, phase = struct.unpack_from("<QHB", o, 1)
     out.append((VOICE, 0, 32, rr))
-    out.append((VOICE, 0, 33, phase << 14 | to_next))
+    out.append((VOICE, 0, 33, phase << 12 | to_next))
     for c in range(16):
         acc, pre, point = struct.unpack_from("<HBB", o, 12 + 4 * c)
         out.append((VOICE, 0, c, acc << 15 | pre << 8 | point))

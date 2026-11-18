@@ -71,7 +71,7 @@ def entries(cpu):
         o = _Audio(cpu.fm).header()
         rr, to_next, phase, n = struct.unpack_from("<QHBB", o, 1)
         out.append((1, 0, 32, rr))
-        out.append((1, 0, 33, phase << 14 | to_next))
+        out.append((1, 0, 33, phase << 12 | to_next))
         for c in range(n):                      # channels 16 up: device 5, index 32 + 16c + 9
             acc, pre, point = struct.unpack_from("<HBB", o, 13 + 4 * c)
             v = acc << 15 | pre << 8 | point

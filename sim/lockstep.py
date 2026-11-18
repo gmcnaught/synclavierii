@@ -155,10 +155,10 @@ def _device_header(cpu):
             out += struct.pack("<cBHI", b"V", 4, idx, int(v) & 0xFFFFFFFF)
     fm, kb = getattr(cpu, "fm", None), getattr(cpu, "keyboard", None)
     if fm is not None and kb is not None:
-        from .fm import wave_memory_number
+        from .fm import ENV_CLOCK_NS, wave_memory_number
         nch = 2 * fm.voices
         g = [fm.channel_word, fm.function, fm.switches, fm.ext_clock_in, fm.ext_clock_out,
-             fm.adc_select, (fm.time_ns * 24) % 125000, 0] + list(fm.adc)
+             fm.adc_select, fm.time_ns % ENV_CLOCK_NS, 0] + list(fm.adc)
         for idx, v in enumerate(g):
             out += struct.pack("<cBHI", b"V", 5, idx, int(v) & 0xFFFFFFFF)
         out += struct.pack("<cBHI", b"V", 5, 16, fm.voices)        # voices present

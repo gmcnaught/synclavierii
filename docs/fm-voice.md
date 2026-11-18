@@ -81,7 +81,7 @@ divisor = 256 − DIV   (1–256)     adder = ADD + 1   (1–256)
 each clock: prescaler counts; every `divisor` clocks the 8-bit accumulator
 adds `adder`; each carry moves the counter one step toward LIM; it stops there.
 
-steps/s = F × (ADD + 1) / (256 × (256 − DIV)),   F ≈ 192 kHz [INFERRED]
+steps/s = F × (ADD + 1) / (256 × (256 − DIV)),   F = 333 1/3 kHz [OBS: NED source] (192 kHz before M24)
 ```
 
 * The counter output is the 8-bit envelope (to the envelope MDAC) or
@@ -97,12 +97,30 @@ steps/s = F × (ADD + 1) / (256 × (256 − DIV)),   F ≈ 192 kHz [INFERRED]
   voice probe. **[INFERRED]** from the software; this is the only reading
   consistent with both uses, because MONITOR writes `ILIM` = 0 to every
   channel before ORK-LM's probe.
-* `F`: NED converts a time T (ms) for a full-scale change into adder 256,
-  divisor 0.75 T, scaled down by halving both until the divisor fits. Full
-  scale is 256 steps for the index (limit = 2 × peak, peak < 128 after the
-  shift count is chosen) and 250 for the volume (limit = level / 4, level
-  0–1000), giving F = 192 or 187.5 kHz. The model uses 192 kHz; only a
-  hardware measurement can settle it.
+* `F`: NED converts a stored time T for a full-scale change into adder
+  256, divisor 0.75 T, scaled down by halving both until the divisor fits.
+  Full scale is 256 steps for the index (limit = 2 × peak, peak < 128 after
+  the shift count is chosen) and 250 for the volume (limit = level / 4,
+  level 0–1000). Read as ms, T would give F = 192 or 187.5 kHz (the model
+  until M24). But attack times are stored in **0.5625 ms units**
+  (`PAR.LIMITS`: 26667 = 15 s; the Synclavier³ text/binary pairs,
+  [`timbre-libraries.md`](timbre-libraries.md)) and `138-PRE1` passes the
+  stored value to `COMPUTE.INTERP.NUMBERS`, so F = 187.5 kHz × 16/9 =
+  **333 1/3 kHz** (one clock per 3 µs; `sim/fm.py` `ENV_CLOCK_NS`).
+  **[OBS]** NED states it: `144-TIM1` emulates the interpolator in software
+  for the mono sampling channel with `LOAD 33333; MUL (ADD+1)` … `DIV
+  20 × divisor` per 5 ms, "333333 * INCR - MATCHES CLOCK RATE OF SYNTH
+  WITH 5 MS. ENVELOPE INTERPOLATOR" (= 333,333 Hz / 256 steps per adder
+  unit); `181-UPD1` displays attack as stored × 36864/65536 ("DISPLAY
+  CORRECT ATTACK TIME") and `160-TMB0` converts it the same way "TO ACTUAL
+  MILLISECONDS". Final decays (stored in ms, rate shrunk every 10 ms) then
+  end near their nominal time (sim: −40 dB at 0.30 / 1.02 / 2.00 s for
+  0.25 / 1 / 2 s); at 192 kHz a 1 s decay was still at −12 dB after 2 s. Arturia
+  Synclavier V agrees: volume attacks of 0.1–2 s match within 12 ms and
+  the index attack's 1 s within 0.1 s; at 192 kHz they were 1.72–1.81×
+  too slow ([`tuning-references.md`](tuning-references.md), M24). At this
+  clock the index envelope (256-step scale) runs 2.4 % slower than its
+  nominal time.
 * Envelope shapes are linear in hardware. NED makes exponential decays in
   software: every 10 ms `EADD` (or `IADD`) = `EDAT` >> 8 with
   `EDAT` ← `EDAT` × TMC / 65536, TMC = 65536 − 819200 / T (T ≥ 150 ms).
@@ -110,8 +128,8 @@ steps/s = F × (ADD + 1) / (256 × (256 − DIV)),   F ≈ 192 kHz [INFERRED]
 
 Release L check (`06-TIMBD` bank 0 timbre 0, C4, held 1 s): note-on writes
 `EDIV` 377, `EADD` 377, `ELIM` 372 (= 250: peak 1000, attack 0, i.e. one
-step per clock, 1.3 ms to the peak). Key-up writes `ELIM` 0 at full rate,
-then polls bit 0; 5.6 ms later it reads "reached" and clears the voice
+step per clock, 1.3 ms to the peak at 192 kHz, 0.75 ms at M24's 333 1/3 kHz). Key-up writes `ELIM` 0 at full rate,
+then polls bit 0; 5.6 ms later (192 kHz model) it reads "reached" and clears the voice
 (`IDIV`/`IADD` 377, `ILIM` 0, `ONU` 0, `NNU`/`INC` 377, `VOL` 0), the
 clean-up NED `144-TIM3` does "to reduce feed-through". Before the
 interpolator was modelled, bit 0 never cleared and ORK-LM instead ran
@@ -165,7 +183,7 @@ maps partial volume 0–1000 to 0–255 for `VOL`. Release L rewrites `VOL`
 
 | Item | Needed |
 |---|---|
-| Interpolator clock F (≈ 192 kHz) | hardware measurement or schematics |
+| Interpolator clock F: 333,333 Hz is stated by NED (`144-TIM1`); its source on the cards | schematics |
 | D160 bit 0 behaviour at power-on and its exact gating | schematics |
 | Pan-law PROM contents; whether the envelope MDAC is linear | schematics/ROM dump or recordings |
 | `TIM` bit 5; the "INC write also sets ONU = 0, NNU = 255" note in NED `144-TIM3` | schematics or hardware |
@@ -181,7 +199,7 @@ hardware; only the final mix is floating point.
 | Part | Model | Status |
 |---|---|---|
 | Oscillator | per tick of 256 × 128 × K = 5.3335 MHz: accumulator += increment, modulus divisor; each wrap is a pulse; a 7-stage divider passes one pulse in 2^(7 − ONU) to the 8-bit point counter | step rate **[OBS]** (pitch table); clock tree **[UNKNOWN]**: increment can exceed the divisor (A 440: 123/91), so at this clock one tick can give two pulses |
-| Interpolators | `sim.fm.Interpolator`, 192 kHz | **[INFERRED]** |
+| Interpolators | `sim.fm.Interpolator`, one clock per 3000 ns (333 1/3 kHz; 192 kHz before M24) | **[OBS]** NED `144-TIM1` (clock rate), `181-UPD1` (attack units) |
 | Modulator | `SINE_ROM[point]`, round(127.5 + 127.5 sin(2πn/256)) | **[CHOICE]**: ROM not dumped |
 | FM | carrier address = (carrier point + (m × index) >> (8 − shift)) & 255 | **[INFERRED]** card analysis |
 | Carrier sample | wave memory `TIM` & 31, unsigned, DAC offset binary around 128 | wave data **[OBS]** (NED `COMPUTE.WAVE`: scaled to 0–255 around the DC point; flat = 128); offset **[CHOICE]** |

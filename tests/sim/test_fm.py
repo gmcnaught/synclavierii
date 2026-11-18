@@ -7,7 +7,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
-from sim.fm import (ENV_CLOCK_HZ, K_HZ, Interpolator, exp_step, frequency, interp_rate,  # noqa: E402
+from sim.fm import (ENV_CLOCK_HZ, ENV_CLOCK_NS, K_HZ, Interpolator, exp_step, frequency, interp_rate,  # noqa: E402
                     ishc, log_frequency_hz, modulation_offset, ned_interp_numbers,
                     oscillator, registers, wave_memory_number)
 
@@ -38,12 +38,13 @@ def test_log_frequency():
 def test_ned_interp_numbers():
     # attack 0: fastest rate (Release L ORK-LM writes EDIV 377, EADD 377)
     assert ned_interp_numbers(0, 1000, 1000)[:2] == (255, 255)
-    # NED's times come out within a few % of the inferred clock
+    # NED's times, in the timbre's 0.5625 ms units (attack), come out within
+    # a few % at the inferred clock (M24; volume exact, index 2.4 % slow)
     for msec, rng, full, steps in ((1000, 1000, 1000, 250), (100, 500, 1000, 125),
                                    (3000, 1000, 1000, 250), (500, 64, 128, 128)):
         div, add, _ = ned_interp_numbers(msec, rng, full)
         t = steps / interp_rate(div, add)
-        assert abs(t / (msec / 1000) - 1) < 0.04, (msec, rng, div, add, t)
+        assert abs(t / (msec * 0.5625 / 1000) - 1) < 0.04, (msec, rng, div, add, t)
 
 
 def test_release_l_exponential_decay():
@@ -58,7 +59,7 @@ def test_release_l_exponential_decay():
 
 
 def _ns(clocks):
-    return -(-clocks * 1_000_000_000 // ENV_CLOCK_HZ)
+    return clocks * ENV_CLOCK_NS
 
 
 def test_interpolator():

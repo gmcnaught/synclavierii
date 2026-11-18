@@ -228,7 +228,10 @@ def encode_partial(kv, coefs, phases):
     w[1] = clamp(int(round(g("VEnvAttack") * 1000 / 0.5625)), 0, 26667)
     w[2] = clamp(ms(g("VEnvIDecay")), 0, 30000)
     w[3] = clamp(ms(g("VEnvFDecay", 0.1)), 0, 30000)
-    w[4] = clamp(int(round(g("VEnvPeak", 100.0) * 10)), 0, 1000)
+    # No key = 0: Regen writes VEnvPeak 100.0 explicitly (2,132 times) and
+    # never 0.0; Synclavier V holds 0 for 236 of 253 partials without the
+    # key (the other 17 are unused partials) [OBS, tools/synx.py].
+    w[4] = clamp(int(round(g("VEnvPeak", 0.0) * 10)), 0, 1000)
     w[5] = clamp(int(round(g("VEnvSust") * 10)), 0, 1000)
     w[6] = clamp(ms(g("IEnvDelay")), 0, 30000)
     w[7] = clamp(int(round(g("IEnvAttack") * 1000 / 0.5625)), 0, 26667)

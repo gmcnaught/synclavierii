@@ -4,7 +4,7 @@ image (Synclavier3's "W0 Disk Image.simg", not redistributable):
 
     w0_image.py W0IMAGE OUTDIR [--mb 30] [--newdata FILE] [--midi [--smpte]] [--fm-voices N] [--poly-mb N]
                 [--poly-bins N | --poly-voices N] [--mono] [--w1] [--vt640]
-                [--disk-us N] [--dig-stm] [--multi N] [--printer [TYPE]]
+                [--disk-us N] [--dig-stm] [--multi N] [--printer [TYPE]] [--baud N]
 
   OUTDIR/W0-53.IMG   the W0 disk padded to --mb megabytes, with a USER
                      subcatalog made by MONITOR's own CREATE USER (MONITOR
@@ -30,6 +30,9 @@ image (Synclavier3's "W0 Disk Image.simg", not redistributable):
                      8), which reads MIDI Time Code from MIDI in (docs/devices/
                      smpte.md; implies --midi): the name gets -SMPTE, e.g.
                      W0-53-MIDI-SMPTE.SST. The core's OSD can add it at load.
+  --baud N           terminal baud rate, D50/D51 in the state image (default
+                     9600, the factory rate; up to 38400 with a faster
+                     serial card): the name gets -B<N>, e.g. W0-53-B38400.SST.
   --fm-voices N      FM voices installed (default 32, as on a 3200, 6400 and
                      9600; 8/16/24: a Synclavier II's smaller card sets): the
                      name gets -FM<N> when not 32, e.g. W0-53-FM8.SST.
@@ -150,6 +153,9 @@ def main(argv=None):
     ap.add_argument("--disk-us", type=int, default=500, help="SCSI disk time per block (us)")
     ap.add_argument("--seek-us", type=int, default=25000, help="SCSI seek time (us; with --disk-us)")
     ap.add_argument("--vt640", action="store_true", help="VT640 graphics terminal")
+    ap.add_argument("--baud", type=int, default=9600, choices=(300, 1200, 2400, 4800, 9600, 19200, 38400, 76800),
+                    help="terminal baud rate (default 9600, the factory rate; 38400 with a faster serial card): "
+                         "the state image's D50/D51 rate; the name gets -B<N> when not 9600")
     ap.add_argument("--dig-stm", action="store_true",
                     help="the digital STM input (D57 bit 0x4000; source file in S5)")
     ap.add_argument("--multi", type=int, choices=(8, 16),
@@ -200,12 +206,13 @@ def main(argv=None):
                           terminal="vt640" if a.vt640 else None, mouse=a.vt640, mono=a.mono,
                           scsi_block_ns=a.disk_us * 1000, scsi_seek_ns=a.seek_us * 1000,
                           dig_stm=DigitalStm() if a.dig_stm else None, multi=a.multi,
-                          printer=a.printer)
+                          printer=a.printer, baud=a.baud)
     name = ("W0-53" + ("-MIDI" if midi else "") + ("-SMPTE" if a.smpte else "") + ("-FM%d" % a.fm_voices if a.fm_voices != 32 else "")
             + ("-P%d" % a.poly_mb if a.poly_mb != 32 else "")
             + ("-V%d" % a.poly_voices if a.poly_voices else
                "-BIN%d" % a.poly_bins if a.poly_bins != 1 else "") + ("-MONO" if a.mono else "") + ("-W1" if a.w1 else "") + ("-VT640" if a.vt640 else "") + ("-DSTM" if a.dig_stm else "")
-            + ("-MC%d" % a.multi if a.multi else "") + ("-PRN" if a.printer else ""))
+            + ("-MC%d" % a.multi if a.multi else "") + ("-PRN" if a.printer else "")
+            + ("-B%d" % a.baud if a.baud != 9600 else ""))
     sst = os.path.join(a.outdir, name + ".SST")
     data = state_bytes(cpu)
     open(sst, "wb").write(data)

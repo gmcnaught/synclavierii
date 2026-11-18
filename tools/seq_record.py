@@ -6,6 +6,7 @@ and save it as a sequence file (.SQnDATA), as a player would on the panel.
     seq_record.py view --w0 W0.IMG [--w1 W1.IMG --catalog W1:DEMOS] --slot N
                        --piece PIECE.txt --png PREFIX [--pages K] [--play S] [--print F]
     seq_record.py show FILE.sseq            # header and notes of a sequence
+    seq_record.py install FILE.sseq --w0 W0.IMG --slot N --out OUT.IMG
     seq_record.py convert IN.mid OUT.txt [--split 1,2] [--shift B] [--beat-ms MS]
 
 PIECE is a Standard MIDI File (.mid; one part per track and channel) or a
@@ -244,8 +245,126 @@ def read_midi(path):
     return p
 
 
-def read_piece(path):
-    return read_midi(path) if path.lower().endswith((".mid", ".midi")) else read_text(path)
+CLEF_BY_SIGN = {"G": "G", "F": "F", "C": "A"}
+
+
+def read_musicxml(path, velocity=None):
+    """A MusicXML score (.mxl compressed, or .musicxml/.xml) as a Piece:
+    one part per (score part, staff), so a piano part gives a right-hand
+    and a left-hand part; beat = quarter note, beat_ms from the first
+    tempo (<sound tempo=...>, default 500), time, key and clefs from the
+    first attributes. Tied notes are joined; rests, grace and cue notes are
+    skipped; repeats are played once (the score as written, in order).
+    velocity: {(staff, voice): velocity} (the MusicXML <staff> and <voice>
+    numbers, e.g. {(1, 2): 110}) for a balance between the voices; other
+    notes get 90 (MusicXML dynamics are not read)."""
+    import xml.etree.ElementTree as ET
+    import zipfile
+    if zipfile.is_zipfile(path):
+        with zipfile.ZipFile(path) as z:
+            names = [n for n in z.namelist() if not n.startswith("META-INF/")]
+            try:
+                c = ET.fromstring(z.read("META-INF/container.xml"))
+                names = [c.find(".//{*}rootfile").get("full-path")]
+            except (KeyError, AttributeError):
+                names = [n for n in names if n.endswith((".xml", ".musicxml"))]
+            root = ET.fromstring(z.read(names[0]))
+    else:
+        root = ET.parse(path).getroot()
+    if root.tag != "score-partwise":
+        raise ValueError("%s: only score-partwise MusicXML is supported" % path)
+    p = Piece()
+    title = root.findtext("work/work-title") or root.findtext("movement-title")
+    p.title = (title or os.path.splitext(os.path.basename(path))[0]).strip()
+    names = {sp.get("id"): (sp.findtext("part-name") or "").strip()
+             for sp in root.iter("score-part")}
+    tempo = sig = None
+    for xpart in root.findall("part"):
+        pid = xpart.get("id")
+        div, t, key, clefs = 1, Fraction(0), "C", {}
+        staves = {}                                   # staff -> Part
+        last_start = Fraction(0)
+        for meas in xpart.findall("measure"):
+            for el in meas:
+                if el.tag == "attributes":
+                    if el.findtext("divisions"):
+                        div = int(el.findtext("divisions"))
+                    if el.findtext("key/fifths"):
+                        key = KEY_BY_SHARPS.get(int(el.findtext("key/fifths")), "C")
+                    if sig is None and el.findtext("time/beats"):
+                        sig = "%s/%s" % (el.findtext("time/beats"), el.findtext("time/beat-type"))
+                    for c in el.findall("clef"):
+                        clefs[int(c.get("number", 1))] = CLEF_BY_SIGN.get(c.findtext("sign"), "G")
+                elif el.tag in ("direction", "sound"):
+                    s = el if el.tag == "sound" else el.find("sound")
+                    if tempo is None and s is not None and s.get("tempo"):
+                        tempo = float(s.get("tempo"))
+                elif el.tag == "backup":
+                    t -= Fraction(int(el.findtext("duration")), div)
+                elif el.tag == "forward":
+                    t += Fraction(int(el.findtext("duration")), div)
+                elif el.tag == "note":
+                    if el.find("grace") is not None or el.find("cue") is not None:
+                        continue
+                    dur = Fraction(int(el.findtext("duration") or 0), div)
+                    chord = el.find("chord") is not None
+                    start = last_start if chord else t
+                    if not chord:
+                        t += dur
+                        last_start = start
+                    if el.find("rest") is not None or el.find("pitch") is None:
+                        continue
+                    k = (12 * (int(el.findtext("pitch/octave")) + 1)
+                         + NOTE_NAMES[el.findtext("pitch/step").upper()]
+                         + int(round(float(el.findtext("pitch/alter") or 0))))
+                    staff = int(el.findtext("staff") or 1)
+                    if staff not in staves:
+                        name = names.get(pid, "") or pid
+                        staves[staff] = Part("%s %d" % (name, staff) if staff > 1 or
+                                             el.find("staff") is not None else name, key,
+                                             clefs.get(staff, "G"))
+                    notes = staves[staff].notes
+                    ties = {x.get("type") for x in el.findall("tie")}
+                    if "stop" in ties:
+                        prev = next((n for n in reversed(notes)
+                                     if n.key == k and n.start + n.dur == start), None)
+                        if prev is not None:
+                            prev.dur += dur
+                            continue
+                    if dur > 0:
+                        voice = int(el.findtext("voice") or 1)
+                        notes.append(Note(start, dur, k, (velocity or {}).get((staff, voice), 90)))
+        for staff in sorted(staves):
+            part = staves[staff]
+            part.notes.sort(key=lambda n: (n.start, n.key))
+            if part.notes:
+                p.parts.append(part)
+    p.beat_ms = round(60000 / tempo) if tempo else 500
+    p.time = sig or "4/4"
+    return p
+
+
+def read_piece(path, velocity=None):
+    """velocity: MusicXML only, see read_musicxml."""
+    low = path.lower()
+    if low.endswith((".mid", ".midi")):
+        return read_midi(path)
+    if low.endswith((".mxl", ".musicxml", ".xml")):
+        return read_musicxml(path, velocity)
+    return read_text(path)
+
+
+def parse_velocity(text):
+    """'1/2=110,2/5=85' -> {(1, 2): 110, (2, 5): 85} (staff/voice=velocity)."""
+    out = {}
+    for item in filter(None, (x.strip() for x in (text or "").split(","))):
+        where, _, v = item.partition("=")
+        staff, _, voice = where.partition("/")
+        v = int(v)
+        if not 1 <= v <= 127:
+            raise ValueError("velocity %d: 1-127" % v)
+        out[(int(staff), int(voice))] = v
+    return out
 
 
 def split_voices(part, names=("upper", "lower")):
@@ -443,6 +562,14 @@ class Synclavier:
         self.button("entryb")
         self.button("timb.%d" % (entry - 1))
         self.run(2)
+        quiet = 0                                # a patch timbre loads its sound files one
+        for _ in range(480):                     # by one: wait for 3 s without LOADING
+            quiet = quiet + 1 if "LOADING" not in "".join(self.display()) else 0
+            if quiet >= 12:
+                break
+            self.run(0.25)
+        else:
+            raise RuntimeError("timbre still loading after 120 s: %s | %s" % self.display())
         self.log("timbre: %s | %s" % self.display())
 
     def click_ms(self):
@@ -519,8 +646,13 @@ class Synclavier:
                 if not down[k]:
                     self.kb.press_key(k, False)
         self.run(0.5)
-        self.button("stop")
-        self.run(0.5)
+        for _ in range(10):                       # STOP until the recorder has stopped (a busy
+            self.button("stop")                   # SYN-5.3 can miss a 0.1 s press)
+            self.run(0.5)
+            if not (self.light("record") or self.light("start")):
+                break
+        else:
+            raise RuntimeError("recorder did not stop: %s | %s" % self.display())
         if self.light(name):
             self.button(name)                     # unsolo: the next track records alone
         self.log("track %d (%s): %d notes | %s | %s" % ((track, part.name, len(part.notes)) + self.display()))
@@ -691,17 +823,22 @@ def with_slots(w0, slots, sectors=512):
     return path
 
 
-def record(piece, w0, slot, sseq, parts=None, bank=1, entry=2, log=print, offset_ms=OFFSET_MS):
+def record(piece, w0, slot, sseq, parts=None, bank=1, entry=2, log=print, offset_ms=OFFSET_MS,
+           w1=None, catalog=None):
     """Record `piece` (parts: 0-based indices, default all) into .SQ<slot>DATA
-    and write it to `sseq`. Returns (words, Synclavier)."""
+    and write it to `sseq`. w1, catalog: a W1: image and the sub-catalog
+    (e.g. W1:PIANO1) the timbre BANK/ENTRY is recalled from; the sequence
+    is still written to W0:.SQ<slot>DATA. Returns (words, Synclavier)."""
     chosen = [piece.parts[i] for i in parts] if parts else piece.parts
     if len(chosen) > 32:
         raise ValueError("at most 32 tracks")
     img = with_slots(w0, [slot])
     try:
-        s = Synclavier(img, log=log)
+        s = Synclavier(img, w1=w1, log=log)
     finally:
         os.unlink(img)
+    if catalog:
+        s.enter_catalog(catalog)
     s.timbre(bank, entry)
     s.set_click(piece.beat_ms)
     for i, part in enumerate(chosen):
@@ -759,6 +896,10 @@ def main(argv=None):
     r.add_argument("--beat-ms", type=int, help="click rate in ms (default: the piece's)")
     r.add_argument("--timbre", default="1-2", help="BANK-ENTRY recalled first (default 1-2)")
     r.add_argument("--offset-ms", type=int, default=OFFSET_MS)
+    r.add_argument("--w1", help="W1 image (with --catalog: recall the timbre from a W1: library)")
+    r.add_argument("--catalog", help="sub-catalog the timbre is recalled from, e.g. W1:PIANO1")
+    r.add_argument("--velocity", metavar="STAFF/VOICE=V,...",
+                   help="MusicXML: key velocity by staff and voice, e.g. 1/2=110,2/5=85,1/1=55 (others 90)")
     v = sub.add_parser("view", help="recall a sequence in the simulator: Music Notation PNGs, playback")
     v.add_argument("--w0", required=True)
     v.add_argument("--w1", help="W1 image (e.g. from tools/timbre_disk.py --seq)")
@@ -776,6 +917,11 @@ def main(argv=None):
     v.add_argument("--print", dest="prn", help="Music Notation hardcopy (H) of the first page to this file")
     s = sub.add_parser("show", help="list a sequence file's header and notes")
     s.add_argument("sseq")
+    i = sub.add_parser("install", help="a copy of a W0 image with a sequence file as .SQnDATA")
+    i.add_argument("sseq")
+    i.add_argument("--w0", required=True)
+    i.add_argument("--slot", type=int, required=True, help="0-7: SEQUENCE + button n recalls it")
+    i.add_argument("--out", required=True)
     c = sub.add_parser("convert", help="Standard MIDI File -> note list")
     c.add_argument("mid")
     c.add_argument("txt")
@@ -785,6 +931,17 @@ def main(argv=None):
     a = ap.parse_args(argv)
     if a.cmd == "view":
         return view(a)
+    if a.cmd == "install":
+        from tools.ned_disk import add_file
+        if not 0 <= a.slot <= 7:
+            ap.error("--slot is 0-7")
+        disk = bytearray(open(a.w0, "rb").read())
+        data = open(a.sseq, "rb").read()
+        add_file(disk, ".SQ%dDATA" % a.slot, data, typ=4, replace=True)
+        with open(a.out, "wb") as f:
+            f.write(disk)
+        print("%s: W0:.SQ%dDATA = %s (%d sectors)" % (a.out, a.slot, a.sseq, -(-len(data) // (2 * SECTOR))))
+        return 0
     if a.cmd == "show":
         W = words(open(a.sseq, "rb").read())
         print(seq_header(W))
@@ -803,14 +960,15 @@ def main(argv=None):
         with open(a.txt, "w", encoding="utf-8") as f:
             write_text(piece, f)
         return 0
-    piece = read_piece(a.piece)
+    piece = read_piece(a.piece, parse_velocity(a.velocity))
     if a.beat_ms:
         piece.beat_ms = a.beat_ms
     if not 0 <= a.slot <= 7:
         ap.error("--slot is 0-7")
     parts = [int(x) - 1 for x in a.parts.split(",")] if a.parts else None
     bank, entry = (int(x) for x in a.timbre.split("-"))
-    record(piece, a.w0, a.slot, a.sseq, parts, bank, entry, offset_ms=a.offset_ms)
+    record(piece, a.w0, a.slot, a.sseq, parts, bank, entry, offset_ms=a.offset_ms,
+           w1=a.w1, catalog=a.catalog)
     return 0
 
 

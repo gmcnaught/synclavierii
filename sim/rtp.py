@@ -169,6 +169,8 @@ def main(argv=None):
                     help="panel buttons to press in order, names or numbers (e.g. bank.0,timb.0)")
     ap.add_argument("--keys", default="", help="keys to hold together, 12-72 (e.g. 48 = C4)")
     ap.add_argument("--hold", type=float, default=1.0, help="simulated seconds to hold the keys")
+    ap.add_argument("--release", type=float, default=0.5,
+                    help="simulated seconds to run after the keys are released")
     ap.add_argument("--fm-log", help="CSV of every FM register write (D162) during the actions")
     ap.add_argument("--wav", help="render the FM voices during the actions to this WAV file (M3.2)")
     a = ap.parse_args(argv)
@@ -218,7 +220,7 @@ def main(argv=None):
         stop = run_seconds(cpu, dbg, a.hold)
         for k in keys:
             cpu.keyboard.press_key(k, False)
-        stop = stop or run_seconds(cpu, dbg, 0.5)
+        stop = stop or run_seconds(cpu, dbg, a.release)
         print("\n[rtp] FM writes while playing: %d" % (len(cpu.fm.log) - k0))
     if f:
         f.close()

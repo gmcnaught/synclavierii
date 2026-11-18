@@ -122,7 +122,7 @@ device number goes out on a `dev_*` port.
 | D50/D51 terminal | `dev_terminal.sv` | character time from the baud rate in simulated time; input FIFO from the host, received as eagerly as Python does; D50 read held until a character; PSW bit 6 |
 | D60–D63 external memory | `dev_extmem.sv` | words in an external RAM (`xm_*` request/ack port: SDRAM on the board, an array in simulation); beyond the installed size reads 177777 |
 | D130/D131 keyboard and panel | `dev_keyboard.sv` | clavier octaves (negative logic) and panel words from the host; lights; display latch on the strobe edge; unknown reads 0 or no SYN (`strict`, as the Python device) |
-| D160–D163 FM interface | `dev_fm.sv` | channel/function/data registers per channel (pitch, `TIM`, function 13), 16 interpolators clocked at 192 kHz of simulated time with the closed form of `sim/fm.py` (including a prescaler left above a new divisor), D160 bit 0 = channel present / limit reached, 32 × 256-byte wave memory with per-channel address, switches, A/D, external clock. Register and wave outputs for the voice engine |
+| D160–D163 FM interface | `dev_fm.sv` | channel/function/data registers per channel (pitch, `TIM`, function 13), 16 interpolators clocked at 333 1/3 kHz of simulated time (192 kHz before M24) with the closed form of `sim/fm.py` (including a prescaler left above a new divisor), D160 bit 0 = channel present / limit reached, 32 × 256-byte wave memory with per-channel address, switches, A/D, external clock. Register and wave outputs for the voice engine |
 | D164/D165 control voltages | in `able_system.sv` | write-only (reads: no SYN) |
 | D100–D104 floppy | `dev_floppy.sv` | FD1771-style: restore/seek/step with stepping time, index pulse from a 360 rpm phase, single-sector read/write after 50 µs, force interrupt, record not found, write protect; other commands and D104 reads: no SYN. Two floppies' words in a RAM (`fd_*` port; on the board loaded into SDRAM, about 200 KB each). A sector copy between that RAM and the 512-byte buffer makes floppy accesses wait, at no simulated time |
 
@@ -202,7 +202,8 @@ bit 0) is 8 unless the state image says otherwise (device 5 index 16;
   (`test_system_voice_clock_32_voices`). Open: let D160/D161 (channel and
   function select) skip the wait. A pitch or interpolator write, or a D160 read with
   function 12, first brings that voice up to now (a one-voice pass).
-* Interpolators: their 192 kHz clocks are counted (mod 4); each channel
+* Interpolators: their clocks (one per 3000 ns, 333 1/3 kHz since M24;
+  at most one per CPU tick) are counted (mod 4); each channel
   keeps the count it has had and is given the difference with the closed
   form of `Interpolator.advance_to` (none due: unchanged). A clock at the
   sample instant counts as before it.

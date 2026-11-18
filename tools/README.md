@@ -157,3 +157,23 @@ drives both the simulator, rendered to an MP4 of the VT640 picture and
 the core's audio, and the board, through its MIDI in and a virtual
 keyboard while its HDMI is recorded. See `docs/demo-video.md`.
 
+
+## `sv_capture.py`, `sv_compare.py`: Synclavier V reference captures (M24)
+
+```bash
+sv-venv/bin/python tools/sv_capture.py OUT                    # Synclavier V, 53 notes
+python3 tools/sv_compare.py render RELEASE_L.simg SIM_OUT -j 7  # same tests through the sim
+sv-venv/bin/python tools/sv_compare.py report OUT SIM_OUT -o REPORT.json
+```
+
+`sv_capture.py` drives Arturia Synclavier V through Spotify `pedalboard`
+(Python 3.12 venv with pedalboard, numpy, scipy). The plugin ignores MIDI
+unless its editor is open, so the script opens it; the user selects
+"Simple Sine (Clean)", checks that the modulator has harmonic 1 only, and
+creates `OUT/GO`. It checks for a pure sine with a flat held level, then
+writes one WAV + JSON per test (FM index sweeps, envelope times and levels,
+chorus, tuning). `sv_compare.py render` builds the same tests as
+one-partial timbres (`stmb.py`) and plays them through Release L in the
+simulator (`sim.rtp`, under `pypy3` when available); `report` measures both
+(PM index fit, envelope crossing times, beat rates, peak frequencies).
+Findings: [`docs/tuning-references.md`](../docs/tuning-references.md).

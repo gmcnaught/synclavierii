@@ -11,7 +11,7 @@ import sys
 import tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
-from sim.fm import Interpolator, frequency, registers  # noqa: E402
+from sim.fm import ENV_CLOCK_NS, Interpolator, frequency, registers  # noqa: E402
 from sim.voice import (OSC_CLOCK, SINE_ROM, FMSynth, Oscillator, osc_ticks,  # noqa: E402
                        render, write_wav)
 
@@ -96,7 +96,7 @@ def test_interpolator_closed_form_matches_steps():
                         if value != lim:
                             value += 1 if value < lim else -1
             ticks = it.ticks + clocks
-            it.advance_to(-(-ticks * 1_000_000_000 // 192_000))
+            it.advance_to(ticks * ENV_CLOCK_NS)
             assert (it.value, it.prescale, it.acc) == (value, pre, acc)
 
 

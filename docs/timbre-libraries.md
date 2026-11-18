@@ -473,6 +473,20 @@ local `timbres/Original-NED-Sample-Patch-Libraries.zip`). Git-ignored.
   63, 65/40/45/25/30 kHz the rest. 922 headers have sample-rate word 42 = 0
   and give the rate as period index (word 21), which the loader accepts.
   Compat 4 in 2,051, 1–3 in 24.
+* Sample rates checked (2026-11-18): in all 2,075 files the header's
+  `data.end` time (words 9–11) × rate × channels = valid data (words 2–4),
+  so NED's own rate is the header's. The 62 stereo files at 100 kHz
+  (`*-50`: BDR, SNR, TOM… drums) and SYNDN260 (mono) are 100 kHz per
+  channel: NED keeps the rate per channel (CLARA4, stereo: rate 500, twice
+  CLARA3's data), and SYN-5.3 doubles the address step for stereo
+  (`301-SUB1:197-199`), so they play 100,000 frames/s. None of the 63 is
+  used by a timbre (they reach W1: only with `--all-sounds`). The rate in
+  the text's `SynclavierPTPatchListEntry` lines (the number before the
+  file name) is Synclavier³'s, not NED's: the type-1 frame holds no rate,
+  and the text says 50000 for 14 patches on 40 kHz files (FLTDTA42) and 1
+  on a 25 kHz file (HRPDTA43 11, HRPCN543). The converted files keep the
+  header, so SYN-5.3 uses the real rate. Not yet checked by playing one of
+  these in the simulator (needs the W0 image).
 * Conversion is a copy: `SNCL` words + samples byte-swapped to big-endian,
   padded to 3 + total-data sectors (word 7). No resampling. Loops, pitch,
   marks and the caption stay as they are. (`sound_import.py` builds headers

@@ -56,8 +56,8 @@ from fractions import Fraction
 from .fm import K_HZ, WAVE_MEMORIES, Interpolator, ishc, modulation_offset, \
     oscillator, wave_memory_number
 from .pan_law import PAN_L, PAN_R
-from .pcm import DECIM
-from .pcm_fir import COEFFS, SUM_BITS, TAPS
+from .pcm import DECIM, fir
+from .pcm_fir import SUM_BITS, TAPS
 
 #: Oscillator tick rate: the step rate at ONU 7, increment = divisor [INFERRED].
 OSC_CLOCK = Fraction(256 * 128 * 440 * 91, 246)
@@ -242,8 +242,8 @@ def render(log, start_ns=None, end_ns=None, rate=48_000, oversample=DECIM, voice
     n = int((end_ns - start_ns) * sub // 1_000_000_000)
     out = []
     i = 0
-    fir = oversample == DECIM
-    hl, hr = [0] * TAPS, [0] * TAPS          # newest first (FIR)
+    use_fir = oversample == DECIM
+    hl, hr = [0] * TAPS, [0] * TAPS          # oldest first (FIR)
     norm = float(1 << SUM_BITS) * FULL_SCALE
     acc_l = acc_r = 0.0
     for k in range(n):
@@ -251,13 +251,15 @@ def render(log, start_ns=None, end_ns=None, rate=48_000, oversample=DECIM, voice
         while i < len(log) and log[i][0] <= t:
             synth.write(*log[i])
             i += 1
-        if fir:
+        if use_fir:
             l, r = synth.sample_int(t)
-            hl.insert(0, l); hl.pop()
-            hr.insert(0, r); hr.pop()
+            hl.append(l)
+            hr.append(r)
             if k % DECIM == DECIM - 1:
-                out.append((sum(c * x for c, x in zip(COEFFS, hl)) / norm,
-                            sum(c * x for c, x in zip(COEFFS, hr)) / norm))
+                out.append((fir(hl) / norm, fir(hr) / norm))
+                if len(hl) > 8 * TAPS:
+                    del hl[:-TAPS]
+                    del hr[:-TAPS]
             continue
         l, r = synth.sample(t)
         acc_l += l

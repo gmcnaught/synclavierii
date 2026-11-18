@@ -14,6 +14,8 @@ line begins a comment; times in seconds):
     w0: W0-53.IMG               # disk images (--images DIR, the script's
     w1: W1-TIMBRES.IMG          #   directory, or out/images)
     fps: 30
+    baud: 38400                 # terminal rate (default 9600; the board needs a
+                                #   state image made with w0_image.py --baud)
 
     type D                      # terminal characters, as typed
     key ENTER                   # ENTER ESC UP DOWN LEFT RIGHT TAB BACKSPACE F1-F4
@@ -67,7 +69,8 @@ KEYS = {"ENTER": b"\r", "ESC": b"\x1b", "TAB": b"\t", "BACKSPACE": b"\x08",
         "F1": b"\x1bOP", "F2": b"\x1bOQ", "F3": b"\x1bOR", "F4": b"\x1bOS"}
 TAP_HOLD, TAP_GAP = 0.1, 0.3          # a `button` step (as seq_record.py)
 TYPE_GAP = 0.1                        # between typed characters
-GREEN = (0x33, 0xFF, 0x66)            # term_display.sv colour 0
+GREEN = (0x33, 0xFF, 0x66)
+BAUDS = (300, 1200, 2400, 4800, 9600, 19200, 38400, 76800)   # D50/D51 rates (SYSLITS b#300 ...)            # term_display.sv colour 0
 
 
 # --------------------------------------------------------------------------
@@ -293,6 +296,7 @@ def render(a):
     w1 = s.header.get("w1")
     w1 = resolve(w1, dirs[0], dirs[1:]) if w1 else None
     fps = float(s.header.get("fps", a.fps))
+    baud = script_baud(s, a.baud)
     from sim.devices.poly import PolySynth
     from sim.boot import boot_from_w0
 
@@ -302,7 +306,7 @@ def render(a):
     wall = time.time()
     poly = PolySynth(bins=a.poly_bins)
     cpu, _ = boot_from_w0(w0, w1=w1, poly=poly, keyboard="vpk", fm_voices=a.fm_voices,
-                          terminal="vt640", mouse=True)
+                          terminal="vt640", mouse=True, baud=baud)
     cpu.fm.log_len = 1 << 62
     step = 2_000
 
@@ -314,7 +318,7 @@ def render(a):
             raise RuntimeError("simulator halted: %s" % (cpu.halted,))
 
     run_to(int(a.boot * 1e9))
-    log("booted in %.0f s: %s | %s" % ((time.time() - wall, *cpu.keyboard.display_text())))
+    log("booted in %.0f s (terminal %d baud): %s | %s" % ((time.time() - wall, baud, *cpu.keyboard.display_text())))
     inp = SimInput(cpu)
     t_start = cpu.time_ns
     rec_ns = t_start + int(s.record * 1e9)
@@ -508,9 +512,21 @@ def board_events(s):
     return out
 
 
+def script_baud(s, cli=None):
+    """Terminal baud rate: --baud, else the script's `baud:` header, else 9600."""
+    baud = int(cli or s.header.get("baud", 9600))
+    if baud not in BAUDS:
+        raise ValueError("baud %d: one of %s" % (baud, ", ".join(map(str, BAUDS))))
+    return baud
+
+
 def hw(a):
     s = parse(a.script)
     ev = board_events(s)
+    baud = script_baud(s)
+    if baud != 9600:
+        print("note: the script runs the terminal at %d baud; load a state image made with "
+              "tools/w0_image.py --baud %d (its name ends -B%d)" % (baud, baud, baud))
     if a.dry_run:
         print(json.dumps(ev, indent=0)[:4000])
         return 0
@@ -539,6 +555,8 @@ def main(argv=None):
     r.add_argument("--height", type=int, default=1080, help="output height (nearest-neighbour scaling)")
     r.add_argument("--boot", type=float, default=12, help="simulated seconds of boot before the script")
     r.add_argument("--tail", type=float, default=1, help="seconds of video after the end")
+    r.add_argument("--baud", type=int, help="terminal baud rate (default: the script's baud:, else 9600; "
+                   "38400 redraws about 4x faster)")
     r.add_argument("--fm-voices", type=int, default=32)
     r.add_argument("--poly-bins", type=int, default=1)
     r.add_argument("--wav", help="also keep the audio as this WAV")

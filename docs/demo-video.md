@@ -88,10 +88,20 @@ python3 tools/demo.py render data/demos/chorale-synclav-organ.demo out/chorale.m
   that clipped about 2 % of samples at the old 1/4 no longer clips.
   `--gain DB` scales the whole mix before the clip; that file is no longer
   the core's output.
+* Terminal rate: `--baud N` or a `baud:` header (default 9600, the
+  factory rate). SYN-5.3 never sets the D50/D51 rate (the only writes in
+  the NED source are in `UTILCAT/LISTING`), so the rate is the card's;
+  38400 is the fastest a real system ran (a faster serial card). Music
+  Notation's redraws then take about a quarter of the time. The board
+  needs a state image made with `tools/w0_image.py --baud N` (the state
+  image carries the rate: D50 baud index 4 = 9600, 6 = 38400).
 * Speed (Apple silicon, 8 cores): boot 28 s; SYN-5.3 with the script
   about 1.8-2.3 x real time; the FM audio pass, single-process, about 10 x
   real time for 32 sounding organ voices (53.7 s of chorale: 9 min), so
-  divide by the core count.
+  divide by the core count. Under PyPy (`pypy3 tools/demo.py render ...`,
+  no changes needed) boot takes 6.8 s and SYN-5.3 runs at 0.35 x real
+  time (CPython: 28.9 s, 2.26 x); `smoke.demo` renders in 13 s instead of
+  71 s with a byte-identical WAV and identical frames (2026-11-17).
 
 ## On the MiSTer
 

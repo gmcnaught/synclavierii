@@ -202,6 +202,18 @@ def test_write_mix():
         assert struct.unpack("<4h", open(path, "rb").read()[44:]) == (1024, -1024, 16384, 0) and n == 1
 
 
+def test_baud():
+    s = compile_("baud: 38400\nwait 1\n")
+    assert demo.script_baud(s) == 38400 and demo.script_baud(s, 19200) == 19200
+    assert demo.script_baud(compile_("wait 1\n")) == 9600
+    try:
+        demo.script_baud(compile_("baud: 12345\n"))
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("bad baud accepted")
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """D24 SCSI host and disk target (sim/devices/scsi.py), and the Release 5.3
-W0 boot when SYNCLAVIER_W0 names a W0 image (Synclavier3's
-"W0 Disk Image.simg").
+W0 boot: SYNCLAVIER_W0_RAW = Synclavier3's "W0 Disk Image.simg" (stops at
+MONITOR's "Ready >"), or SYNCLAVIER_W0 = a tools/w0_image.py image (its
+PROFILE starts SYN-5.3).
 
 Run:  python3 tests/sim/test_scsi.py
 """
@@ -120,19 +121,25 @@ def test_write_and_bad_command():
 
 
 def test_release_5_3_monitor_boots_from_w0():
-    image = os.environ.get("SYNCLAVIER_W0")
+    """MONITOR boots from W0 over SCSI. With SYNCLAVIER_W0_RAW (Synclavier3's
+    "W0 Disk Image.simg") it stops at "Ready >"; with SYNCLAVIER_W0 (an image
+    from tools/w0_image.py, whose PROFILE runs SYN-5.3) it goes on into
+    SYN-5.3's main menu."""
+    raw = os.environ.get("SYNCLAVIER_W0_RAW")
+    image = raw or os.environ.get("SYNCLAVIER_W0")
     if not image:
-        print("  skip test_release_5_3_monitor_boots_from_w0 (SYNCLAVIER_W0 not set)")
+        print("  skip test_release_5_3_monitor_boots_from_w0 (SYNCLAVIER_W0_RAW / SYNCLAVIER_W0 not set)")
         return
+    want = b"Ready >" if raw else b"Release 5.3.0"
     from sim.boot import boot_from_w0
     cpu, lay = boot_from_w0(image)
-    for _ in range(40):
+    for _ in range(80):
         cpu.run(500_000)
-        if cpu.halted or b"Ready >" in bytes(cpu.terminal.out):
+        if cpu.halted or want in bytes(b & 0o177 for b in cpu.terminal.out):
             break
     text = bytes(b & 0o177 for b in cpu.terminal.out).decode("latin-1")
     assert cpu.halted is None, (cpu.halted, text)
-    assert "Synclavier System Monitor - 2021/03/09" in text and "Ready >" in text, text
+    assert "Synclavier System Monitor - 2021/03/09" in text and want.decode() in text, text
     cmds = {c[0] for _, c in cpu.scsi.log}
     assert {0x12, 0x00, 0x25, 0x28} <= cmds, cmds
 

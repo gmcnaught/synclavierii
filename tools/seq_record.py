@@ -439,7 +439,10 @@ def seq_notes(W):
     duration ms)] in track order. Note records: word 1 bit 0 = 4-word record,
     bits 1-10 time delta (ms), 11-12 duration bits 10-11, 13-14 power-of-4
     exponent, bit 15 + type bits = long rest (32-bit delta follows); word 2
-    bits 6-15 duration bits 0-9, bits 0-5 key # (63 = rest)
+    bits 6-15 duration bits 0-9, bits 0-5 key # (63 = rest); in a 4-word
+    record word 4 bits 6-7 move the key: bit 6 an octave down (LOWER.KEY),
+    bit 7 an octave up (RAISE.KEY), for keys the 6-bit field cannot hold
+    (the VPK's A1-B1 are stored as A2-B2 + LOWER)
     (SYNLITS/SYNCLITS; SYNRSOU/04-SEQ/160SEQ0A ADVANCE.TO.NEXT.NOTE)."""
     nah = W[SEQ_NAH]
     out = []
@@ -462,7 +465,11 @@ def seq_notes(W):
                 four = w1 & 1
                 if (w2 & 63) != 63 and not (four and W[base + wrd + 2] & 0x8000):
                     dur = ((w1 >> 1) & 0o6000 | w2 >> 6) * 4 ** (w1 >> 13 & 3)
-                    out.append((trk - FIRST_TRACK + 1, t, (w2 & 63) + VPK_KEY_OFFSET, dur))
+                    key = (w2 & 63) + VPK_KEY_OFFSET
+                    if four:
+                        rl = W[base + wrd + 3] >> 6 & 3
+                        key += (12 if rl & 2 else 0) - (12 if rl & 1 else 0)
+                    out.append((trk - FIRST_TRACK + 1, t, key, dur))
                 wrd += 4 if four else 2
             sec = W[base]
     return out

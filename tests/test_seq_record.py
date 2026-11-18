@@ -128,6 +128,26 @@ def _sequence(notes, click=500):
     return W
 
 
+def test_seq_notes_octave_bits():
+    """A 4-word record's LOWER.KEY / RAISE.KEY bits (word 4 bits 6, 7) move
+    the key an octave: how SYN-5.3 stores the VPK's A1-B1 (as A2-B2 + LOWER;
+    seen in a recorded Gymnopedie, 2026-11-17)."""
+    W = _sequence([(50, 47, 400), (550, 45, 400), (1050, 47, 400)])
+    base = 4 * sr.SECTOR
+    # make all three 4-word records: the 2-word records move up by 2 words each
+    recs = [W[base + 8 + 2 * i: base + 10 + 2 * i] for i in range(3)]
+    tail = [(0, 0o176), (0, 0o176), (0, 0o076)]         # LOWER, LOWER, plain (VEL.NOTE = 62)
+    wrd = 8
+    for (w1, w2), (w3, w4) in zip(recs, tail):
+        W[base + wrd:base + wrd + 4] = [w1 | 1, w2, w3, w4]
+        wrd += 4
+    W[base + wrd] = 0xFFFF
+    W[base + 4] = wrd
+    assert [k for _trk, _t, k, _d in sr.seq_notes(W)] == [35, 33, 47]   # B1, A1, B2
+    W[base + 8 + 3] = 0o276                              # RAISE instead
+    assert sr.seq_notes(W)[0][2] == 59
+
+
 def test_seq_notes():
     W = _sequence([(50, 60, 470), (550, 62, 5000), (1050, 64, 235)])
     assert sr.seq_notes(W) == [(1, 50, 60, 470), (1, 550, 62, 1250 * 4), (1, 1050, 64, 235)]

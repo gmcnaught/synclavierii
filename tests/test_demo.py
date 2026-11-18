@@ -157,10 +157,10 @@ def test_frame_planes():
 
 def test_fm_chunks_equal_one_render():
     """Chunked rendering (fm_render_parallel, whole-chunk cuts) gives the
-    samples of one sim/voice.py render() call, across chunk boundaries and
-    writes inside chunks."""
+    frames of one sim/pcm.py render_frames() call (pcm_out.sv), across chunk
+    boundaries and writes inside chunks."""
     import math
-    from sim.voice import render
+    from sim.pcm import render_frames
     log, t = [], 1_000
     def w(ch, fn, v):
         nonlocal t
@@ -181,7 +181,9 @@ def test_fm_chunks_equal_one_render():
     demo.CHUNK_NS = 10_000_000
     try:
         start, end = 2_000_000, 47_000_000
-        assert demo.fm_render_parallel(log, start, end, 1, jobs=1) == render(log, start, end, voices=1)
+        got = demo.fm_render_parallel(log, start, end, 1, jobs=1)
+        assert got == render_frames(log, start, end, voices=1) and len(got) == 2160
+        assert max(abs(l) for l, _ in got) > 100
     finally:
         demo.CHUNK_NS = old
 
@@ -190,12 +192,14 @@ def test_write_mix():
     import struct
     with tempfile.TemporaryDirectory() as d:
         path = os.path.join(d, "m.wav")
-        fm = [(1.0, -1.0), (5.0, 0.0)]           # 5 voices at full scale: pcm_out.sv clips
+        fm = [(2048, -2048), (32767, 0)]         # one voice at full level (1/16); pcm_out.sv clipped
         n = demo.write_mix(path, fm, [(100, -100), (-1000, 0)], 3)
         data = open(path, "rb").read()[44:]
-        assert struct.unpack("<6h", data) == (8292, -8292, 31767, 0, 0, 0) and n == 1
+        assert struct.unpack("<6h", data) == (2148, -2148, 31767, 0, 0, 0) and n == 1
+        n = demo.write_mix(path, fm, [(31000, 0)], 2)    # FM + poly over full scale: clipped again
+        assert struct.unpack("<4h", open(path, "rb").read()[44:]) == (32767, -2048, 32767, 0) and n == 2
         n = demo.write_mix(path, fm, [], 2, gain=0.5)
-        assert struct.unpack("<4h", open(path, "rb").read()[44:]) == (4096, -4096, 20479, 0) and n == 0
+        assert struct.unpack("<4h", open(path, "rb").read()[44:]) == (1024, -1024, 16384, 0) and n == 1
 
 
 if __name__ == "__main__":

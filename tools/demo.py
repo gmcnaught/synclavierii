@@ -40,8 +40,9 @@ then runs the events; the board starts from its state image instead.
 
 render: the frame is tools/vt100.py's VT640 picture (term_display.sv draws
 the same), green as the core's default colour, scaled by whole pixels to
---height; audio is sim/voice.py render() of the FM writes (pcm_out.sv's
-arithmetic) plus devices/poly.py's mix at the same 48 kHz instants,
+--height; audio is sim/pcm.py render_frames() of the FM writes (pcm_out.sv
+bit for bit: 768 kHz instants, 512-tap FIR, gain 1/16) plus devices/poly.py's
+mix at the same 48 kHz instants,
 clipped to 16 bits, as dev_poly.sv adds them. Simulated time runs about
 2-3 x slower than real time.
 """
@@ -54,7 +55,6 @@ import subprocess
 import sys
 import tempfile
 import time
-from fractions import Fraction
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -368,11 +368,10 @@ def render(a):
     log("rendering audio (%d FM writes)" % len(cpu.fm.log))
     n = (end_ns - rec_ns) * 48_000 // 1_000_000_000
     fm = fm_render_parallel(cpu.fm.log, rec_ns, end_ns, cpu.fm.voices, a.jobs)
-    clipped = write_mix(wav, fm, poly.samples, n, 10 ** (a.gain / 20), float(Fraction(a.fm_gain)))
+    clipped = write_mix(wav, fm, poly.samples, n, 10 ** (a.gain / 20))
     log("audio: %.1f s, %d of %d samples clipped (%.2f%%)%s"
         % (n / 48_000, clipped, 2 * n, 100 * clipped / max(1, 2 * n),
-           "" if a.gain == 0 else ", gain %+g dB (not the core's level)" % a.gain)
-        + ("" if Fraction(a.fm_gain) == Fraction(1, 4) else ", FM gain %s per voice (core: 1/4)" % a.fm_gain))
+           "" if a.gain == 0 else ", gain %+g dB (not the core's level)" % a.gain))
     vf = "scale=-2:%d:flags=neighbor" % a.height
     cmd = ["ffmpeg", "-loglevel", "error", "-y", "-i", video, "-i", wav, "-vf", vf,
            "-c:v", "libx264", "-preset", "slow", "-crf", "18", "-pix_fmt", "yuv420p",
@@ -385,27 +384,26 @@ def render(a):
     return 0
 
 
-CHUNK_NS = 1_000_000_000          # render chunks: whole seconds keep render()'s instants
+CHUNK_NS = 1_000_000_000          # render chunks: whole seconds = whole 16-instant groups
 
 
 def _fm_chunk(job):
-    from sim.voice import render as fm_render
-    log, c0, c1, voices = job
-    return fm_render(log, c0, c1, voices=voices)
+    from sim.pcm import render_frames
+    log, c0, c1, voices, origin = job
+    return render_frames(log, c0, c1, voices=voices, origin_ns=origin)
 
 
 def fm_render_parallel(log, start_ns, end_ns, voices, jobs=None):
-    """sim/voice.py render(log, start_ns, end_ns) in chunks on `jobs`
-    processes. The chunks start at start_ns + whole seconds, where
-    render()'s instants start + k x 1e9 // 192000 fall on the same times
-    and its 4-sample groups on the same boundaries; the channel state at a
-    chunk's start is rebuilt by replaying the log (closed-form advances,
-    the same values as advancing step by step), so the joined chunks equal
-    one render() call."""
+    """pcm_out.sv's 16-bit FM frames from start_ns to end_ns (sim/pcm.py
+    render_frames, instants start_ns + k x 1e9 // 768000) in chunks on
+    `jobs` processes. Chunks start at start_ns + whole multiples of CHUNK_NS
+    (768 instants a ms: whole groups of 16); render_frames rebuilds the
+    voice state by replaying the log and warms the FIR up over the 512
+    instants before each chunk, so the joined chunks equal one call."""
     from multiprocessing import get_context
     log = sorted(log, key=lambda e: e[0])
     cuts = list(range(start_ns, end_ns, CHUNK_NS)) + [end_ns]
-    work = [(log, c0, c1, voices) for c0, c1 in zip(cuts, cuts[1:])]
+    work = [(log, c0, c1, voices, start_ns) for c0, c1 in zip(cuts, cuts[1:])]
     if (jobs or 0) == 1 or len(work) == 1:
         parts = [_fm_chunk(w) for w in work]
     else:
@@ -422,27 +420,24 @@ def start_audio(poly, rec_ns):
     poly.samples = []
 
 
-def write_mix(path, fm, poly, n, gain=1.0, fm_gain=0.25):
-    """The core's 48 kHz output: FM floats (one voice full scale = 1.0) to
-    pcm_out.sv's clipped 16-bit values (fm_gain: full scale per voice, 1/4
-    as pcm_out.sv), plus the poly mix, clipped again
-    (dev_poly.sv); `n` frames. gain != 1 scales the mix before any
-    clipping instead (not the core's output). Returns the number of
+def write_mix(path, fm, poly, n, gain=1.0):
+    """The core's 48 kHz output: FM 16-bit frames (pcm_out.sv, already
+    clipped; one at a rail is counted as clipped) plus the poly mix,
+    clipped again (dev_poly.sv); `n` frames. gain != 1 scales the sum
+    before that clip (not the core's output). Returns the number of
     clipped samples."""
     clipped = 0
     frames = bytearray()
     for i in range(n):
-        fl, fr = fm[i] if i < len(fm) else (0.0, 0.0)
+        fl, fr = fm[i] if i < len(fm) else (0, 0)
         pl, pr = poly[i] if i < len(poly) else (0, 0)
         for f, p in ((fl, pl), (fr, pr)):
+            if f >= 32767 or f <= -32768:
+                clipped += 1
             if gain == 1.0:
-                y = int(round(f * fm_gain * 32767))
-                if y > 32767 or y < -32768:
-                    clipped += 1
-                    y = max(-32768, min(32767, y))
-                y += p
+                y = f + p
             else:
-                y = int(round((f * fm_gain * 32767 + p) * gain))
+                y = int(round((f + p) * gain))
             if y > 32767 or y < -32768:
                 clipped += 1
                 y = max(-32768, min(32767, y))
@@ -549,8 +544,6 @@ def main(argv=None):
     r.add_argument("--wav", help="also keep the audio as this WAV")
     r.add_argument("--gain", type=float, default=0,
                    help="dB applied to the mix before clipping (default 0: the core's output)")
-    r.add_argument("--fm-gain", default="1/4",
-                   help="FM full scale per voice, e.g. 1/16 (default 1/4: pcm_out.sv)")
     r.add_argument("--jobs", type=int, help="processes for the audio render (default: all CPUs)")
     e = sub.add_parser("events", help="print the compiled events")
     e.add_argument("script")

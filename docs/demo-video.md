@@ -73,24 +73,21 @@ python3 tools/demo.py render data/demos/chorale-synclav-organ.demo out/chorale.m
   is checked against), colour 0 (green, `#33ff66`), redrawn whenever the
   terminal output changed, scaled by whole pixels to `--height` (1080:
   1440 x 1080), H.264.
-* Audio: `sim/voice.py` `render()` of the FM register writes from the
-  recording's start (192 kHz, box filter to 48 kHz, `pcm_out.sv`'s
-  arithmetic, clipped to 16 bits) plus `devices/poly.py`'s mix at the same
-  48 kHz instants, clipped again (`dev_poly.sv` adds them the same way);
-  AAC 256k in the MP4, PCM with `--wav`. The FM pass runs in one-second
-  chunks on all CPUs (`--jobs`); the chunks join to exactly one
-  `render()` call (`tests/test_demo.py`; a 7.8 s render with `--jobs 1`
-  and `--jobs 8` gave byte-identical WAVs).
+* Audio: `sim/pcm.py` `render_frames()` of the FM register writes from
+  the recording's start (`pcm_out.sv` bit for bit: 768 kHz instants,
+  512-tap FIR to 48 kHz, gain 1/16 per voice, clipped to 16 bits) plus
+  `devices/poly.py`'s mix at the same 48 kHz instants, clipped again
+  (`dev_poly.sv` adds them the same way); AAC 256k in the MP4, PCM with
+  `--wav`. The FM pass runs in one-second chunks on all CPUs (`--jobs`);
+  each chunk warms the FIR up over the 512 instants before it, so the
+  chunks join to exactly one `render_frames()` call (`tests/test_demo.py`).
 * Level: by default the WAV is the core's output, bit for bit, including
-  its clipping. `pcm_out.sv` scales so that four voices at full level reach
-  full scale, so a timbre that uses many voices clips: PIPE ORGAN #1 (8
-  voices a note) on four-note chords clips about 2 % of samples. The
-  render reports the clipped count. `--fm-gain 1/16` renders with another
-  FM full scale per voice (the proposed `pcm_out.sv` change: at 1/16 the
-  same chorale peaks at -5.6 dBFS, no clipping, and a full FM load sits
-  within about 3 dB of the sampled FULL PIANO's peak); `--gain DB` scales
-  the whole mix before any clipping. Either makes a file that is no longer
-  the current core's output.
+  any clipping (counted in the log). Since M23 (PR #66) `pcm_out.sv` puts
+  one voice at full level, hard-panned, at 1/16 of full scale, with an
+  equal-power pan: the PIPE ORGAN #1 chorale (8 voices a note, 32 voices)
+  that clipped about 2 % of samples at the old 1/4 no longer clips.
+  `--gain DB` scales the whole mix before the clip; that file is no longer
+  the core's output.
 * Speed (Apple silicon, 8 cores): boot 28 s; SYN-5.3 with the script
   about 1.8-2.3 x real time; the FM audio pass, single-process, about 10 x
   real time for 32 sounding organ voices (53.7 s of chorale: 9 min), so

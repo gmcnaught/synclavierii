@@ -186,7 +186,8 @@ maps partial volume 0–1000 to 0–255 for `VOL`. Release L rewrites `VOL`
 | Interpolator clock F: 333,333 Hz is stated by NED (`144-TIM1`); its source on the cards | schematics |
 | D160 bit 0 behaviour at power-on and its exact gating | schematics |
 | Pan-law PROM contents; whether the envelope MDAC is linear | schematics/ROM dump or recordings |
-| `TIM` bit 5; the "INC write also sets ONU = 0, NNU = 255" note in NED `144-TIM3` | schematics or hardware |
+| `TIM` bit 5 (NED sets it with every memory number and writes `TIM` = 0 only to idle channels, `600-INIT`; no definition in the source); the "INC write also sets ONU = 0, NNU = 255" note in NED `144-TIM3` (the diagnostics write INC 255 last as a "large inc to zero theta", `NEWDIAGS/MULTICAT/FMVLIB1`: a phase reset) | schematics or hardware |
+| Volume (`VOL`) settling: "it was an analog circuit and it took a while for the volume to reach the desired setting" (`144-TIM3`, a later maintainer's comment); NED writes `VOL` before an attack and waits 2–3 D3 ticks after `VOL` in `600-INIT`. The model changes `VOL` at once | recordings or schematics |
 | Sine ROM contents (phase offset, 256 × 8 unsigned assumed) | ROM dump |
 | Absolute levels and envelope curves | recordings of real hardware (risk R1) |
 
@@ -202,7 +203,7 @@ hardware; only the final mix is floating point.
 | Interpolators | `sim.fm.Interpolator`, one clock per 3000 ns (333 1/3 kHz; 192 kHz before M24) | **[OBS]** NED `144-TIM1` (clock rate), `181-UPD1` (attack units) |
 | Modulator | `SINE_ROM[point]`, round(127.5 + 127.5 sin(2πn/256)) | **[CHOICE]**: ROM not dumped |
 | FM | carrier address = (carrier point + (m × index) >> (8 − shift)) & 255 | **[INFERRED]** card analysis |
-| Carrier sample | wave memory `TIM` & 31, unsigned, DAC offset binary around 128 | wave data **[OBS]** (NED `COMPUTE.WAVE`: scaled to 0–255 around the DC point; flat = 128); offset **[CHOICE]** |
+| Carrier sample | wave memory `TIM` & 31, unsigned, DAC offset binary around 128 | wave data **[OBS]** (NED `COMPUTE.WAVE`: scaled to 0–255 around the DC point; flat = 128); offset **[OBS]**: `600-INIT` cancels one voice's output with a partner playing the complementary byte (255 against 1), which needs zero at 128 |
 | Level | (w − 128) × envelope × `VOL`, linear | **[CHOICE]**: MDAC/DAC laws unknown |
 | Pan | equal power (M23): left/right = 256 cos/sin((π/2) pan/256) / 256 (`ISHC` bits 7–2; `sim/pan_law.py`, `tools/gen_pan_law.py`); centre −3 dB a side | **[INFERRED]**: pan PROM not dumped; a PROM implies a non-linear law and Arturia Synclavier V is equal-power (`tuning-references.md`). Linear (right = pan/256) before M23 |
 | Output gain | one voice at full level, hard-panned = 1/16 of 16-bit full scale (`sim/pcm.py`, `pcm_out.sv`, M23; was 1/4) | **[CHOICE]**: the 9600's output stage is not documented; at 1/4 a dense 32-voice organ chorale clipped 2.25 % of samples, at 1/16 it peaks at −5.6 dBFS (−2.6 with equal power) |
@@ -223,6 +224,16 @@ Checks (`tests/sim/test_voice.py`, `test_rtp.py`):
   index envelope (`ILIM` 228), a pitch sweep rewritten every 10 ms and a
   `VOL` decay 150 → 41 over 30 ms; it renders without clipping. Whether
   it sounds like the original needs a recording.
+
+Checked in the NED source (M24): the index shift count and limit
+(`138-PRE1`: halve the larger of peak/sustain until < 128, limit = 2 ×
+peak / 2^shift) match the model; the diagnostics' 440 Hz is NNU 180,
+INC 122, ONU 1 (`FMVLIB1`, "from freq(4400) in maxsyn/.stab-7"), as in the
+pitch table above. A key-up reaches the voice when the main loop's
+`330-FINL` pass sees it (`144-TIM3` then writes the final decay at once):
+about 60 ms after the key in the simulator on Release L, against 9 ms for
+a key-down. The source does not say whether the modulator sample is
+signed, nor give the sine ROM, pan PROM or volume DAC law.
 
 Not modelled: the splice bits of the channel word (QUELITS: bits 8–11
 splice memory, 12–15 state), `TIM` bit 5, and the NED note that an `INC`

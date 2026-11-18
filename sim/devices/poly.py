@@ -47,7 +47,9 @@ Voice model (sections 3.1-3.7) [INF, CHOICES marked]:
   * output (M26, docs/poly-output.md) [CHOICE: the mix is not in the
     source]: each voice has a DAC that the rate generator's clock latches.
     At rate tick m (time m x 9900 ns), in this order:
-      1. P(m) = sum over voices of dac x EVAL x volume >> 24 per side (the
+      1. P(m) = sum over voices of mix(dac x EVAL x volume) per side,
+         mix(e) = (e + 2**19) >> 20 (rounded, 4 bits below the DAC's LSB:
+         the MDACs attenuate the DAC's quantization with the signal, #82) (the
          gains as they are now; routed by the distributor's output pair;
          mono cards: the right sum on both sides). P(m) is the poly output
          for [m x 9900, (m + 1) x 9900) ns;
@@ -95,6 +97,17 @@ def two_word(w1, w2, signed):
         v -= 1 << 28
     return v
 
+
+
+#: the mix keeps P_FRAC bits below the DAC word's LSB (#82): P = 2**P_FRAC
+#: x the 16-bit level; sim/pcm.py poly_shift takes them off after PolyBox
+P_FRAC = 4
+MIX_SHIFT = 24 - P_FRAC
+
+
+def mix(e):
+    """dac x EVAL x volume (40 bits) to P units, rounded (half up)."""
+    return (e + (1 << (MIX_SHIFT - 1))) >> MIX_SHIFT
 
 class PolyVoice:
     def __init__(self):
@@ -416,7 +429,7 @@ class PolySynth(Device):
         return self._sample(v.ba + v.pos, b) if v.on & 1 else 0
 
     def _mix(self, voices=None):
-        """P: the DACs x EVAL x volume >> 24 per side, summed (`voices`: the
+        """P: mix(the DACs x EVAL x volume) per side, summed (`voices`: the
         indices to look at, default all)."""
         left = right = 0
         multi = self.multi
@@ -431,12 +444,12 @@ class PolySynth(Device):
                 from .multi import route_pair
                 b = i // self.nvoices
                 tags = multi.poly_tags(32 * b + i % self.nvoices)
-                sl, sr = route_pair(e * v.lcur >> 24, e * v.rcur >> 24, tags, pair, self.mono)
+                sl, sr = route_pair(mix(e * v.lcur), mix(e * v.rcur), tags, pair, self.mono)
                 left += sl
                 right += sr
                 continue
-            left += e * v.lcur >> 24
-            right += e * v.rcur >> 24
+            left += mix(e * v.lcur)
+            right += mix(e * v.rcur)
         if self.mono and not pair:
             return right, right
         return left, right

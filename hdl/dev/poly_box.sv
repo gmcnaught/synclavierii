@@ -10,7 +10,8 @@
 //     x' = sat27((fm >>> fs) + x_poly)                to pcm_out
 //   fs, ps by the OSD FM level / Poly level codes (#76; sim/pcm.py
 //   fm_shift, poly_shift): fm_level 0-3 = +12/+18/+24/0 dB: fs 12/11/10/14;
-//   poly_level 0-3 = +6/+12/0/-6 dB: ps 19/18/20/21.
+//   poly_level 0-3 = +6/+12/0/-6 dB: ps 23/22/24/25 (P has 4 fraction
+//   bits, #82; P kept at 32 bits).
 //   After reset t_prev = 0, the next boundary is tick 0, P_cur = 0.
 //
 // Instant times: `now` counts voice time as dev_poly's does; dev_fm says
@@ -59,41 +60,41 @@ module poly_box (
     logic [2:0]  fq_wp, fq_rp;
     logic [3:0]  fq_n;                            // FM samples waiting
     // P values come, in order
-    logic [53:0] pq [32];                         // {left, right}
+    logic [63:0] pq [32];                         // {left, right}
     logic [4:0]  pq_wp, pq_rp;
     logic [5:0]  pq_n;
     logic [31:0] debt;                            // boundaries passed without their P (late)
 
     logic [47:0] t_prev, nb;                      // last instant; next boundary
-    logic signed [26:0] c_l, c_r;                 // P_cur
+    logic signed [31:0] c_l, c_r;                 // P_cur
     // the sample being worked on
     logic [3:0]  st;
     logic [47:0] t_k;
     logic [12:0] w_old, w_new;
-    logic signed [26:0] o_l, o_r;                 // P_cur before the interval
-    logic signed [26:0] n_l, n_r;                 // P(m) (or P_cur)
+    logic signed [31:0] o_l, o_r;                 // P_cur before the interval
+    logic signed [31:0] n_l, n_r;                 // P(m) (or P_cur)
     logic [15:0] rcp;
     logic signed [39:0] f_l, f_r;
-    logic signed [40:0] ma, ya;                   // P x w, a partial sum
-    logic signed [40:0] y_l, y_r;
-    logic signed [57:0] mb;
+    logic signed [45:0] ma, ya;                   // P x w, a partial sum
+    logic signed [45:0] y_l, y_r;
+    logic signed [62:0] mb;
     logic signed [37:0] x_l;
 
     wire  [47:0] t_head = tq[tq_rp];
     wire  [47:0] d_w = t_head - t_prev;
     wire         bnd = en && nb < t_head;         // a boundary inside the interval
     wire         p_have = pq_n != 6'd0;
-    wire  [53:0] p_head = pq[pq_rp];
-    wire signed [26:0] h_l = p_head[53:27], h_r = p_head[26:0];
+    wire  [63:0] p_head = pq[pq_rp];
+    wire signed [31:0] h_l = p_head[63:32], h_r = p_head[31:0];
     wire         go = st == 4'd0 && fq_n != 4'd0 && (!bnd || p_have || fq_n == 4'd8);
     wire         p_take = go && bnd && p_have;
     wire         p_drop = p_valid && debt != 32'd0;
     assign stall = hold_ok && fq_n >= 4'd4;
 
     // the multipliers' operands, by step
-    logic signed [26:0] a_x;
+    logic signed [31:0] a_x;
     logic [12:0] a_w;
-    logic signed [40:0] b_x;
+    logic signed [45:0] b_x;
     always_comb begin
         case (st)
             4'd1: begin a_x = o_l; a_w = w_old; end
@@ -113,12 +114,12 @@ module poly_box (
         endcase
     endfunction
 
-    function automatic logic signed [37:0] poly_x(input logic signed [57:0] v, input logic [1:0] lv);
+    function automatic logic signed [37:0] poly_x(input logic signed [62:0] v, input logic [1:0] lv);
         case (lv)
-            2'd0: poly_x = 38'(v >>> 19);
-            2'd1: poly_x = 38'(v >>> 18);
-            2'd2: poly_x = 38'(v >>> 20);
-            default: poly_x = 38'(v >>> 21);
+            2'd0: poly_x = 38'(v >>> 23);
+            2'd1: poly_x = 38'(v >>> 22);
+            2'd2: poly_x = 38'(v >>> 24);
+            default: poly_x = 38'(v >>> 25);
         endcase
     endfunction
 
@@ -146,7 +147,7 @@ module poly_box (
                 fq_wp <= fq_wp + 3'd1;
             end
             if (p_valid && !p_drop) begin
-                pq[pq_wp] <= {p_l[26:0], p_r[26:0]};
+                pq[pq_wp] <= {p_l, p_r};
                 pq_wp <= pq_wp + 5'd1;
             end
             pq_n <= pq_n + 6'(p_valid && !p_drop) - 6'(p_take);
@@ -176,7 +177,7 @@ module poly_box (
                 end
                 4'd1, 4'd2, 4'd3, 4'd4: begin
                     // 1: Pc_l w_old; 2: Pn_l w_new; 3: Pc_r w_old; 4: Pn_r w_new
-                    ma <= 41'(a_x * $signed({1'b0, a_w}));
+                    ma <= 46'(a_x * $signed({1'b0, a_w}));
                     if (st == 4'd2 || st == 4'd4) ya <= ma;
                     if (st == 4'd3) y_l <= ya + ma;
                     if (st == 4'd4) mb <= b_x * $signed({1'b0, rcp});

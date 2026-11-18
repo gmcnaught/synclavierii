@@ -492,8 +492,8 @@ def poly_box_stimulus(path, seed=1, instants=3000, fm_level=0, poly_level=0):
     rng = random.Random(seed)
     n_p = instants * 1302 // pcm.F0_TICK_NS + 4
     big = lambda b: rng.choice([0, rng.randrange(-(1 << b), 1 << b), rng.randrange(-1000, 1000)])
-    pl = [big(23) for _ in range(n_p)]
-    pr = [big(rng.choice([12, 20, 23])) for _ in range(n_p)]
+    pl = [big(rng.choice([23, 27, 31])) for _ in range(n_p)]       # P: 32 bits (#82)
+    pr = [big(rng.choice([12, 20, 23, 31])) for _ in range(n_p)]
     box = pcm.PolyBox(pl, pr, 0, poly_level)
     out, fm_wait, p_wait = [], [], []
     now, k, m = 0, 0, 0

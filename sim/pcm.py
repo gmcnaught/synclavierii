@@ -42,19 +42,21 @@ def fm_shift(level=0):
 
 
 def poly_shift(level=0):
-    return POLY_SHIFT - POLY_LEVEL_DB[level] // 6
+    """P carries P_FRAC fraction bits (sim/devices/poly.py, #82)."""
+    return POLY_SHIFT + P_FRAC - POLY_LEVEL_DB[level] // 6
 
 
 #: poly (M26, docs/poly-output.md): sim/devices/poly.py's P(m) holds for
 #: [m x F0_TICK_NS, (m + 1) x F0_TICK_NS); PolyBox gives each 768 kHz
 #: instant the staircase's average over the interval since the previous
-#: instant, scaled so that at 0 dB x' = 64 x P (pcm = P, the level the poly
-#: mix had when it was added to the 16-bit output):
+#: instant, scaled so that at 0 dB x' = 64 x P / 2**P_FRAC (pcm = the DAC
+#: level, as the poly mix had when it was added to the 16-bit output):
 #:   x'_poly = (sum of P x ns in the interval) x RECIP[d] >> poly_shift(level)
 #: d = the interval in ns: 1302 or 1303 (the first interval after reset
 #: may be shorter: RECIP 0, no poly in it).
 F0_TICK_NS = 9900
-POLY_SHIFT = 20                 # poly at 0 dB
+POLY_SHIFT = 20                 # poly at 0 dB, for P in 16-bit units
+P_FRAC = 4                      # P's fraction bits (sim/devices/poly.py P_FRAC, #82)
 POLY_GAIN = 64
 RECIP = {d: round(POLY_GAIN * (1 << POLY_SHIFT) / d) for d in (1302, 1303)}
 

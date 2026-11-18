@@ -145,10 +145,10 @@ def test_staircase_images_do_not_alias():
 
 def test_poly_box():
     """M26: PolyBox averages the poly staircase over each 768 kHz interval,
-    x' = 64 x P for a constant P; a boundary inside an interval weights
-    the two values by their ns in it."""
+    x' = 64 x P / 16 for a constant P (P has 4 fraction bits, #82) at 0 dB;
+    a boundary inside an interval weights the two values by their ns in it."""
     f0 = pcm.F0_TICK_NS
-    box = pcm.PolyBox([1000, 1000, -3000, 7], [0, 5, 5, 5], 0, level=2)     # 0 dB
+    box = pcm.PolyBox([16000, 16000, -48000, 112], [0, 80, 80, 80], 0, level=2)     # 0 dB
     assert box.step(0) == (0, 0)                     # the first instant: no interval
     seen = []
     for k in range(1, 40):
@@ -160,22 +160,22 @@ def test_poly_box():
     k = next(i for i, (t, _) in enumerate(seen) if t > f0)
     t1, t0 = seen[k][0], seen[k - 1][0]
     assert seen[k][1][0] == 64000
-    want_r = 5 * (t1 - f0) * pcm.RECIP[t1 - t0] >> pcm.POLY_SHIFT
+    want_r = 80 * (t1 - f0) * pcm.RECIP[t1 - t0] >> box.shift
     assert seen[k][1][1] == want_r and 0 < want_r < 320
     # the interval holding 19800: 1000 then -3000
     k = next(i for i, (t, _) in enumerate(seen) if t > 2 * f0)
     t1, t0 = seen[k][0], seen[k - 1][0]
-    want = (1000 * (2 * f0 - t0) - 3000 * (t1 - 2 * f0)) * pcm.RECIP[t1 - t0] >> pcm.POLY_SHIFT
+    want = (16000 * (2 * f0 - t0) - 48000 * (t1 - 2 * f0)) * pcm.RECIP[t1 - t0] >> box.shift
     assert seen[k][1][0] == want
     # start(t) resumes a run: the same values as from reset
-    again = pcm.PolyBox([1000, 1000, -3000, 7], [0, 5, 5, 5], 0, level=2)
+    again = pcm.PolyBox([16000, 16000, -48000, 112], [0, 80, 80, 80], 0, level=2)
     again.start(seen[9][0])
     assert [again.step(t) for t, _ in seen[10:]] == [x for _, x in seen[10:]]
     # a constant P comes out of the filter as P at 0 dB, 2P at the default
     # +6 dB (#76), and so on
     for level, mul in ((2, 1), (0, 2), (1, 4), (3, 0.5)):
         frames = []
-        out, box = pcm.PcmOut(0, False), pcm.PolyBox([6000] * 2000, [-320] * 2000, 0, level)
+        out, box = pcm.PcmOut(0, False), pcm.PolyBox([6000 << pcm.P_FRAC] * 2000, [-320 << pcm.P_FRAC] * 2000, 0, level)
         for k in range(1, 16 * 100 + 1):
             xl, xr = box.step(k * 1_000_000_000 // pcm.IN_RATE)
             f = out.push(0, 0, xl, xr)
@@ -232,7 +232,7 @@ def test_poly_aliasing():
     old = []
     for k in range(960, 960 + len(new)):
         t = k * 1_000_000_000 // RATE
-        x = pl[t // F0_TICK_NS + 1 - m0] if t // F0_TICK_NS + 1 - m0 < len(pl) else 0
+        x = pl[t // F0_TICK_NS + 1 - m0] >> pcm.P_FRAC if t // F0_TICK_NS + 1 - m0 < len(pl) else 0
         old.append((max(-32768, min(32767, x)), 0))
     alias = 2 * RATE - (f0 - f)
     tone_new, tone_old = _tone_db(new, f), _tone_db(old, f)

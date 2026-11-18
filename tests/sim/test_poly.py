@@ -7,6 +7,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 from sim.devices.poly import (ENV_TICK_NS, F0_TICK_NS, PSEMOD, PSLCVOL, PSNUMV, PSON,  # noqa: E402
                               PSRCVOL, PSRMA, PSRON, PSWL, PSWMA, PolySynth, two_word)
 
+from sim.devices.poly import mix  # noqa: E402
 PSC, PSF, PSD = 0o155, 0o156, 0o157
 
 
@@ -179,7 +180,7 @@ def test_two_bins():
     p.advance()
     l, r = p._mix()
     e = 4095 * 4095
-    assert l == (111 * e >> 24) + (222 * e >> 24) and r == l
+    assert l == mix(111 * e) + mix(222 * e) and r == l
     p.write(PSC, 67)
     p.write(PSF, PSON)
     p.write(PSD, 0)
@@ -372,8 +373,8 @@ def test_settled_counters_catch_up():
 
 
 def test_dac_output():
-    """M26: P(m) is each DAC's word from the tick before x EVAL x volume
-    >> 24; a DAC re-reads memory at every tick and is 0 once its voice is
+    """M26: P(m) is each DAC's word from the tick before x EVAL x volume,
+    rounded to 4 fraction bits (#82); a DAC re-reads memory at every tick and is 0 once its voice is
     off; a stereo slave's DAC holds the word after its master's."""
     p = PolySynth(4, 256)
     p.write(PSC, 0)
@@ -388,7 +389,7 @@ def test_dac_output():
     p.tick(F0_TICK_NS * (m0 + 7) - p.time_ns)
     p.advance()
     e = 4095 * 4095
-    g = lambda w: w * e >> 24
+    g = lambda w: mix(w * e)
     # tick m0: DAC 0 (latched before the voice started), then it latches
     # word 100 (position 0) and steps; each word is heard for a tick, the
     # step at position 4 stops the voice

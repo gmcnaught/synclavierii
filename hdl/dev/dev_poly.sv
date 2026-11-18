@@ -28,8 +28,9 @@
 // write the voice rows in block RAM, one voice per clock.
 //
 // Audio (M26, docs/poly-output.md): the rate pass for tick m, at each
-// voice: (1) its DAC word (latched by the last pass) x EVAL x volume >> 24
-// per side into the sums; (2) the DAC latches the word at the voice's
+// voice: (1) its DAC word (latched by the last pass) x EVAL x volume,
+// rounded to 4 bits below the word's LSB ((x + 2^19) >>> 20, #82), per side
+// into the sums; (2) the DAC latches the word at the voice's
 // address (base + position; a stereo slave: its master's + 1), 0 when off
 // or outside the bin; (3) the step. After the last voice the sums go out as
 // P(m) (p_valid, p_l, p_r), the poly output for [m x 9900, (m+1) x 9900) ns
@@ -379,6 +380,8 @@ module dev_poly #(
     wire signed [28:0] x_e = x_s * $signed({1'b0, x_eval});
     wire signed [41:0] x_pl = y_e * $signed({1'b0, y_lcur});
     wire signed [41:0] x_pr = y_e * $signed({1'b0, y_rcur});
+    wire signed [31:0] m_pl = 32'((x_pl + 42'sd524288) >>> 20);   // #82: rounded, 4 fraction bits
+    wire signed [31:0] m_pr = 32'((x_pr + 42'sd524288) >>> 20);
 
     // ------------------------------------------------- RAM port control
     always_comb begin
@@ -453,8 +456,8 @@ module dev_poly #(
         a2 <= a1;
         if (a1) begin y_e <= x_e; y_lcur <= x_lcur; y_rcur <= x_rcur; y_rb <= x_rb_q; end
         if (a2) begin
-            acc_l <= acc_l + (y_rb[0] ? 32'(x_pl >>> 24) : 32'sd0) + (y_rb[2] ? 32'(x_pr >>> 24) : 32'sd0);
-            acc_r <= acc_r + (y_rb[1] ? 32'(x_pl >>> 24) : 32'sd0) + (y_rb[3] ? 32'(x_pr >>> 24) : 32'sd0);
+            acc_l <= acc_l + (y_rb[0] ? m_pl : 32'sd0) + (y_rb[2] ? m_pr : 32'sd0);
+            acc_r <= acc_r + (y_rb[1] ? m_pl : 32'sd0) + (y_rb[3] ? m_pr : 32'sd0);
         end
         // line fetches: issued, back
         f_wp_d <= f_wp;

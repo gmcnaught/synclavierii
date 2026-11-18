@@ -23,7 +23,8 @@ the M26 path it is 124 dB below. The tone level changes by 0.1 dB.
 
 At rate tick m (time m·9900 ns), in this order:
 
-1. **Mix.** `P(m) = Σ_v route(dac_v × EVAL_v × {L,R}cur_v >> 24)`, the gains
+1. **Mix.** `P(m) = Σ_v route((dac_v × EVAL_v × {L,R}cur_v + 2^19) >> 20)`
+   (4 bits below the DAC word's LSB, rounded; §8), the gains
    as they are at the tick, routed by the distributor's output pair (mono
    cards: the right sum on both sides). No clip. P(m) is the poly output
    for [m·9900, (m+1)·9900).
@@ -44,11 +45,12 @@ the rate tick first. A CPU write lands between ticks, as before.
 ```
 boundary b = m·9900 < t_k (the next unused):  y = P_cur·(b − t_prev) + P(m)·(t_k − b); P_cur = P(m)
 else:                                         y = P_cur·d
-x_poly = y·RECIP[d] >> 20      RECIP[1302] = 51543, RECIP[1303] = 51503, else 0
+x_poly = y·RECIP[d] >> ps     RECIP[1302] = 51543, RECIP[1303] = 51503, else 0
+                               ps = 24 at 0 dB (20 + P's 4 fraction bits; §7, §8)
 x'     = sat27((fm >> 14) + x_poly)       to pcm_out's 512-tap FIR
 ```
 
-x' = 64·P for a constant P at Poly level 0 dB, so a poly voice has the
+x' = 64·P/16 for a constant P (P in 1/16 DAC LSBs) at Poly level 0 dB, so a poly voice has the
 level it had when it was added to the 16-bit output (the shifts by OSD
 level are in §7). The interval average puts a sinc(f / 768 kHz)
 ahead of the 768 kHz sampling, so staircase images near multiples of
@@ -215,7 +217,7 @@ user's mixer did (the 9600's levels are [UNK]).
 | item | codes 0 / 1 / 2 / 3 | shift (sim `fm_shift`, `poly_shift`) |
 |---|---|---|
 | FM level | **+12** / +18 / +24 / 0 dB | FM sum `>>>` 12 / 11 / 10 / 14 |
-| Poly level | **+6** / +12 / 0 / −6 dB | poly `y·RECIP >>>` 19 / 18 / 20 / 21 |
+| Poly level | **+6** / +12 / 0 / −6 dB | poly `y·RECIP >>>` 23 / 22 / 24 / 25 (P has 4 fraction bits, §8) |
 | Limiter | **On** / Off | — |
 
 0 dB is the level before #76. At the defaults one FM voice is 1/4 of full
@@ -249,4 +251,26 @@ modulated within a cycle. It costs one multiplier and about 45 clocks a sample
 over −1 dBFS. Chunks render unlimited (`render_frames(limit=None)`) and the
 limiter runs once over the joined render, from the recording start (the core's
 starts at reset; the two agree once the gain is back at unity).
+
+## 8. Mix precision (#82)
+
+On the instrument each poly voice's 16-bit DAC gets the whole word, and
+EVAL and the volumes act in the MDACs (analog), so the DAC's quantization
+is attenuated with the signal. Before #82 the model floored each voice's
+`dac × EVAL × volume` (40 bits) to the DAC's LSB (`>> 24`) before summing:
+a fixed error per sounding voice, whatever its volume.
+
+Measured (sim, PolyBox + FIR at the default +6 dB; voices sines at
+different pitches, EVAL × volume ≈ −40 dB; error = model − exact mix):
+
+| voices | `>> 24` floor (before) | 4 fraction bits, rounded (now) |
+|---|---|---|
+| 32 | noise −84.1 dBFS, DC −32 LSB | noise −108.3 dBFS, DC 0 |
+| 128 | noise −78.2 dBFS, DC −128 LSB (−48 dBFS) | noise −102.3 dBFS, DC 0 |
+
+The DC was a step each time voices started or stopped. Now
+`mix(e) = (e + 2^19) >> 20` per voice and side (`sim/devices/poly.py`
+`mix`, `dev_poly.sv` `m_pl`/`m_pr`); P carries 4 fraction bits, so
+`poly_box` keeps P at 32 bits (was 27) and shifts 4 more. 128 voices at
+full scale and volume need 2^27 per side: within 32 bits.
 

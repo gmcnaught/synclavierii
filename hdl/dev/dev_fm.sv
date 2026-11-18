@@ -32,7 +32,7 @@
 //     and before a D160 read with function 12: that voice advanced to now
 //     with the old settings (FMSynth.write and FMInterface advance the
 //     channel first).
-// Oscillators (OSC_CLOCK = 656015360/123 Hz ticks): G counts the ticks
+// Oscillators (OSC_CLOCK = 656000000/123 Hz = 32 MHz / 6 ticks, #83): G counts the ticks
 // since the last sample instant; a channel holds `applied`, the ticks of G
 // it has already had (from a catch-up), and gets G - applied at the next
 // pass. The closed form (accumulator += n x (INC + 1) mod divisor, one
@@ -103,7 +103,7 @@ module dev_fm #(
     `include "pan_law.svh"
 
     localparam int VB = $clog2(MAXV);                     // voice (RAM address) bits
-    localparam logic [39:0] OSC_NUM = 40'd656015360;      // ticks per ns = NUM / D
+    localparam logic [39:0] OSC_NUM = 40'd656000000;      // ticks per ns = NUM / D = 16 / 3000
     localparam logic [39:0] OSC_D   = 40'd123000000000;
 
     // ------------------------------------------------------- CPU registers

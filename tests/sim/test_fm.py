@@ -3,6 +3,7 @@
 
 Run:  python3 tests/sim/test_fm.py
 """
+import math
 import os
 import sys
 
@@ -32,7 +33,8 @@ def test_release_l_pitches():
 def test_log_frequency():
     assert log_frequency_hz(2816) == 440.0
     assert abs(log_frequency_hz(2816 + 1024) - 880.0) < 1e-9
-    assert abs(K_HZ * 2 * 123 / 91 - 440.0) < 1e-9
+    assert abs(K_HZ * 6 * 256 * 128 - 32_000_000) < 1e-6
+    assert abs(1200 * math.log2(K_HZ * 2 * 123 / 91 / 440.0)) < 0.05      # A 440 entry: -0.04 cents
 
 
 def test_ned_interp_numbers():

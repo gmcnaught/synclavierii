@@ -23,9 +23,12 @@ Evidence:
     key 45 -> 440.00 Hz, key 72 -> 2092.68 Hz with K below.
 """
 
-#: Hz per unit of 2^ONU * inc / divisor. From .STAB-6 entry 768 (A 440 at
-#: log 2816: ONU 1, inc 123, divisor 91): K = 440 / (2 * 123 / 91).
-K_HZ = 440 * 91 / (2 * 123)
+#: Hz per unit of 2^ONU * inc / divisor: the SS4 card's 32 MHz crystal
+#: (board photo, #83) / 6 / (256 x 128) = 162.7604 Hz. A least-squares fit
+#: over all 1024 Release L .STAB-6 entries gives 162.7607; the single A 440
+#: entry (768: ONU 1, inc 123, divisor 91) gave 440 x 91 / 246 = 162.7642
+#: before #83. That entry now plays 439.990 Hz (-0.04 cents).
+K_HZ = 32_000_000 / 6 / (256 * 128)
 
 #: Points per waveform; each oscillator pulse steps one point.
 WAVE_POINTS = 256

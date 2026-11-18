@@ -23,6 +23,25 @@ US 4,345,500:
   interface to the D160 card, wave memory, index and envelope
   interpolators, crystal oscillator, **SS5/SS7** waveform DAC, envelope
   MDAC, volume DAC (and pan on SS7).
+* Board photos (`reference/boards/`, StudioRepair; #83) **[OBS]**:
+  **SS4-580** carries a **FOX 32.000000 MHz** crystal and only TTL
+  (74S74, 74S113 ×2, 74LS163, 74LS283, 74AS00 ×3, 74AS240, 74ALS240,
+  74ALS244 ×3, 74ALS374 ×2, 74ALS175, DM7438): no RAM, PROM or counter
+  banks, so the wave memory and interpolators are **not** on SS4, contrary
+  to the analysis above. **SS7-284**: AD7528 ×4 (dual 8-bit multiplying
+  DACs, 8 MDAC channels), DAC-08 ×3, TL064 ×~8, TL074 ×2, Am29821,
+  74LS374 ×4, 74LS161/174/175/139/04; a 24-pin part under a sticker (U17,
+  perhaps the pan PROM) and two Harris 16-pin parts are unreadable;
+  per-channel R/C pairs (R6–R13, C21–C28) beside the TL064s, values
+  unreadable.
+* Clocks **[INFERRED]** from the 32 MHz crystal: the interpolator clock
+  333 ⅓ kHz (NED `144-TIM1`, M24) = 32 MHz / 96 exactly; the oscillator
+  clock = 32 MHz / 6 = 5.3333 MHz, i.e. K = 32 MHz / 6 / (256 × 128) =
+  162.7604 Hz. A least-squares fit of K over all 1024 Release L `.STAB-6`
+  entries gives 162.7607 (mean pitch error with the crystal K −0.003
+  cents; with the earlier K from the single A 440 entry, 162.7642, +0.037
+  cents; RMS 0.674 cents for both, the table's quantization). The model
+  uses the crystal K (#83); the divider chain itself is [UNK].
 * Wave memory: 32 waveforms of 256 points shared by all voices (the two
   extra address bits come from the CPU: `TIM`).
 * Each voice = two channels: even = modulator, odd = carrier.
@@ -37,7 +56,7 @@ INC (fn 0) = increment − 1                 8 bits
 NNU (fn 1) = 256 − divisor + (INC >> 3)    8 bits
 ONU (fn 2) = octave, 0–7
 
-f = K × 2^ONU × increment / divisor,  K = 162.764 Hz
+f = K × 2^ONU × increment / divisor,  K = 32 MHz / 6 / 32768 = 162.7604 Hz
 ```
 
 * The oscillator adds the increment to an 8-bit accumulator with modulus
@@ -183,7 +202,8 @@ maps partial volume 0–1000 to 0–255 for `VOL`. Release L rewrites `VOL`
 
 | Item | Needed |
 |---|---|
-| Interpolator clock F: 333,333 Hz is stated by NED (`144-TIM1`); its source on the cards | schematics |
+| Interpolator clock F: 333,333 Hz is stated by NED (`144-TIM1`) = 32 MHz / 96 (SS4 crystal, #83); the divider on the cards | schematics |
+| Whether the oscillator accumulator runs at 32/3 MHz with one more divider stage (would remove the model's two-pulses-per-tick case when increment > divisor); SS7 R/C values (output filter or `VOL` sample-and-hold) | schematics or higher-resolution photos |
 | D160 bit 0 behaviour at power-on and its exact gating | schematics |
 | Pan-law PROM contents; whether the envelope MDAC is linear | schematics/ROM dump or recordings |
 | `TIM` bit 5 (NED sets it with every memory number and writes `TIM` = 0 only to idle channels, `600-INIT`; no definition in the source); the "INC write also sets ONU = 0, NNU = 255" note in NED `144-TIM3` (the diagnostics write INC 255 last as a "large inc to zero theta", `NEWDIAGS/MULTICAT/FMVLIB1`: a phase reset) | schematics or hardware |
@@ -199,7 +219,7 @@ hardware; only the final mix is floating point.
 
 | Part | Model | Status |
 |---|---|---|
-| Oscillator | per tick of 256 × 128 × K = 5.3335 MHz: accumulator += increment, modulus divisor; each wrap is a pulse; a 7-stage divider passes one pulse in 2^(7 − ONU) to the 8-bit point counter | step rate **[OBS]** (pitch table); clock tree **[UNKNOWN]**: increment can exceed the divisor (A 440: 123/91), so at this clock one tick can give two pulses |
+| Oscillator | per tick of 32 MHz / 6 = 5.3333 MHz (= 256 × 128 × K): accumulator += increment, modulus divisor; each wrap is a pulse; a 7-stage divider passes one pulse in 2^(7 − ONU) to the 8-bit point counter | step rate **[OBS]** (pitch table); clock **[INFERRED]** (SS4 32 MHz crystal, `.STAB-6` fit, #83); divider chain **[UNKNOWN]**: increment can exceed the divisor (A 440: 123/91), so at this clock one tick can give two pulses |
 | Interpolators | `sim.fm.Interpolator`, one clock per 3000 ns (333 1/3 kHz; 192 kHz before M24) | **[OBS]** NED `144-TIM1` (clock rate), `181-UPD1` (attack units) |
 | Modulator | `SINE_ROM[point]`, round(127.5 + 127.5 sin(2πn/256)) | **[CHOICE]**: ROM not dumped |
 | FM | carrier address = (carrier point + (m × index) >> (8 − shift)) & 255 | **[INFERRED]** card analysis |

@@ -243,7 +243,7 @@ def _device_header(cpu):
     return out
 
 
-OSC_NUM, OSC_D = 656015360, 123_000_000_000      # sim/voice.py OSC_CLOCK = NUM / D per ns
+OSC_NUM, OSC_D = 656_000_000, 123_000_000_000    # sim/voice.py OSC_CLOCK = NUM / D per ns (32 MHz / 6, #83)
 SAMPLE_RATE = 768_000                             # render instants: 48 kHz x 16 (sim/pcm.py)
 
 

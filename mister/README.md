@@ -13,6 +13,7 @@ Quartus project for the Synclavier II core on MiSTer (DE10-Nano), built on
 | `rtl/pll*` | Template's PLL, set to 50 MHz (`synclavier_core` CLK_HZ must match) |
 | `sys/` | MiSTer framework, unchanged (GPL-2.0: `sys/LICENSE-GPL2`); update from upstream, do not edit |
 | `build.sh` | compile with Quartus Lite 17.0; fails on negative slack |
+| `mgl/` | the MGLs attached to each release (Release 5.3, Release L) |
 
 ## Build
 
@@ -29,6 +30,23 @@ variable `QUARTUS_RUNNER` to `truenas`; unset it to go back to
 mister/build.sh                     # quartus_sh on PATH
 docker run --rm -v "$PWD:/build" raetro/quartus:17.0 bash -c "cd /build && mister/build.sh _out"
 ```
+
+With an output directory, the RBF is named as MiSTer expects:
+`Synclavier_YYYYMMDD.rbf`, with the build date that the OSD shows as the
+version (`vYYMMDD`, `BUILD_DATE` from `sys/build_id.tcl`).
+
+## Releases
+
+A release is a GitHub Release named after its RBF: tag
+`Synclavier_YYYYMMDD`, on the commit the RBF was built from, with
+`Synclavier_YYYYMMDD.rbf`, the MGLs in `mgl/` and `SHA256SUMS`. The
+**Release** workflow (`.github/workflows/release.yml`, run by hand:
+`gh workflow run release.yml [-f run_id=N]`) publishes the RBF of a
+successful **Build RBF** run on `main` (default: the latest) without
+recompiling, so the released file is the one CI built and timing-checked.
+One release per build date; RBFs are not committed to git
+(`tests/test_repo_hygiene.py`). Before releasing, run the build on a
+MiSTer (Release 5.3 and Release L boot).
 
 ## Use
 

@@ -69,7 +69,14 @@ fi
 rbf=output_files/$PROJECT.rbf
 if [ -f "$rbf" ]; then
     mkdir -p "$OUTDIR"
-    if [ "$OUTDIR" != output_files ]; then cp "$rbf" "$OUTDIR/Synclavier_$(date -u +%Y%m%d).rbf"; fi
+    # Named as MiSTer expects, <core>_YYYYMMDD.rbf, with the date the OSD
+    # shows ("V,v" BUILD_DATE, yymmdd in build_id.v from sys/build_id.tcl)
+    # so the file name and the version agree even across midnight.
+    if [ "$OUTDIR" != output_files ]; then
+        d=$(sed -n 's/.*BUILD_DATE "\([0-9]\{6\}\)".*/\1/p' build_id.v 2>/dev/null || true)
+        [ -n "$d" ] || d=$(date -u +%y%m%d)
+        cp "$rbf" "$OUTDIR/Synclavier_20$d.rbf"
+    fi
     ls -l "$rbf"
 else
     echo "no RBF produced"

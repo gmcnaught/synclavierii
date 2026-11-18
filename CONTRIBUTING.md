@@ -25,6 +25,12 @@
   NED material may be added, with its licence notice, and recorded in
   `docs/sources.md`.
 
+## Releases
+
+Versions are build dates, as for MiSTer cores: `Synclavier_YYYYMMDD.rbf`,
+released by the **Release** workflow from a **Build RBF** run on `main`
+(see [`mister/README.md`](mister/README.md#releases)).
+
 ## Licence (decision D1)
 
 Contributions are accepted under the MIT licence in [`LICENSE`](LICENSE).

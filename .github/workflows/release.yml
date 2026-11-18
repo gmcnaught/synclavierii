@@ -1,0 +1,122 @@
+name: Release
+
+# Publishes a versioned core as a GitHub Release, MiSTer style: the version
+# is the build date, the asset is Synclavier_YYYYMMDD.rbf (the date the OSD
+# shows as vYYMMDD), and the tag is the same name, on the commit the RBF was
+# built from. It does not compile: it takes the synclavier-rbf artifact of a
+# successful Build RBF run on main (default: the latest), so the released
+# file is the one CI built and timing-checked. Artifacts expire after 90
+# days; rebuild with Build RBF (workflow_dispatch) for an older commit.
+#
+# The RBF is attached to the release, not committed: tests/test_repo_hygiene.py
+# keeps built cores out of git. The release also carries the MGLs in
+# mister/mgl/ and SHA256SUMS. Only push and workflow_dispatch runs
+# on main qualify, and the commit must be on main. One release per build date: the run fails when
+# the tag exists (delete that release and tag first to replace it).
+#
+# Run: Actions > Release > Run workflow (or `gh workflow run release.yml
+# [-f run_id=N]`).
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Build RBF run id to release (blank = latest successful run on main)
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Publish release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Find the build
+        id: build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.inputs.run_id }}
+        run: |
+          set -euo pipefail
+          if [ -z "$RUN_ID" ]; then
+            RUN_ID=$(gh run list --workflow build-rbf.yml --branch main --status success --limit 20 \
+                       --json databaseId,event \
+                       --jq '[.[] | select(.event == "push" or .event == "workflow_dispatch")][0].databaseId // empty')
+          fi
+          case "$RUN_ID" in ''|*[!0-9]*) echo "::error::no Build RBF run (run_id='$RUN_ID')"; exit 1;; esac
+          gh run view "$RUN_ID" --json workflowName,event,headBranch,conclusion,headSha,url > run.json
+          cat run.json
+          # push / workflow_dispatch only: a fork's pull request can come from a branch named main
+          jq -e '.workflowName == "Build RBF" and .headBranch == "main" and .conclusion == "success"
+                 and (.event == "push" or .event == "workflow_dispatch")' run.json >/dev/null ||
+            { echo "::error::run $RUN_ID is not a successful Build RBF run on main"; exit 1; }
+          {
+            echo "run_id=$RUN_ID"
+            echo "sha=$(jq -r .headSha run.json)"
+            echo "url=$(jq -r .url run.json)"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.build.outputs.sha }}
+          fetch-depth: 0
+
+      - name: Collect the release files
+        id: files
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ steps.build.outputs.run_id }}
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor HEAD origin/main ||
+            { echo "::error::$(git rev-parse HEAD) is not on main"; exit 1; }
+          gh run download "$RUN_ID" -n synclavier-rbf -D rbf
+          ls -l rbf
+          mapfile -t rbfs < <(find rbf -name '*.rbf')
+          [ "${#rbfs[@]}" -eq 1 ] || { echo "::error::expected one RBF, found ${#rbfs[@]}"; exit 1; }
+          name=$(basename "${rbfs[0]}")
+          [[ "$name" =~ ^Synclavier_[0-9]{8}\.rbf$ ]] || { echo "::error::RBF name $name is not Synclavier_YYYYMMDD.rbf"; exit 1; }
+          tag=${name%.rbf}
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
+            echo "::error::tag $tag exists: one release per build date (delete it to replace it)"; exit 1
+          fi
+          mkdir dist
+          cp "${rbfs[0]}" dist/
+          cp mister/mgl/*.mgl dist/
+          (cd dist && sha256sum -- * > SHA256SUMS && cat SHA256SUMS)
+          { echo "tag=$tag"; echo "version=${tag#Synclavier_}"; } >> "$GITHUB_OUTPUT"
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.files.outputs.tag }}
+          VERSION: ${{ steps.files.outputs.version }}
+          SHA: ${{ steps.build.outputs.sha }}
+          RUN_URL: ${{ steps.build.outputs.url }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          set -euo pipefail
+          cat > notes.md <<EOF
+          Synclavier core for MiSTer, build $VERSION (the OSD shows v${VERSION:2}), compiled by [Build RBF]($RUN_URL) from $SHA.
+
+          **Install.** Copy \`$TAG.rbf\` to \`_Computer/\` on the SD card and an MGL to the SD card's root; put the disk images the MGL names in \`games/Synclavier/\`. No NED disk images are included: build them from your own copies ([Using the core]($REPO_URL/blob/$TAG/README.md#using-the-core)).
+
+          | MGL | Software | Images (\`games/Synclavier/\`) |
+          |---|---|---|
+          | \`Synclavier-5.3.mgl\` | Release 5.3 (VPK) | \`W0-53.IMG\`, \`W0-53.SST\` from \`tools/w0_image.py\` |
+          | \`Synclavier-ReleaseL.mgl\` | Release L (ORK) | \`ORK-LM.SST\`, \`03-SYSTD.IMG\`, \`14-RTPO1.IMG\`, \`06-TIMBD.IMG\` |
+
+          For MIDI, set the UART to MidiLink in the MiSTer menu.
+
+          **Licence.** The RBF contains the MiSTer framework and is distributed under GPL-2.0; its source is this tag ($REPO_URL/tree/$TAG). \`SHA256SUMS\` lists the files' checksums.
+          EOF
+          gh release create "$TAG" dist/* --target "$SHA" --title "Synclavier $VERSION" \
+            --notes-file notes.md --generate-notes

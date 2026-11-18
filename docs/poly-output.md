@@ -146,6 +146,27 @@ in flight; the DDR3 controller shared with the HPS and the scaler is the
 [UNK] limit. Too little throughput shows as `late` (real-time voices) or a
 slower CPU, never as wrong samples in lockstep.
 
+### 4.1 Measured on the .62 (abdaf62, 128 poly voices, 4 × 32 MB)
+
+`P` read twice, 30 s apart, at idle (real-time voices, HDMI scaler on):
+
+| load test | extra fetches/s | `P` counted in 30 s | Underrun |
+|---|---|---|---|
+| Off | 0 | 0 | 0 |
+| 1/2 voices | 6.5 M | 1 | 0 |
+| All voices | 12.9 M | ~750–1450 (25–50/s; the 12-bit display may have wrapped) | 0 |
+| All voices, Gymnopédie playing | 12.9 M less the sounding voices | ~47/s | 0 |
+
+So the .62 sustains about 13 M random 64-bit reads/s: at the worst case
+about 0.05 % of P values come late (each is replaced by the previous P for
+one 9.9 µs step); at 6.5 M/s and below practically none. Multi-beat bursts
+are not needed for realistic loads. From an earlier build that held the CPU
+on lateness, a rate pass with 128 random fetches takes about 9.4 µs of its
+9.9 µs tick. Side effects of the load test itself: at All voices, poly
+memory writes wait for nearly full passes (a sample load added 2 s of lag);
+with 128 voices, boot lag is the CPU waiting for the 128 MB clear (119 ms
+without the load test, as before M26).
+
 ## 5. Verification
 
 | check | result |
@@ -154,7 +175,8 @@ slower CPU, never as wrong samples in lockstep.
 | `tests/sim/test_pcm.py` `test_poly_box`, `test_poly_aliasing` | interval weights, start(), constant P → P; alias −124 dB re tone (was −13.9 dB) |
 | `tests/hdl/test_board.py` `test_dev_poly` | HDL P(m) = Python in 9 configurations (bins, last bin, mono, distributor, load test on: 566k fetches vs 71k, same P), memory writes under sounding voices |
 | `tests/hdl/test_board.py` `test_poly_box` | HDL x' = Python, 6000 instants, random P latency, saturation |
-| .62 | see the PR |
+| .62, default image (64 voices, 36 MB) | boot Lag 0 (first build: 48.6 ms), Gymnopédie on FULL PIANO: Underrun 0, Overrun 0, `P` 002 all through (the two ticks in the 20 µs row clear after reset) |
+| .62, 128 voices, load test | see §4.1 |
 
 ## 6. Unknown
 

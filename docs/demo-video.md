@@ -134,7 +134,7 @@ which capture cards take), `vsync_adjust=0` with a standard `video_mode`
 | `data/demos/smoke.demo` | W0-53, W1-TIMBRES | three keys and START/STOP on SIMPLE FM SINE; FM Timbre display (6 s) |
 | `data/demos/chorale-synclav-organ.demo` | W0-53, W1-TIMBRES | Bach BWV 269 (`data/sequences/`), live on SYNCLAV-ORGAN 2. (W1:RESYNTH5 3-6), FM Timbre display. Also tried: SYNCLAV-ORGAN 1. (3-1), STRINGS 5. (1-7), PIPE ORGAN #1 (W1:TIMBDSK3 1-2: 8 voices a note, clips 2.25 % at the 1/4 FM gain) |
 | `data/demos/gymnopedie-piano.demo` | W0-53, W1-SAMPLES | Satie, Gymnopedie No. 1 (musetrainer MusicXML), live at 69 BPM on FULL PIANO (W1:PIANO1 2-1, sampled), Patch display |
-| `data/demos/gymnopedie-notation.demo` | W0-53-GYMNO, W1-SAMPLES-FIX | the same piece played by the sequencer (W0:.SQ5DATA) on CONCERT GRAND-16, melody/bass/chords at velocity 17/13/9, while Music Notation follows it |
+| `data/demos/gymnopedie-notation.demo` | W0-53-GYMNO, W1-SAMPLES | the same piece played by the sequencer (W0:.SQ5DATA) on CONCERT GRAND-16, melody/bass/chords at velocity 17/13/9, while Music Notation follows it |
 
 ## Notes
 

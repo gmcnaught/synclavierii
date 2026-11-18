@@ -174,9 +174,11 @@ def num(x):
 
 def parse_text(path):
     lines = open(path, encoding="utf-8", errors="replace").read().split("\n")
-    e = {"title": lines[0].strip(), "kv": []}
+    e = {"title": lines[0].strip(), "kv": [], "export": None}
     for l in lines[2:]:
         f = l.split()
+        if len(f) >= 5 and f[0] == "SynclavierVirtualInstrumentTimbreVersion000":
+            e["export"] = int(f[4]) if f[4].isdigit() else None
         if len(f) >= 4 and f[0].startswith("Synclavier"):
             e["kv"].append((f[0], int(f[1]), int(f[2]), int(f[3]),
                             [num(x) for x in f[4:]]))
@@ -193,6 +195,36 @@ def clamp(x, lo, hi):
     return max(lo, min(hi, x))
 
 
+# Values Synclavier3 leaves out of its text (a key equal to its default is
+# omitted), per export: the header's fifth number is 927 in all 471 entries of
+# the sample/patch libraries and 3999 in all 943 of the FM timbre libraries,
+# and the two exports do not share every default.
+#   VEnvPeak 0: neither export ever writes 0 (the FM export writes 100.0
+#     2,132 times); the Synclavier V banks hold peak 0 where the 3999 text
+#     has no line (236 of 253 partials; the other 17 are unused). [OBS]
+#   VEnvAttack 3 ms: never written in either export while 0, 1, 2, 4, 5 ms
+#     are; the 927 binary holds 5 (2.8 ms) where the line is absent. [OBS]
+#   IEnvAttack: 927 binaries hold 0 where absent (639 partials) [OBS]; the
+#     3999 export writes 0.0 1,058 times and 1, 2, 4, 5, 6 ms but never 3 ms,
+#     so its default is 3 ms [INF].
+#   TremSync: the 927 export writes only "1" (16 lines), the 3999 export only
+#     "0" (359 lines); Synclavier V has sync on exactly where the 3999 text
+#     has no line (183 partials) and off where it says 0 (359). [OBS]
+# (Ported from branch claude/kind-rubin-r57h8c.) tools/synx.py entries say
+# export 3999 and write the other keys explicitly.
+EXPORT_DEFAULTS = {
+    927: {"VEnvPeak": 0.0, "VEnvAttack": 0.003, "IEnvAttack": 0.0, "_TremSync": 0},
+    3999: {"VEnvPeak": 0.0, "VEnvAttack": 0.003, "IEnvAttack": 0.003, "_TremSync": 1},
+}
+
+
+def partial_kv(e, kv):
+    """A partial's text values over the defaults of the entry's export."""
+    d = dict(EXPORT_DEFAULTS.get(e.get("export"), EXPORT_DEFAULTS[927]))
+    d.update(kv)
+    return d
+
+
 # Stereo/AM mode (vibwave bits 7-15), modes 0-24 per 301-SUB1 COMPUTE.STEREO.
 # Text keys [OBS on pairs]: mode 5 = Alt+Invert+Wave2, 10 = Invert+Sync,
 # 11 = Wave2+Sync, 16 = Invert, 21 = Phase+Sync, 22 = Phase, 23 = Phase+
@@ -202,7 +234,7 @@ def stereo_mode(kv):
     if not kv.get("TremDepth"):
         return 0
     inv = bool(kv.get("TremInvert"))
-    sync = bool(kv.get("TremSync"))
+    sync = bool(kv.get("TremSync", kv.get("_TremSync", 0)))
     wave = int(kv.get("TremWave", 0))
     if "TremPhase" in kv:                       # amplitude modulation
         return (23 if inv else 21) + (0 if sync else 1)
@@ -210,8 +242,8 @@ def stereo_mode(kv):
         if wave == 4:
             return 19
         return 5 if inv else 6                  # triggered ping-pong
-    if inv and "TremSync" not in kv and "TremWave" not in kv:
-        return 0                                # [OBS] 17 of 18 pairs: mode 0
+    if inv and "TremSync" not in kv and not sync and "TremWave" not in kv:
+        return 0                                # [OBS] 927 export, 17 of 18 pairs: mode 0
     base = 9 if sync else 15                    # periodic: sine
     if wave == 2:
         base += 2                               # square
@@ -228,10 +260,7 @@ def encode_partial(kv, coefs, phases):
     w[1] = clamp(int(round(g("VEnvAttack") * 1000 / 0.5625)), 0, 26667)
     w[2] = clamp(ms(g("VEnvIDecay")), 0, 30000)
     w[3] = clamp(ms(g("VEnvFDecay", 0.1)), 0, 30000)
-    # No key = 0: Regen writes VEnvPeak 100.0 explicitly (2,132 times) and
-    # never 0.0; Synclavier V holds 0 for 236 of 253 partials without the
-    # key (the other 17 are unused partials) [OBS, tools/synx.py].
-    w[4] = clamp(int(round(g("VEnvPeak", 0.0) * 10)), 0, 1000)
+    w[4] = clamp(int(round(g("VEnvPeak", 0.0) * 10)), 0, 1000)    # see EXPORT_DEFAULTS
     w[5] = clamp(int(round(g("VEnvSust") * 10)), 0, 1000)
     w[6] = clamp(ms(g("IEnvDelay")), 0, 30000)
     w[7] = clamp(int(round(g("IEnvAttack") * 1000 / 0.5625)), 0, 26667)
@@ -478,7 +507,7 @@ def encode_entry(e):
         if p not in present:
             t["partials"].append(None)
             continue
-        kv = per[p]
+        kv = partial_kv(e, per[p])
         pt = {"params": encode_partial(kv, coefs.get(p), phases.get(p)), "frames": []}
         pi = encode_pinfo(kv)
         nfr = max([f for f in fcoefs[p] if f > 0] + [f for f in ftf[p] if f > 0] + [0])

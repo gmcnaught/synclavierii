@@ -361,9 +361,9 @@ no such inputs.
 * FM off: `Partial Modulation` (F.M. amount) 0, the index envelope at its
   reset values (peak and sustain 1000, attack 3 ms, final decay 0.1 s) in
   all 398 partials whose Regen text has no index peak or sustain. NED has
-  0 there (sample-library binaries: every omitted index envelope word is 0
-  in 639–657 partials). `convert` writes index peak and sustain 0 and
-  clears an attack of 3 ms or final decay of 0.1 s.
+  peak and sustain 0 there. `convert` writes index peak and sustain 0 and
+  clears a final decay of 0.1 s (attack 3 ms is the FM export's default
+  and is kept). Inaudible either way.
 * Rates of features that are off hold reset values (tremolo 5 Hz in 1,803
   partials, repeat 5 Hz, portamento 0.225); `convert` writes them only
   while tremolo depth, repeat/arpeggiate or portamento is on, as the text
@@ -390,15 +390,21 @@ every preset. The differences:
 | Tympani entries, 6 others | < 25 each | several presets named "Tympani" (name pairing ambiguous); single-value disagreements |
 | frame pitch, splice | 21 / 5 | pitch beyond ±48 semitones stored 0, +5 stored 3.875, 0.1 s splice stored 0 |
 
-Found on the way, in the Regen path: `stmb.py` read an omitted `VEnvPeak`
-as 100. Regen writes `VEnvPeak 100.0` explicitly 2,132 times and `0.0`
-never, and the `.synx` holds 0 for 236 of the 253 partials without the
-key (e.g. Resynth 1 "Strings #1": attack 1.25 s to peak 0, initial decay
-7.8 s up to sustain 100); the sample-library pairs never omit it. The
-default is now 0 (`stmb.py verify` unchanged). Likewise Regen writes
-`TremSync` only as 0 (359 times), so an omitted key means sync on, which
-the `.synx` confirms in 183 partials; `stmb.py`'s stereo-mode code reads an
-omitted key as off (not changed; affects only the text path).
+Regen's omitted-key defaults (`stmb.EXPORT_DEFAULTS`, ported from branch
+`claude/kind-rubin-r57h8c`): the text header's fifth number is 927 in all
+471 sample-library entries and 3999 in all 943 FM-library entries, and the
+two exports omit different defaults [OBS unless marked]:
+
+| Key omitted | 927 (sample libraries) | 3999 (FM libraries) | Evidence |
+|---|---|---|---|
+| `VEnvPeak` | 0 | 0 | 100.0 written 2,132 times, 0.0 never; Synclavier V holds 0 in 236 of 253 partials without the key (e.g. Resynth 1 "Strings #1": attack 1.25 s to peak 0, initial decay 7.8 s up to sustain 100). `stmb.py` used 100 before |
+| `VEnvAttack` | 3 ms | 3 ms | never written while 0, 1, 2, 4, 5 ms are; the 927 binary holds 5 (2.8 ms) |
+| `IEnvAttack` | 0 | 3 ms [INF] | 927 binaries hold 0 (639 partials); 3999 writes 0.0 1,058 times and never 3 ms; Synclavier V holds 3 ms |
+| `TremSync` | off | on | 927 writes only "1", 3999 only "0" (359); Synclavier V has sync on in the 183 partials without the line |
+
+`stmb.py verify` with these: eattack 657/657 (was 656), the rest
+unchanged. `synx.py` entries are marked export 3999 (keys it omits follow
+the FM export).
 
 ## Library disk: all libraries on W1: (2026-11-10)
 
@@ -473,6 +479,20 @@ local `timbres/Original-NED-Sample-Patch-Libraries.zip`). Git-ignored.
   63, 65/40/45/25/30 kHz the rest. 922 headers have sample-rate word 42 = 0
   and give the rate as period index (word 21), which the loader accepts.
   Compat 4 in 2,051, 1–3 in 24.
+* Sample rates checked (2026-11-18): in all 2,075 files the header's
+  `data.end` time (words 9–11) × rate × channels = valid data (words 2–4),
+  so NED's own rate is the header's. The 62 stereo files at 100 kHz
+  (`*-50`: BDR, SNR, TOM… drums) and SYNDN260 (mono) are 100 kHz per
+  channel: NED keeps the rate per channel (CLARA4, stereo: rate 500, twice
+  CLARA3's data), and SYN-5.3 doubles the address step for stereo
+  (`301-SUB1:197-199`), so they play 100,000 frames/s. None of the 63 is
+  used by a timbre (they reach W1: only with `--all-sounds`). The rate in
+  the text's `SynclavierPTPatchListEntry` lines (the number before the
+  file name) is Synclavier³'s, not NED's: the type-1 frame holds no rate,
+  and the text says 50000 for 14 patches on 40 kHz files (FLTDTA42) and 1
+  on a 25 kHz file (HRPDTA43 11, HRPCN543). The converted files keep the
+  header, so SYN-5.3 uses the real rate. Not yet checked by playing one of
+  these in the simulator (needs the W0 image).
 * Conversion is a copy: `SNCL` words + samples byte-swapped to big-endian,
   padded to 3 + total-data sectors (word 7). No resampling. Loops, pitch,
   marks and the caption stay as they are. (`sound_import.py` builds headers

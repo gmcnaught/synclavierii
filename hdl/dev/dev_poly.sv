@@ -59,7 +59,8 @@
 // Off in simulation.
 //
 // After reset the device clears its block RAM rows and all poly memory
-// (E_MCLR).
+// (E_MCLR); the passes run between the clear's bursts, so with voices on
+// real time they keep up with it (M26: poly_box waits for every P).
 //
 // (Written for Quartus 17: plain constants, no enum-typed function
 // arguments, no variables declared inside procedural blocks.)
@@ -435,7 +436,8 @@ module dev_poly #(
     assign m_wr    = (es == E_MEM && mwr) || es == E_MCLR;
     assign m_wdata = es == E_MCLR ? 16'd0 : req_w;
     assign m_wide  = es == E_MCLR;
-    assign clearing = es == E_CLEAR || es == E_MCLR;
+    logic        mclr;                           // the memory clear is not finished
+    assign clearing = es == E_CLEAR || mclr;
 
     // ------------------------------------------------------------ engine
     always_ff @(posedge clk) begin
@@ -477,23 +479,25 @@ module dev_poly #(
             now <= '0; next_rate <= '0; next_env <= '0;
             req <= 1'b0; pq <= 1'b0;
             a1 <= 1'b0; a2 <= 1'b0;
-            dac_on <= '0; lval <= '0; lfsr <= 23'h5A5A5;
+            dac_on <= '0; lval <= '0; lfsr <= 23'h5A5A5; mclr <= 1'b0;
             f_wp <= '0; f_wp_d <= '0; f_rp <= '0; f_tp <= '0;
         end else case (es)
             E_CLEAR: begin
                 cnt <= cnt + 11'd1;
                 if (cnt == 11'd1023) begin
-                    es <= E_MCLR; cnt <= '0; maddr <= '0; req_w <= 16'd0;
+                    es <= E_MCLR; mclr <= 1'b1; cnt <= '0; maddr <= '0; req_w <= 16'd0;
                 end
             end
             // all poly memory to zero, as the model starts: SYN-5.3 reads
             // some of it before writing (the bin header, the size probe's
             // saved words, sectors 22-25 at start-up), and DDR3 holds
             // whatever was there before. bins x limit / 512 wide writes,
-            // each a 128-beat DDR3 burst; poly accesses wait for it.
+            // each a 128-beat DDR3 burst; poly accesses wait for it. Between
+            // bursts the passes that fall due run (E_IDLE comes back here).
             E_MCLR: if (m_ack) begin
                 maddr <= maddr + 30'd512;
-                if (maddr + 30'd512 >= total) es <= E_IDLE;
+                if (maddr + 30'd512 >= total) mclr <= 1'b0;
+                if (maddr + 30'd512 >= total || rate_due || env_due) es <= E_IDLE;
             end
             // passes in time order; a rate pass waits for the last one's fetches
             E_IDLE:
@@ -503,6 +507,8 @@ module dev_poly #(
                     end
                 end else if (env_due) begin
                     es <= E_ENV; cnt <= '0; pq <= 1'b0;
+                end else if (mclr) begin
+                    es <= E_MCLR;                        // the clear goes on
                 end else if (req && !enable) begin       // the old stub
                     rdata <= 16'd0; ack <= 1'b1; req <= 1'b0;
                 end else if (req && req_reg != 2'd3) begin

@@ -99,12 +99,18 @@ growing `P` count (real-time voices) and lag.
 
 Keeps voice time as `dev_poly` does; `dev_fm` exports each instant's tick
 and offset (`inst`, `inst_d`). FM samples wait (8 deep) until the P they
-need has come; with 4 waiting it holds the CPU (`stall`, charged to
-STALL_POLY), which in lockstep stops voice time, so the output never
-depends on how long `dev_poly` takes. With voices on real time (M14) time
-does not stop: with 8 waiting the oldest sample goes out with that P taken
-as P_cur and the P is dropped when it arrives; `late` counts these, shown on
-the status line as `P` + 3 hex digits (col 76). Two multipliers used in
+need has come. With voices on CPU time (lockstep) 4 waiting hold the CPU
+(`stall`, charged to STALL_POLY), which stops voice time, so the output
+never depends on how long `dev_poly` takes. With voices on real time (M14)
+a hold would not stop them, only add lag, so there is none: with 8 waiting
+the oldest sample goes out with that P taken as P_cur and the P is dropped
+when it arrives; `late` counts these, shown on the status line as `P` + 3
+hex digits (col 76; FFF and up as FFF).
+
+`dev_poly` runs its passes between the bursts of the poly memory clear
+after reset, so voice time does not fall behind during it. (The first .62
+build cleared first: 32 MB took long enough that `P` saturated at FFF and
+the CPU hold added 30 ms of boot lag.) Two multipliers used in
 turn, 8 clocks a sample. In `able_sys_top` (no `dev_poly`) `en` = 0: x' is
 the FM part.
 

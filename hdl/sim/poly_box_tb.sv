@@ -19,7 +19,7 @@ module poly_box_tb;
     int          errors = 0, lines = 0, outs = 0, stalls = 0;
 
     poly_box dut (
-        .clk, .rst, .en(1'b1), .tick, .tick_ns, .inst, .inst_d, .fm_valid, .fm_l, .fm_r,
+        .clk, .rst, .en(1'b1), .hold_ok(1'b1), .tick, .tick_ns, .inst, .inst_d, .fm_valid, .fm_l, .fm_r,
         .p_valid, .p_l, .p_r, .out_valid, .out_l, .out_r, .stall, .late
     );
 

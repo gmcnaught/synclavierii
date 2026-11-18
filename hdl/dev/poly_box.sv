@@ -13,12 +13,12 @@
 // Instant times: `now` counts voice time as dev_poly's does; dev_fm says
 // when an instant falls in a tick (`inst`, `inst_d` ns into it), and its
 // sample for it comes later, in order. FM samples wait here (up to 8)
-// until the P they need has come; with 4 waiting the CPU is held
-// (`stall`), which in lockstep stops voice time, so the output never
-// depends on how long dev_poly takes. With voices on real time (M14) time
-// does not stop: with 8 waiting the oldest goes out with the P it needs
-// taken as P_cur (`late` counts these), and that P is dropped when it
-// comes. Without `en` (no dev_poly) x' is the FM part alone.
+// until the P they need has come; with voices on CPU time (`hold_ok`) 4
+// waiting hold the CPU (`stall`), which stops voice time, so the output
+// never depends on how long dev_poly takes. With voices on real time (M14)
+// holding the CPU would not stop them (it would only add lag): with 8
+// waiting the oldest goes out with the P it needs taken as P_cur (`late`
+// counts these), and that P is dropped when it comes. Without `en` (no dev_poly) x' is the FM part alone.
 //
 // One sample at a time, two multipliers used in turn (8 clocks a sample;
 // samples come every 65 clocks or more of real time).
@@ -26,6 +26,7 @@ module poly_box (
     input  logic        clk,
     input  logic        rst,
     input  logic        en,
+    input  logic        hold_ok,       // voices on CPU time: stall stops them (not on real time)
     input  logic        tick,
     input  logic [9:0]  tick_ns,
     input  logic        inst,          // dev_fm: a sample instant in this tick ...
@@ -82,7 +83,7 @@ module poly_box (
     wire         go = st == 4'd0 && fq_n != 4'd0 && (!bnd || p_have || fq_n == 4'd8);
     wire         p_take = go && bnd && p_have;
     wire         p_drop = p_valid && debt != 32'd0;
-    assign stall = fq_n >= 4'd4;
+    assign stall = hold_ok && fq_n >= 4'd4;
 
     // the multipliers' operands, by step
     logic signed [26:0] a_x;

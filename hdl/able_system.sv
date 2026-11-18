@@ -429,7 +429,7 @@ module able_system #(
     logic [9:0]  fm_inst_d;
     logic signed [26:0] x_l, x_r;
     poly_box box (
-        .clk, .rst, .en(poly_en), .tick(voice_tick), .tick_ns(voice_tick_ns),
+        .clk, .rst, .en(poly_en), .hold_ok(!rt_voices), .tick(voice_tick), .tick_ns(voice_tick_ns),
         .inst(fm_inst), .inst_d(fm_inst_d),
         .fm_valid(audio_valid), .fm_l(audio_l), .fm_r(audio_r),
         .p_valid(poly_p_valid), .p_l(poly_p_l), .p_r(poly_p_r),

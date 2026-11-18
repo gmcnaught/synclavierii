@@ -44,11 +44,14 @@ render: the frame is tools/vt100.py's VT640 picture (term_display.sv draws
 the same), green as the core's default colour, scaled by whole pixels to
 --height; audio is sim/pcm.py render_frames() of the FM writes and
 devices/poly.py's output P(m) (pcm_out.sv bit for bit: 768 kHz instants,
-the poly staircase averaged over each, 512-tap FIR, gain 1/16; M26).
+the poly staircase averaged over each, 512-tap FIR, M26; the OSD FM/Poly
+levels and limiter at their defaults or --fm-level/--poly-level/--limiter-off,
+#76).
 Simulated time runs about 2-3 x slower than real time.
 """
 import argparse
 import json
+import math
 import os
 import shlex
 import struct
@@ -375,11 +378,18 @@ def render(a):
     poly.advance()
     log("rendering audio (%d FM writes)" % len(cpu.fm.log))
     n = (end_ns - rec_ns) * 48_000 // 1_000_000_000
-    fm = fm_render_parallel(cpu.fm.log, rec_ns, end_ns, cpu.fm.voices, a.jobs,
-                            poly=(poly.out_m0, poly.out_l, poly.out_r))
+    from sim.pcm import LIM_T, limit_frames
+    wide = fm_render_parallel(cpu.fm.log, rec_ns, end_ns, cpu.fm.voices, a.jobs,
+                              poly=(poly.out_m0, poly.out_l, poly.out_r),
+                              fm_level=a.fm_level, poly_level=a.poly_level, limit=None)
+    over = sum(1 for f in wide for v in f if abs(v) > LIM_T)
+    peak = max([abs(v) for f in wide for v in f] or [0])
+    fm = limit_frames(wide, not a.limiter_off)
     clipped = write_mix(wav, fm, n, 10 ** (a.gain / 20))
-    log("audio: %.1f s, %d of %d samples clipped (%.2f%%)%s"
-        % (n / 48_000, clipped, 2 * n, 100 * clipped / max(1, 2 * n),
+    log("audio: %.1f s, peak %.1f dBFS before the limiter, %d of %d samples over -1 dBFS (%s), "
+        "%d clipped (%.2f%%)%s"
+        % (n / 48_000, 20 * math.log10(max(peak, 1) / 32768), over, 2 * n,
+           "clipped" if a.limiter_off else "limited", clipped, 100 * clipped / max(1, 2 * n),
            "" if a.gain == 0 else ", gain %+g dB (not the core's level)" % a.gain))
     vf = "scale=-2:%d:flags=neighbor" % a.height
     cmd = ["ffmpeg", "-loglevel", "error", "-y", "-i", video, "-i", wav, "-vf", vf,
@@ -399,8 +409,8 @@ POLY_LEAD_NS = 2_000_000          # poly recorded from before the FIR's warm-up 
 
 def _fm_chunk(job):
     from sim.pcm import render_frames
-    log, c0, c1, voices, origin, poly = job
-    return render_frames(log, c0, c1, voices=voices, origin_ns=origin, poly=poly)
+    log, c0, c1, voices, origin, poly, kw = job
+    return render_frames(log, c0, c1, voices=voices, origin_ns=origin, poly=poly, **kw)
 
 
 def _poly_slice(poly, c0, c1):
@@ -415,25 +425,32 @@ def _poly_slice(poly, c0, c1):
     return a, pl[a - m0:b - m0], pr[a - m0:b - m0]
 
 
-def fm_render_parallel(log, start_ns, end_ns, voices, jobs=None, poly=None):
+def fm_render_parallel(log, start_ns, end_ns, voices, jobs=None, poly=None,
+                       fm_level=0, poly_level=0, limit=True):
     """pcm_out.sv's 16-bit FM frames from start_ns to end_ns (sim/pcm.py
     render_frames, instants start_ns + k x 1e9 // 768000) in chunks on
     `jobs` processes. Chunks start at start_ns + whole multiples of CHUNK_NS
     (768 instants a ms: whole groups of 16); render_frames rebuilds the
     voice state by replaying the log and warms the FIR up over the 512
     instants before each chunk, so the joined chunks equal one call.
-    poly: (m0, pl, pr), the poly output added before the filter."""
+    poly: (m0, pl, pr), the poly output added before the filter.
+    fm_level, poly_level: OSD level codes (#76). The chunks are rendered
+    unlimited (pcm_wide) and the limiter (limit True/False) runs once over
+    the joined render, from start_ns; limit None returns the pcm_wide pairs."""
     from multiprocessing import get_context
+    from sim.pcm import limit_frames
     log = sorted(log, key=lambda e: e[0])
     cuts = list(range(start_ns, end_ns, CHUNK_NS)) + [end_ns]
-    work = [(log, c0, c1, voices, start_ns, _poly_slice(poly, c0, c1))
+    kw = dict(fm_level=fm_level, poly_level=poly_level, limit=None)
+    work = [(log, c0, c1, voices, start_ns, _poly_slice(poly, c0, c1), kw)
             for c0, c1 in zip(cuts, cuts[1:])]
     if (jobs or 0) == 1 or len(work) == 1:
         parts = [_fm_chunk(w) for w in work]
     else:
         with get_context("spawn").Pool(jobs or os.cpu_count()) as pool:
             parts = pool.map(_fm_chunk, work, chunksize=1)
-    return [x for part in parts for x in part]
+    wide = [x for part in parts for x in part]
+    return wide if limit is None else limit_frames(wide, limit)
 
 
 def write_mix(path, frames, n, gain=1.0):
@@ -566,6 +583,11 @@ def main(argv=None):
     r.add_argument("--fm-voices", type=int, default=32)
     r.add_argument("--poly-bins", type=int, default=1)
     r.add_argument("--wav", help="also keep the audio as this WAV")
+    r.add_argument("--fm-level", type=int, default=0, choices=range(4),
+                   help="OSD FM level code: 0 +12 dB (default), 1 +18, 2 +24, 3 0 dB")
+    r.add_argument("--poly-level", type=int, default=0, choices=range(4),
+                   help="OSD Poly level code: 0 +6 dB (default), 1 +12, 2 0, 3 -6 dB")
+    r.add_argument("--limiter-off", action="store_true", help="OSD Limiter Off: clip at 16 bits")
     r.add_argument("--gain", type=float, default=0,
                    help="dB applied to the mix before clipping (default 0: the core's output)")
     r.add_argument("--jobs", type=int, help="processes for the audio render (default: all CPUs)")

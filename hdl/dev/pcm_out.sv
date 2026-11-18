@@ -1,12 +1,14 @@
 // Audio output stage (M5, M23, M26): the 768 kHz x' (poly_box.sv: the FM
-// sum >>> 14 plus the poly part, saturated to 27 bits) to 48 kHz 16-bit
-// PCM, bit for bit as sim/pcm.py:
+// sum and the poly part at the OSD levels, saturated to 27 bits) to 48 kHz
+// samples in 16-bit units, not clipped (pcm_limit.sv limits or clips them),
+// bit for bit as sim/pcm.py pcm_wide:
 //   every 16th input, newest at n:
 //     acc = sum(fir_coeff(j) x x'[n - j], j = 0 .. 511)   (x' = 0 before the first)
-//     pcm = clip(round_half_even(acc x 32767 / 2^41))
+//     v   = round_half_even(acc x 32767 / 2^41)          (|v| < 2^21)
 // fir_coeff (pcm_fir.svh, tools/gen_pcm_fir.py): a 512-tap low-pass at
-// 21 kHz with integer taps summing to 2^20. Gain (M23): one voice at full
-// level, hard-panned, = 1/16 of full scale (was 1/4; 32 voices clipped). The filter keeps the voice
+// 21 kHz with integer taps summing to 2^20. Gain: x' = FM sum >>> 14 is one
+// voice at full level, hard-panned, = 1/16 of full scale (M23); the OSD FM
+// level shifts less (#76, poly_box.sv). The filter keeps the voice
 // staircase's images (256 x f and up) out of the audio band.
 //
 // One multiply-accumulate a clock per channel: 512 clocks a sum, of the
@@ -23,8 +25,8 @@ module pcm_out (
     input  logic signed [26:0] in_l,           // x'
     input  logic signed [26:0] in_r,
     output logic        out_valid,
-    output logic signed [15:0] out_l,
-    output logic signed [15:0] out_r,
+    output logic signed [21:0] out_l,          // v (pcm_limit.sv)
+    output logic signed [21:0] out_r,
     output logic        stall          // a sum is due while another runs: hold the CPU
 );
     `include "pcm_fir.svh"
@@ -51,9 +53,7 @@ module pcm_out (
     logic signed [AW-1:0] acc_l, acc_r;
 
     // (no parameter-sized casts: Quartus 17 rejects them; signed assignments extend)
-    localparam logic signed [AW+15:0] PMAX = 32767;
-    localparam logic signed [AW+15:0] PMIN = -32768;
-    function automatic logic signed [15:0] pcm(input logic signed [AW-1:0] a);
+    function automatic logic signed [21:0] pcm(input logic signed [AW-1:0] a);
         logic signed [AW+15:0] ae, p, q;
         logic [40:0] r;
         ae = a;
@@ -61,9 +61,7 @@ module pcm_out (
         q = p >>> 41;                               // floor
         r = p[40:0];
         if (r > 41'h100_0000_0000 || (r == 41'h100_0000_0000 && q[0])) q = q + 1'b1;
-        if (q > PMAX) pcm = 16'sd32767;
-        else if (q < PMIN) pcm = -16'sd32768;
-        else pcm = q[15:0];
+        pcm = q[21:0];
     endfunction
 
     wire fall_due = in_valid && count == 4'd15;

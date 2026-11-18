@@ -1,8 +1,9 @@
 # Poly output: F0-rate mix and anti-aliasing (M26)
 
-Code: `sim/devices/poly.py` (P(m)), `sim/pcm.py` (`PolyBox`, `x_in`),
-`hdl/dev/dev_poly.sv`, `hdl/dev/poly_box.sv`, `hdl/dev/pcm_out.sv`,
-`hdl/board/ddram_word.sv`.
+Code: `sim/devices/poly.py` (P(m)), `sim/pcm.py` (`PolyBox`, `x_in`,
+`Limiter`), `hdl/dev/dev_poly.sv`, `hdl/dev/poly_box.sv`,
+`hdl/dev/pcm_out.sv`, `hdl/dev/pcm_limit.sv`, `hdl/board/ddram_word.sv`.
+Output levels and the limiter: §7.
 
 ## 1. Problem (before M26)
 
@@ -47,8 +48,9 @@ x_poly = y·RECIP[d] >> 20      RECIP[1302] = 51543, RECIP[1303] = 51503, else 0
 x'     = sat27((fm >> 14) + x_poly)       to pcm_out's 512-tap FIR
 ```
 
-x' = 64·P for a constant P, so a poly voice has the level it had when it was
-added to the 16-bit output. The interval average puts a sinc(f / 768 kHz)
+x' = 64·P for a constant P at Poly level 0 dB, so a poly voice has the
+level it had when it was added to the 16-bit output (the shifts by OSD
+level are in §7). The interval average puts a sinc(f / 768 kHz)
 ahead of the 768 kHz sampling, so staircase images near multiples of
 768 kHz are attenuated before they fold. The 27-bit saturation (32× full
 scale) keeps pcm_out's multiplier at 27 × 17; outputs that large clip in
@@ -174,7 +176,9 @@ without the load test, as before M26).
 | `tests/sim/test_poly.py` `test_dac_output`, `test_record_skips_silence` | DAC timing, re-read, stereo slave, off |
 | `tests/sim/test_pcm.py` `test_poly_box`, `test_poly_aliasing` | interval weights, start(), constant P → P; alias −124 dB re tone (was −13.9 dB) |
 | `tests/hdl/test_board.py` `test_dev_poly` | HDL P(m) = Python in 9 configurations (bins, last bin, mono, distributor, load test on: 566k fetches vs 71k, same P), memory writes under sounding voices |
-| `tests/hdl/test_board.py` `test_poly_box` | HDL x' = Python, 6000 instants, random P latency, saturation |
+| `tests/hdl/test_board.py` `test_poly_box` | HDL x' = Python, 3000 instants × 5 seeds at the OSD level codes (0/0, 1/1, 2/2, 3/3, 0/3), random P latency, saturation |
+| `tests/hdl/test_board.py` `test_pcm_limit` | HDL limiter = `sim/pcm.py` `Limiter`, 2 × 6000 samples from quiet to 2^21, on/off toggled |
+| `tests/sim/test_pcm.py` `test_pcm_out_arithmetic`, `test_limiter` | one FM voice 8192 at +12 dB (2048 at 0 dB), each step 6 dB; limiter transparent below −1 dBFS, never above, hold, release to unity |
 | .62, default image (64 voices, 36 MB) | boot Lag 0 (first build: 48.6 ms), Gymnopédie on FULL PIANO: Underrun 0, Overrun 0, `P` 002 all through (the two ticks in the 20 µs row clear after reset) |
 | .62, 128 voices, load test | see §4.1 |
 
@@ -182,3 +186,67 @@ without the load test, as before M26).
 
 * .62 sustained DDR3 random-beat rate with HPS + scaler load.
 * Base-address parity of stereo files (whether a frame ever straddles a beat).
+
+## 7. Output levels and limiter (#76)
+
+**Problem.** Before #76, one FM voice at full level, hard-panned, reached
+1/16 of full scale (−24 dBFS), set so a dense 32-voice FM chorale would
+not clip (M23). A poly voice with a full-scale sample at full volume
+reached full scale. Measured in the sim on SYN-5.3 (C4, velocity 100):
+
+| sound | peak | RMS, first 0.5 s |
+|---|---|---|
+| W0 FM timbres 1-1-2 … 1-1-5 | −27 dBFS | −31 dBFS |
+| FULL PIANO 5.7 (poly) | −12 dBFS | −26 dBFS |
+
+A single FM note was hard to hear; poly was louder. The Bach chorale demo
+on SYNCLAV-ORGAN 2. (32 FM voices) already peaked at −2.6 dBFS, so raising
+FM with a hard clip would distort dense FM.
+
+**SYN-5.3 does not set the balance.** FM `VOL` (0–255) and the poly
+volumes (0–4095) are both computed from the same partial volume × volume
+pedal (`MY.VOL · AVOL`; poly also × the sound file's volume field), each
+to its own full scale (`352-SPLC:43,80-87`, `144-TIM3:945-953`). No factor
+matches one to the other; on the instrument the analog output stages and the
+user's mixer did (the 9600's levels are [UNK]).
+
+**OSD (status bits 56–60, 0 = the defaults):**
+
+| item | codes 0 / 1 / 2 / 3 | shift (sim `fm_shift`, `poly_shift`) |
+|---|---|---|
+| FM level | **+12** / +18 / +24 / 0 dB | FM sum `>>>` 12 / 11 / 10 / 14 |
+| Poly level | **+6** / +12 / 0 / −6 dB | poly `y·RECIP >>>` 19 / 18 / 20 / 21 |
+| Limiter | **On** / Off | — |
+
+0 dB is the level before #76. At the defaults one FM voice is 1/4 of full
+scale; at +24 dB it is full scale, about the 9600 figure the user quoted
+(single voice −1 dB peak, +3 dB per doubling of voices; source document
+not in the repo, [UNK]). +3 dB per doubling is uncorrelated voices adding
+in power: 32 voices average 15 dB over one, which a 16-bit output holds
+only through the limiter (so the 9600's −1 dB is presumably an analog
+reference with headroom above it [INF]). Steps are whole 6 dB so a level
+is a shift (`poly_box.sv`).
+
+**Limiter** (`pcm_limit.sv` = `sim/pcm.py` `Limiter`, after `pcm_out`'s
+filter, which now gives v unclipped, |v| < 2^21). One gain G/2^24 for both
+sides; per 48 kHz sample, p = max(|vl|, |vr|):
+
+```
+if p·G > T·2^24:  G = floor(T·2^24 / p); hold = 960        (attack, instant)
+out = (v·G + 2^23) >>> 24                                   (|out| <= T)
+then: hold > 0: hold -= 1;  else G = min(2^24, G + ((2^24 − G) >> 12) + 1)
+T = 29204 (−1 dBFS); hold 20 ms; release time constant 4096 samples (85 ms)
+```
+
+Below −1 dBFS with G at unity the output is v, bit for bit. Off: v clipped
+to 16 bits, as before. The attack has no look-ahead, so the first sample
+over the threshold sets the gain; the 20 ms hold keeps low notes from being
+modulated within a cycle. It costs one multiplier and about 45 clocks a sample
+(pcm_out gives one every 512 or more).
+
+**Renders** (`tools/demo.py render`) take `--fm-level`, `--poly-level`,
+`--limiter-off` and report the peak before the limiter and the samples
+over −1 dBFS. Chunks render unlimited (`render_frames(limit=None)`) and the
+limiter runs once over the joined render, from the recording start (the core's
+starts at reset; the two agree once the gain is back at unity).
+

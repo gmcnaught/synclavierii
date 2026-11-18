@@ -37,6 +37,7 @@ module able_system #(
     // M19 multichannel distributor (dev_multi.sv, outside): routing tags and
     // the level detector's question for the FM voices; the output pair heard
     input  logic [3:0]  out_pair,          // 0 the stereo mix, n outputs 2n-1, 2n
+    input  logic [4:0]  out_level,         // OSD (#76): {limiter off, Poly level, FM level}; 0 the defaults
     input  logic        fm_rt_we,
     input  logic [4:0]  fm_rt_voice,
     input  logic        fm_rt_side,
@@ -429,16 +430,24 @@ module able_system #(
     logic [9:0]  fm_inst_d;
     logic signed [26:0] x_l, x_r;
     poly_box box (
-        .clk, .rst, .en(poly_en), .hold_ok(!rt_voices), .tick(voice_tick), .tick_ns(voice_tick_ns),
+        .clk, .rst, .en(poly_en), .fm_level(out_level[1:0]), .poly_level(out_level[3:2]), .hold_ok(!rt_voices), .tick(voice_tick), .tick_ns(voice_tick_ns),
         .inst(fm_inst), .inst_d(fm_inst_d),
         .fm_valid(audio_valid), .fm_l(audio_l), .fm_r(audio_r),
         .p_valid(poly_p_valid), .p_l(poly_p_l), .p_r(poly_p_r),
         .out_valid(x_valid), .out_l(x_l), .out_r(x_r), .stall(box_stall), .late(poly_late)
     );
 
+    logic        v_valid;
+    logic signed [21:0] v_l, v_r;
     pcm_out pcm (
         .clk, .rst, .in_valid(x_valid), .in_l(x_l), .in_r(x_r),
-        .out_valid(pcm_valid), .out_l(pcm_l), .out_r(pcm_r), .stall(pcm_stall)
+        .out_valid(v_valid), .out_l(v_l), .out_r(v_r), .stall(pcm_stall)
+    );
+
+    // limited (or clipped) to 16 bits (#76)
+    pcm_limit limit (
+        .clk, .rst, .on(!out_level[4]), .in_valid(v_valid), .in_l(v_l), .in_r(v_r),
+        .out_valid(pcm_valid), .out_l(pcm_l), .out_r(pcm_r)
     );
 
     assign dev_rd    = sel_ext && io_rd;

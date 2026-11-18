@@ -6,8 +6,11 @@
 //     a boundary b = m x 9900 with b < t_k (the next one not yet used):
 //       y = P_cur x (b - t_prev) + P(m) x (t_k - b);  P_cur = P(m)
 //     else y = P_cur x d
-//     x_poly = y x RECIP(d) >>> 20     (RECIP: 1302 -> 51543, 1303 -> 51503, else 0)
-//     x' = sat27((fm >>> 14) + x_poly)                to pcm_out
+//     x_poly = y x RECIP(d) >>> ps     (RECIP: 1302 -> 51543, 1303 -> 51503, else 0)
+//     x' = sat27((fm >>> fs) + x_poly)                to pcm_out
+//   fs, ps by the OSD FM level / Poly level codes (#76; sim/pcm.py
+//   fm_shift, poly_shift): fm_level 0-3 = +12/+18/+24/0 dB: fs 12/11/10/14;
+//   poly_level 0-3 = +6/+12/0/-6 dB: ps 19/18/20/21.
 //   After reset t_prev = 0, the next boundary is tick 0, P_cur = 0.
 //
 // Instant times: `now` counts voice time as dev_poly's does; dev_fm says
@@ -26,6 +29,8 @@ module poly_box (
     input  logic        clk,
     input  logic        rst,
     input  logic        en,
+    input  logic [1:0]  fm_level,      // OSD FM level (0 = +12 dB)
+    input  logic [1:0]  poly_level,    // OSD Poly level (0 = +6 dB)
     input  logic        hold_ok,       // voices on CPU time: stall stops them (not on real time)
     input  logic        tick,
     input  logic [9:0]  tick_ns,
@@ -99,6 +104,24 @@ module poly_box (
         b_x = st == 4'd4 ? y_l : y_r;
     end
 
+    function automatic logic signed [38:0] fm_x(input logic signed [39:0] f, input logic [1:0] lv);
+        case (lv)
+            2'd0: fm_x = 39'(f >>> 12);
+            2'd1: fm_x = 39'(f >>> 11);
+            2'd2: fm_x = 39'(f >>> 10);
+            default: fm_x = 39'(f >>> 14);
+        endcase
+    endfunction
+
+    function automatic logic signed [37:0] poly_x(input logic signed [57:0] v, input logic [1:0] lv);
+        case (lv)
+            2'd0: poly_x = 38'(v >>> 19);
+            2'd1: poly_x = 38'(v >>> 18);
+            2'd2: poly_x = 38'(v >>> 20);
+            default: poly_x = 38'(v >>> 21);
+        endcase
+    endfunction
+
     function automatic logic signed [26:0] sat27(input logic signed [38:0] v);
         if (v > 39'sd67108863) sat27 = 27'sd67108863;
         else if (v < -39'sd67108864) sat27 = -27'sd67108864;
@@ -161,7 +184,7 @@ module poly_box (
                 end
                 4'd5: begin
                     y_r <= ya + ma;
-                    x_l <= 38'(mb >>> 20);
+                    x_l <= poly_x(mb, poly_level);
                     st <= 4'd6;
                 end
                 4'd6: begin
@@ -169,8 +192,8 @@ module poly_box (
                     st <= 4'd7;
                 end
                 4'd7: begin
-                    out_l <= sat27(39'(f_l >>> 14) + 39'(x_l));
-                    out_r <= sat27(39'(f_r >>> 14) + 39'(38'(mb >>> 20)));
+                    out_l <= sat27(fm_x(f_l, fm_level) + 39'(x_l));
+                    out_r <= sat27(fm_x(f_r, fm_level) + 39'(poly_x(mb, poly_level)));
                     out_valid <= 1'b1;
                     fq_rp <= fq_rp + 3'd1;
                     t_prev <= t_k;

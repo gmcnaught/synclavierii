@@ -414,16 +414,15 @@ def to_entry(pr):
             vals[key] = DEC[dec](prm["%s %d" % (sname, p + 1)])
         # Synclavier V turns FM off with the partial's F.M. amount (0); the
         # index envelope then holds reset values where NED has none (peak
-        # and sustain 1000, attack 3 ms, final decay 0.1 s) and NED's own
-        # values elsewhere (delays, initial decays). NED has index peak and
-        # sustain 0 [OBS: all 398 such partials have no index peak or
-        # sustain in the Regen text] and 0 where the text omits a word
-        # [OBS: 639-657 sample-library partials]. Inaudible either way.
+        # and sustain 1000, final decay 0.1 s) and NED's own values elsewhere
+        # (delays, initial decays, attack 3 ms = the FM export's default,
+        # stmb.EXPORT_DEFAULTS). NED has index peak and sustain 0 [OBS: all
+        # 398 such partials have no index peak or sustain in the Regen text].
+        # Inaudible either way.
         if prm.get("Partial Modulation %d" % (p + 1)) == 0.0:
             vals["IEnvPeak"] = vals["IEnvSust"] = 0.0
-            for k, reset in (("IEnvAttack", 0.003), ("IEnvFDecay", 0.1)):
-                if vals[k] == reset:
-                    vals[k] = 0.0
+            if vals["IEnvFDecay"] == 0.1:
+                vals["IEnvFDecay"] = 0.0
         for key, v in vals.items():
             put("SynclavierPTPI" + key, p, 0, [v])
         if vals["TremDepth"]:
@@ -453,7 +452,8 @@ def to_entry(pr):
                 put("SynclavierPTPIFrameLoopMode", p, 0, [1.0])
                 put("SynclavierPTPIFrameLoopStart", p, 0, [float(h["loop_start"])])
                 put("SynclavierPTPIFrameLoopEnd", p, 0, [float(fr)])
-    return {"title": title, "kv": kv}
+    # Omitted keys (TremSync on) follow the FM text export's defaults.
+    return {"title": title, "kv": kv, "export": 3999}
 
 
 def _stmb():

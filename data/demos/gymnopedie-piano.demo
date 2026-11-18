@@ -1,0 +1,22 @@
+# Erik Satie, Gymnopedie No. 1 (musetrainer/library MusicXML, public domain
+# composition), played live on the sampled FULL PIANO (W1:PIANO1 bank 2
+# entry 1, its sound files in poly memory). Fetch the score first:
+#   curl -fLo out/scores/Erik_Satie_-_Gymnopedie_No.1.mxl \
+#     https://raw.githubusercontent.com/musetrainer/library/master/scores/Erik_Satie_-_Gymnopedie_No.1.mxl
+title: Satie - Gymnopedie No. 1 (FULL PIANO)
+w0: W0-53.IMG
+w1: W1-SAMPLES.IMG
+
+type D                      # Subcatalog Directory
+wait 3
+type W1:PIANO1
+key ENTER
+wait 4
+program 8                   # BANK 2, ENTRY 1: FULL PIANO 5.7 (sound files load from W1:)
+wait 20
+type I                      # Patch display
+wait 8
+record
+wait 1.5
+play Erik_Satie_-_Gymnopedie_No.1.mxl tempo=69
+wait 4

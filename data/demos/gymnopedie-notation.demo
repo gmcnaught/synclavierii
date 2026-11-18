@@ -1,0 +1,70 @@
+# Erik Satie, Gymnopedie No. 1, played by SYN-5.3's sequencer on the sampled
+# FULL PIANO while Music Notation (Main Menu K) follows it: two staves
+# (right hand track 1, left hand track 2), D major, 3/4, four measures a
+# screen; the screen turns its own pages during playback.
+#
+# W0-53-GYMNO.IMG = W0-53.IMG with the piece as W0:.SQ5DATA (docs/demo-video.md):
+#   python3 tools/seq_record.py record out/scores/Erik_Satie_-_Gymnopedie_No.1.mxl \
+#     --w0 out/images/W0-53.IMG --w1 out/images/W1-SAMPLES.IMG --catalog W1:PIANO1 \
+#     --timbre 2-1 --slot 5 --beat-ms 870 --sseq out/gymnopedie.sseq      # 69 BPM
+#   python3 tools/seq_record.py install out/gymnopedie.sseq --w0 out/images/W0-53.IMG \
+#     --slot 5 --out out/images/W0-53-GYMNO.IMG
+title: Satie - Gymnopedie No. 1 (FULL PIANO, Music Notation)
+w0: W0-53-GYMNO.IMG
+w1: W1-SAMPLES.IMG
+
+button seqb                 # SEQUENCE + 5: W0:.SQ5DATA, with its FULL PIANO tracks
+button timb.5
+wait 30                     # the sound files load into poly memory
+type K                      # Music Notation
+wait 12
+type 2                      # Staves
+key ENTER
+wait 12
+key DOWN
+wait 1
+type 4                      # Measures (a screen)
+key ENTER
+wait 12
+key UP
+wait 1
+key RIGHT
+wait 1
+key RIGHT
+wait 1
+type 3/4                    # TimeSig
+key ENTER
+wait 12
+key DOWN
+wait 1
+key DOWN
+wait 1
+key DOWN                    # staff 1: Key
+wait 1
+type D
+key ENTER
+wait 12
+key DOWN                    # Clf (G)
+wait 1
+key DOWN                    # Res
+wait 1
+type =                      # staff 2: Key
+wait 1
+key UP
+wait 1
+key UP
+wait 1
+type D
+key ENTER
+wait 12
+key DOWN                    # Clf
+wait 1
+type F
+key ENTER
+wait 12
+record
+wait 2
+button start
+wait 125
+button stop
+wait 2

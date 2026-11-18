@@ -1,0 +1,19 @@
+# J. S. Bach, chorale BWV 269, played live on the keys with SYNCLAV-ORGAN 2.
+# (W1:RESYNTH5, bank 3 entry 6); the FM Timbre display shows its partials.
+title: Bach - Chorale BWV 269 (SYNCLAV-ORGAN 2.)
+w0: W0-53.IMG
+w1: W1-TIMBRES.IMG
+
+type D                      # Subcatalog Directory
+wait 3
+type W1:RESYNTH5
+key ENTER
+wait 4
+program 21                  # BANK 3, ENTRY 6: SYNCLAV-ORGAN 2.
+wait 2
+type F                      # FM Timbre display
+wait 8
+record
+wait 1.5
+play ../sequences/bach-bwv269-chorale.txt
+wait 2

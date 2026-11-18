@@ -129,6 +129,7 @@ was exported from (`SNCL` chunk + samples). See `docs/timbre-libraries.md`.
 python3 tools/seq_record.py record PIECE.txt|.mid --w0 W0-53.IMG --slot 1 --sseq OUT.sseq
 python3 tools/seq_record.py view --w0 W0-53.IMG --w1 W1.IMG --catalog W1:DEMOS --slot 1 --piece PIECE.txt --png OUT
 python3 tools/seq_record.py show OUT.sseq                         # header and notes of a sequence file
+python3 tools/seq_record.py install OUT.sseq --w0 W0-53.IMG --slot 5 --out W0-SEQ.IMG   # sequence -> W0:.SQ5DATA
 python3 tools/seq_record.py convert IN.mid OUT.txt [--split 1,2] [--shift BEATS]
 ```
 
@@ -136,4 +137,21 @@ Records a piece (Standard MIDI File or note list; one part per track) in
 the simulator through SYN-5.3's panel (RECORD, timed keys, STOP) and saves
 it with ENTRY WRITE + SEQUENCE + n, then copies `.SQnDATA` out. The pieces
 in `data/sequences/` are public domain or CC0. See `docs/sequences.md`.
+PIECE may also be a MusicXML score (`.mxl`, `.musicxml`): one part per
+staff, ties joined, repeats played once.
+`record --w1 W1.IMG --catalog W1:PIANO1 --timbre 2-1` records on a timbre
+from a W1: library (the sequence still goes to W0:).
+
+## `demo.py`: demo videos
+
+```bash
+python3 tools/demo.py render data/demos/chorale-synclav-organ.demo OUT.mp4 [--wav OUT.wav]
+python3 tools/demo.py events data/demos/chorale-synclav-organ.demo        # the compiled events
+python3 tools/demo.py hw data/demos/chorale-synclav-organ.demo            # play it on the MiSTer
+```
+
+One demo script (panel buttons, keys, terminal keys, scores played live)
+drives both the simulator, rendered to an MP4 of the VT640 picture and
+the core's audio, and the board, through its MIDI in and a virtual
+keyboard while its HDMI is recorded. See `docs/demo-video.md`.
 

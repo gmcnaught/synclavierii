@@ -1,0 +1,16 @@
+# Smoke test: 6 s of video, three keys on the boot timbre.
+title: Smoke test
+w0: W0-53.IMG
+w1: W1-TIMBRES.IMG
+program 1                   # BANK 1 ENTRY 2 of W0:.NEWDATA: SIMPLE FM SINE
+wait 1
+record
+wait 0.5
+note C4 0.8
+note E4 0.8
+note G4 0.8
+button start
+wait 1
+button stop
+type F
+wait 2

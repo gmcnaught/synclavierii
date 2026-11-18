@@ -195,6 +195,73 @@ def test_record_in_simulator():
         assert missing == 0 and extra == 0 and dt <= 10 and dd <= 60, (n, missing, extra, dt, dd)
 
 
+MUSICXML = """<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="3.1">
+  <work><work-title>Two Staves</work-title></work>
+  <part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list>
+  <part id="P1">
+    <measure number="1">
+      <attributes><divisions>2</divisions><key><fifths>1</fifths></key>
+        <time><beats>3</beats><beat-type>4</beat-type></time><staves>2</staves>
+        <clef number="1"><sign>G</sign></clef><clef number="2"><sign>F</sign></clef></attributes>
+      <direction><sound tempo="120"/></direction>
+      <note><pitch><step>D</step><octave>5</octave></pitch><duration>2</duration><staff>1</staff></note>
+      <note><chord/><pitch><step>F</step><alter>1</alter><octave>4</octave></pitch><duration>2</duration><staff>1</staff></note>
+      <note><rest/><duration>2</duration><staff>1</staff></note>
+      <note><pitch><step>G</step><octave>4</octave></pitch><duration>2</duration><staff>1</staff>
+        <tie type="start"/></note>
+      <backup><duration>6</duration></backup>
+      <note><pitch><step>G</step><octave>2</octave></pitch><duration>6</duration><staff>2</staff></note>
+    </measure>
+    <measure number="2">
+      <note><pitch><step>G</step><octave>4</octave></pitch><duration>1</duration><staff>1</staff>
+        <tie type="stop"/></note>
+      <note><grace/><pitch><step>A</step><octave>4</octave></pitch><staff>1</staff></note>
+      <note><pitch><step>B</step><alter>-1</alter><octave>4</octave></pitch><duration>1</duration><staff>1</staff></note>
+    </measure>
+  </part>
+</score-partwise>
+"""
+
+
+def test_musicxml():
+    import zipfile
+    with tempfile.TemporaryDirectory() as d:
+        xml = os.path.join(d, "t.musicxml")
+        with open(xml, "w") as f:
+            f.write(MUSICXML)
+        mxl = os.path.join(d, "t.mxl")
+        with zipfile.ZipFile(mxl, "w") as z:
+            z.writestr("META-INF/container.xml", '<container><rootfiles><rootfile full-path="score.xml"/>'
+                       '</rootfiles></container>')
+            z.writestr("score.xml", MUSICXML)
+        for path in (xml, mxl):
+            p = sr.read_piece(path)
+            assert p.title == "Two Staves" and p.beat_ms == 500 and p.time == "3/4"
+            rh, lh = p.parts
+            assert (rh.key, rh.clef, lh.clef) == ("G", "G", "F")
+            assert [(n.start, n.dur, n.key) for n in rh.notes] == [
+                (0, 1, 66), (0, 1, 74), (2, Fraction(3, 2), 67), (Fraction(7, 2), Fraction(1, 2), 70)]
+            assert [(n.start, n.dur, n.key) for n in lh.notes] == [(0, 3, 43)]
+
+
+def test_install():
+    from tools.ned_disk import add_file, blank_disk, load_bytes, walk
+    with tempfile.TemporaryDirectory() as d:
+        w0 = os.path.join(d, "w0.img")
+        disk = blank_disk(2)
+        add_file(disk, ".SQ5DATA", bytes(512 * 6), typ=4)          # an existing slot is replaced
+        open(w0, "wb").write(disk)
+        seq = os.path.join(d, "s.sseq")
+        open(seq, "wb").write(struct.pack(">300H", *range(300)))
+        out = os.path.join(d, "out.img")
+        assert sr.main(["install", seq, "--w0", w0, "--slot", "5", "--out", out]) == 0
+        W = load_bytes(open(out, "rb").read())
+        files = [(p, t) for p, t, *_ in walk(W)]
+        assert files.count(("/.SQ5DATA", 4)) == 1
+        assert read_file(W, ".SQ5DATA")[:300] == list(range(300))
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:

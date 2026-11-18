@@ -19,8 +19,9 @@
 //
 // Time: `tick`/`tick_ns` advance simulated time. Every 9900 ns a rate pass
 // steps the sounding voices (INC/MOD divider, position, end and loop); every
-// 40 000 ns an envelope pass steps the envelopes and volume ramps that are
-// still moving. A D157 access waits until both passes have caught up with the
+// 40 000 ns an envelope pass steps every voice's envelope counter,
+// accumulator, value and volume ramps (the counters run while the envelope
+// is settled: NEWDIAGS/LOGCAT/LAMP tests 1-4). A D157 access waits until both passes have caught up with the
 // current time, as the Python model advances before each access. The passes
 // read and write the voice rows in block RAM, one voice per clock.
 //
@@ -117,8 +118,9 @@ module dev_poly #(
             7'd8: succ = 7'd9;  7'd9: succ = 7'd10;
             7'd16: succ = 7'd17; 7'd17: succ = 7'd18; 7'd20: succ = 7'd21; 7'd21: succ = 7'd22;
             7'd33: succ = 7'd35; 7'd35: succ = 7'd38; 7'd38: succ = 7'd32; 7'd32: succ = 7'd34;
-            7'd34: succ = 7'd36; 7'd36: succ = 7'd37;
+            7'd34: succ = 7'd36; 7'd36: succ = 7'd37; 7'd37: succ = 7'd33;
             7'd40: succ = 7'd42; 7'd42: succ = 7'd41; 7'd41: succ = 7'd43;
+            7'd43: succ = 7'd40;
             7'd25: succ = 7'd0;  7'd26: succ = 7'd0;  7'd27: succ = 7'd28;
             default: succ = f;
         endcase
@@ -136,13 +138,18 @@ module dev_poly #(
         endcase
     endfunction
 
+    // volume ramp (LAMP tests 8-11): up by max(1, diff >> 9); down by the
+    // arithmetic shift (dest - cur) >>> 9 = -ceil(diff / 512), -8 made -7
     function automatic logic [11:0] ramp(input logic [11:0] cur, input logic [11:0] dest);
-        logic [11:0] mag, st;
-        mag = dest > cur ? dest - cur : cur - dest;
-        st = (mag >> 9) == 12'd0 ? 12'd1 : (mag >> 9);
+        logic [11:0] up;
+        logic signed [12:0] d, dn;
+        up = (dest - cur) >> 9;
+        d  = $signed({1'b0, dest}) - $signed({1'b0, cur});
+        dn = d >>> 9;
+        if (dn == -13'sd8) dn = -13'sd7;
         if (cur == dest) ramp = cur;
-        else if (dest > cur) ramp = cur + st;
-        else ramp = cur - st;
+        else if (dest > cur) ramp = cur + (up == 12'd0 ? 12'd1 : up);
+        else ramp = 12'($signed({1'b0, cur}) + dn);
     endfunction
 
     // ------------------------------------------------------- voice rows
@@ -254,13 +261,11 @@ module dev_poly #(
     logic [11:0] ef_n [11];
     logic [12:0] e_cnt1, e_acu1;
     logic [12:0] e_up, e_dn;
-    logic        e_settled;
     always_comb begin
         for (int i = 0; i < 11; i++) ef[i] = er_q[12 * i +: 12];
         for (int i = 0; i < 11; i++) ef_n[i] = ef[i];
-        e_settled = ef[5] == ef[4] && ef[7] == ef[8] && ef[9] == ef[10];
         e_cnt1 = {1'b0, ef[0]} + 13'd1;
-        e_acu1 = {1'b0, ef[2]} + {1'b0, ef[3]};
+        e_acu1 = {1'b0, ef[2]} + {1'b0, ef[3]} + 13'd1;   // PSEINC = increment - 1 (LAMP)
         e_up = {1'b0, ef[5]} + {1'b0, ef[6]};
         e_dn = {1'b0, ef[5]} - {1'b0, ef[6]};
         if (e_cnt1 >= 13'd4096) begin
@@ -354,7 +359,7 @@ module dev_poly #(
                 vr_we = 1'b1;
                 vr_wd = {vr_q[166:39], r_pos_n[29:0], r_acc_n[8:0]};
             end
-            E_ENV: if (pq && !e_settled) er_we = 1'b1;
+            E_ENV: if (pq) er_we = 1'b1;           // counters run when settled (LAMP 1-4)
             E_IDLE: begin
                 vr_ra = cv; er_ra = cv;
                 wd_ra = req_rd ? {cv, req_fc[2:0]} : {cv, req_fc[2:0] - 3'd1};

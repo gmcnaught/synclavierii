@@ -8,6 +8,12 @@ text of Release 5.3 in `out/ned53/` (paths below are relative to it).
 Tags: **[OBS]** quoted from source (file:line), **[INF]** inference with the
 reasoning given, **[UNK]** not determined from the source.
 
+Also used (M25): NED's own poly diagnostics and Live Overdub sources in the
+NED software repository (`Able/...`, not in the 5.3 text): `NEWDIAGS/LOGCAT/LAMP`
+(envelope and volume hardware tests 1-11, with the values each must see),
+`NEWDIAGS/THRUPUT` (A/D D/A test) and `LOD/LODLITS/POLYLITS` (the function
+codes annotated with their successors).
+
 Notation: XPL `"nnn"` is octal; `READ(x)`/`WRITE(x)` are device reads/writes;
 the Able assembler's `im(n)` is octal too.
 
@@ -69,10 +75,10 @@ advances FC to a successor. The successor map is fixed per FC:
 | 0→1→2→3→4→5→6→7→8→9→10 | [OBS] `POLYSOU:1102-1111`: one `WRITE(PSF)=PSWL` then 11 PSD writes commented WL(2), BA(2), LL(2), PI(2), INC, MOD, ON |
 | 16→17→18, 18 stays (data, address++) | [OBS] `FCODLITS:66-71` "writes the first address to PSD; that increments function code to pswma_1 …"; `POLY.OUT` streams PSD writes (`POLYSOU:251-278`) |
 | 20→21→22, 22 stays on read (address++) | [OBS] `FCODLITS:72`; `POLY.IN` streams `READ(PSD)` (`POLYSOU:222-249`) |
-| 33→35→38→32→34→36→37 | [OBS] `POLYSOU:1114-1118` after `PSF=PSEMOD`: 7 writes commented "MODULUS, INCR / DELTA, COUNT / ENV ACCUMULATOR / LIMIT, CVAL"; same in `MON:167-171`, `301-SUB1:633-637` |
+| 33→35→38→32→34→36→37→33 | [OBS] `POLYSOU:1114-1118` after `PSF=PSEMOD`: 7 writes commented "MODULUS, INCR / DELTA, COUNT / ENV ACCUMULATOR / LIMIT, CVAL"; same in `MON:167-171`, `301-SUB1:633-637`. `LOD/LODLITS/POLYLITS:39-45` lists each successor, including 37→33 ("PSF increments to 33") and "stays at 32 on read of PSD" |
 | 35→38 | [OBS] `PSF=PSEINC; PSD=adder; PSD=delta` (`144-TIM3:204-206`, `195-PLAY:249-255`) |
 | 36→37 | [OBS] `PSF=PSELIM; PSD=limit; PSD=cval` ("LIMIT, CVAL") `POLYSOU:1118`, `144-TIM3:1057-1061` |
-| 40→42→41→43 | [INF] see §3.6: `PSF=PSRCVOL` + 4 writes are always "R cur, L cur, R dest, L dest" (`195-PLAY:176-178,225-234`); `PSF=PSRDVOL` (41) + 2 writes are "RIGHT, LEFT" dest (`352-SPLC:98-112`) |
+| 40→42→41→43→40 | [OBS] `POLYLITS:50-53` ("PSF increments to 42 … 40"); before that [INF] from §3.6: `PSF=PSRCVOL` + 4 writes are always "R cur, L cur, R dest, L dest" (`195-PLAY:176-178,225-234`); `PSF=PSRDVOL` (41) + 2 writes are "RIGHT, LEFT" dest (`352-SPLC:98-112`) |
 | 24→24, 25→0, 26→0, 27→28, 28→28 | [OBS] comments `FCODLITS:74-79` (test FCs, unused by 5.3) |
 | 10→?, 59→?, others | [UNK]; 5.3 never writes past FC 10, and always rewrites PSF before another FC-59 sequence. `POLYSOU:1081-1085` writes PSF=59 once then `PSC=J; PSD=0` for 16 channels → [INF] FC 59 does not advance and a PSC write does not change FC |
 
@@ -314,6 +320,20 @@ toward PSELIM by PSEDEL. PSELIM range 0–4095.
 [OBS] "Envelope delay counter: 00500 counts in 20000 microseconds"
 (`FCODLITS:81`).
 
+[OBS] `NEWDIAGS/LOGCAT/LAMP` tests 1-7 pin down the register encodings:
+* PSEINC is written as increment − 1: "increment rate set to 1 = e.g.
+  increment accumulator by 1" for 0 (test 3), `l-1` for increments
+  1, 2, 4 … 2048 (test 4), "increment by 4096" for 4095 (test 5). So 5.3's
+  `PSEINC = 16 × hi + 15` is an increment of 16 × (hi + 1).
+* PSEMOD 0 is "modulus 4096", 4095 "modulus 1", 4096 − 25 "modulus 25 - use
+  1 millisecond rate" (tests 1, 3, 4); with 3000 the counter "counts 3000 …
+  4095 … 3000" at 40 µs a count (test 2).
+* The counter and accumulator count with ELIM = EVAL = 0 (tests 1-4), i.e.
+  whether or not the envelope moves.
+* EVAL moves by PSEDEL on each accumulator wrap: with modulus 25 and
+  increment 4096 it moves `l` per millisecond for PSEDEL `l` (test 6); up
+  (test 5) and down (test 7) at 25 kHz with delta 1.
+
 5.3 values:
 * init/cleanup: `EMOD=4095, EINC=4095, EDEL=1 (64 in POLY.CHECK), ECNT=4095,
   EACU=4095, ELIM=0, EVAL=0` (`POLYSOU:1114-1118`, `301-SUB1:633-637`).
@@ -336,8 +356,15 @@ toward PSELIM by PSEDEL. PSELIM range 0–4095.
 
 [INF] With EMOD=EINC=4095 the step is once per 40 µs and a full-scale ramp
 takes 4096/EDEL steps: EDEL=64 → 2.56 ms, matching "DELTA - 2.5 MSEC"
-(`144-TIM1:530`); but FAST/SLOW would give 13.7/82 ms against the comments'
-26/160 ms (factor 2). See open questions.
+(`144-TIM1:530`). FAST/SLOW then give 13.7/82 ms against the comments'
+26/160 ms; LAMP tests 5-6 check one EDEL step per 40 µs, so the model keeps
+that and treats the 26/160 ms comments as wrong.
+
+[INF] Relation to the FM envelope: the same `EIDINT` drives both. FM: 256
+steps at 333 333 × (hi + 1) / (256 × (256 − lo)) per second
+(`fm-voice.md`); poly: 4096 / ⌊256 / (256 − lo)⌋ steps at 25 000 ×
+(hi + 1) / 256 per second. For power-of-two divisors a poly ramp takes 5/6
+of the FM time; other divisors are rounded by the integer `PSEDEL`.
 
 ### 3.6 Volumes (FC 40–43)
 
@@ -347,6 +374,15 @@ rate equal to 1/512 the difference … Reaches 4095 after 1838 counts or
 `cur += sign · max(1, |dest−cur| >> 9)` from 0 to 4095 takes exactly 1838
 steps; `ceil` or exact exponentials give 1391/4609 → use the floor/min-1 form.
 Range 0–4095 (`/* SCALE 0-4095 */`, `144-TIM3:949-953`).
+
+[OBS] LAMP tests 8-11 give the step for each direction ("algorithm performed
+by amplitude computer every 40 microseconds"): up, `+max(1, (dest−cur)>>9)`
+(1838 counts from 0 to 4095, as above); down, the 16-bit `(dest−cur)>>9`
+sign-extended from 7 bits, i.e. `−⌈(cur−dest)/512⌉`, with −8 made −7
+("correct for hardware tri-z obfuscation"). From 4095 to 0 that is 1400
+counts (56.0 ms), not 1838; to 409 (−20 dB) 991 counts (39.6 ms). LAMP
+tests a destination of 0 or 4095; the model applies the same rule to any
+difference.
 
 Write order [OBS comments]: `PSF=PSRCVOL` then "R, L CVOL", "R, L DVOL"
 (`POLYSOU:1120-1122`), "RIGHT, LEFT" twice (`195-PLAY:176-178`);
@@ -598,16 +634,17 @@ They are `Native` calls declared in `-XPL/INTRPRTR:36-42`.
 ## 7. Open questions
 
 1. FC successor after FC 10, after 59, and read-advance for FCs other than 12
-   and 22 (model: none).
-2. Volume FC order 40→42→41→43 is inferred from comments; confirm against
-   hardware docs or MAME-style sources if available.
-3. Envelope timing: comments give 2.5 ms for EDEL 64 (fits 25 kHz, one
-   step per tick) but 26/160 ms for EDEL 12/2 (fits 12.5 kHz). Is the
-   counter period `4096−EMOD` or `4097−EMOD`, or does EVAL move by EDEL/2?
+   and 22 (model: none). Envelope and volume FCs: settled by `POLYLITS`
+   (37→33, 43→40; reading 32 does not advance).
+2. Settled: volume FC order 40→42→41→43→40 (`POLYLITS`).
+3. Settled by LAMP tests 1-7: counter period `4096−EMOD`, one EDEL step per
+   accumulator wrap, increment = PSEINC + 1, all at 25 kHz. The
+   26/160 ms FAST/SLOW comments do not fit and are taken as wrong.
 4. Exact end-of-table and loop arithmetic (§3.3), when PSON resets the
    phase, and behaviour with PSWL = 0 or PSLL = 0 and the loop bit set.
-5. Rate generator arithmetic: is F0 exactly 101 010.1 Hz (9.9 µs) and how do
-   INC/MOD wrap (accumulator, remainder)?
+5. Rate generator arithmetic: how do INC/MOD wrap (accumulator, remainder)?
+   F0 is 10 MHz / 99 = 101 010.1 Hz exactly: `THRUPUT` computes
+   "khz = (10000*inc)/(99*div)" (`compute_rate`).
 6. Stereo slave mechanics (FC 59): does the odd voice read `master_addr+1`
    at the master's step, and does its own PSON matter?
 7. PSRON: one channel or a bit field; when it clears.
@@ -637,7 +674,7 @@ Each is a [CHOICE] until hardware evidence turns up.
 | Rate generator | 9-bit accumulator: `acc += INC`; if `acc ≥ MOD`: `acc −= MOD`, one step (at most one per 9900 ns tick) |
 | End / loop | after a step, if `pos + PSWL ≥ 0`: loop bit and PSLL ≠ 0 → `pos += PSLL` (not below 0), else on bit clears. Comparing `pos` makes a PSWL rewrite take effect at once |
 | PSON | bit 0 rising: `pos = 0`, `acc = 0` |
-| Envelope / volume clocks | step every 40 000 ns only while EVAL ≠ ELIM or a volume ≠ its destination; settled counters (ECNT, EACU) hold |
+| Envelope / volume clocks | every 40 000 ns: ECNT, EACU (+ PSEINC + 1), EVAL and both volume ramps step, settled or not (LAMP; M25). The sim brings a settled voice's ECNT/EACU up to date in closed form when it is next read, written or moves (`PolyVoice.catch_up`); the HDL steps every row each pass. Volume down step `(dest−cur)>>9`, −8 → −7 |
 | Stereo slave | odd voice of an FC-59 master: plays `mem[master base + master pos + 1]`, does not step itself |
 | Voice cards | stereo (panning): SYN-5.3's options word (`core(core(1) + 17)`) has no `o#pvoice` (`"200"`, "set … if mono/3200 poly voices are installed", `-XPL/SYSLITS:55,67`), so it pans with independent R/L volumes; with mono cards it pans hard right (no left DAC, `195-PLAY:174-178`). Operator: the 6400 was the 3200 with panning (and, per the manual, a second bin) |
 | Output | per voice `mem[base + pos]` (0 when off) × EVAL × volume >> 24 per side, summed, added to the FM output (48 kHz instants), clipped to 16 bits |

@@ -37,11 +37,11 @@ def test_function_code_successors():
     _fc(p, PSWL, *range(11))                    # 0..10
     assert p.read(PSF) == PSON
     _fc(p, PSEMOD, *[0] * 7)                    # 33 35 38 32 34 36 37
-    assert p.read(PSF) == 37
+    assert p.read(PSF) == 33                    # 37 -> 33 (LOD POLYLITS)
     _fc(p, PSRCVOL, 1, 2, 3, 4)                 # R cur, L cur, R dest, L dest
     v = p.voice[3]
     assert (v.rcur, v.lcur, v.rdest, v.ldest) == (1, 2, 3, 4)
-    assert p.read(PSF) == 43
+    assert p.read(PSF) == 40                    # 43 -> 40 (LOD POLYLITS)
 
 
 def test_two_word_values():
@@ -227,6 +227,146 @@ def test_card_complement():
     m.mem[0] = 1000
     left, right = m._mix()
     assert left == right and right != 0
+
+
+# ---------------------------------------------------------------- LAMP
+# NED's poly diagnostic NEWDIAGS/LOGCAT/LAMP (tests 1-11) states what the
+# envelope and volume hardware must do; one 40 us tick per count.
+
+PSECNT, PSEACU, PSEINC, PSELIM, PSEVAL, PSEDEL = 32, 34, 35, 36, 37, 38
+PSRDVOL, PSLDVOL = 41, 43
+
+
+def _set(p, *pairs):
+    for fc, value in pairs:
+        p.write(PSF, fc)
+        p.write(PSD, value)
+
+
+def _get(p, fc):
+    p.write(PSF, fc)
+    return p.read(PSD)
+
+
+def _ticks(p, n):
+    p.tick(n * ENV_TICK_NS)
+
+
+def _lamp_env(p, lim=0, val=0, dl=1, inc=4095, acu=0, mod=0, cnt=4000):
+    """LAMP's set-up order: limit, value, delta, increment, accumulator,
+    modulus, counter (the counter last, so it starts from `cnt`)."""
+    _set(p, (PSELIM, lim), (PSEVAL, val), (PSEDEL, dl), (PSEINC, inc),
+         (PSEACU, acu), (PSEMOD, mod), (PSECNT, cnt))
+
+
+def test_lamp_counter_runs_at_25khz():
+    """Tests 1-2: the counter counts at 25 kHz with the envelope settled
+    (EVAL = ELIM = 0) and reloads the modulus on a wrap."""
+    p = PolySynth(4, 256)
+    _lamp_env(p)
+    _ticks(p, 50)
+    assert _get(p, PSECNT) == 4050
+    _ticks(p, 46)                               # 4096: wraps to the modulus, 0
+    assert _get(p, PSECNT) == 0
+    _lamp_env(p, mod=3000)                      # "counts 3000 ... 4095 ... 3000"
+    _ticks(p, 96)
+    assert _get(p, PSECNT) == 3000
+    _ticks(p, 1096 - 1)
+    assert _get(p, PSECNT) == 4095
+    _ticks(p, 1)
+    assert _get(p, PSECNT) == 3000              # 1096 counts x 40 us
+
+
+def test_lamp_increment_is_written_minus_one():
+    """Tests 3-4: PSEINC 0 adds 1 to the accumulator; l - 1 adds l."""
+    p = PolySynth(4, 256)
+    _lamp_env(p, inc=0, acu=4000, mod=4095, cnt=4095)
+    _ticks(p, 95)
+    assert _get(p, PSEACU) == 4095
+    _ticks(p, 1)
+    assert _get(p, PSEACU) == 0
+    for k in range(12):
+        lv = 1 << k
+        _lamp_env(p, inc=lv - 1, acu=4096 - lv, mod=4096 - 25, cnt=4096 - 25)
+        _ticks(p, 25)                           # 1 ms: one wrap, first add -> 0
+        assert _get(p, PSEACU) == 0, lv
+        n = min(10, (4096 - lv) // lv)
+        _ticks(p, 25 * n)
+        assert _get(p, PSEACU) == n * lv, lv
+
+
+def test_lamp_value_counts_at_25khz():
+    """Tests 5-7: with increment 4096 the value moves by PSEDEL on every
+    tick, up to the limit and down to it; delta l moves l per wrap."""
+    p = PolySynth(4, 256)
+    _lamp_env(p, inc=4095, acu=4095, mod=4095, cnt=4095)
+    _set(p, (PSELIM, 4095))
+    _ticks(p, 4094)
+    assert _get(p, PSEVAL) == 4094
+    assert _get(p, PSEACU) == 4095              # adds 4096: wraps every tick
+    _ticks(p, 1)
+    assert _get(p, PSEVAL) == 4095
+    for k in range(12):
+        lv = 1 << k
+        _lamp_env(p, dl=lv, inc=4095, acu=4095, mod=4096 - 25, cnt=4095 - 25)
+        _set(p, (PSELIM, 4095))
+        m = min(lv * 10, 4096 - lv)
+        _ticks(p, 1 + 25 * (m // lv))           # one ms per delta
+        assert _get(p, PSEVAL) == m // lv * lv, lv
+    _lamp_env(p, lim=4095, val=4095, inc=4095, acu=4095, mod=4095, cnt=4095)
+    _set(p, (PSELIM, 0))
+    _ticks(p, 100)
+    assert _get(p, PSEVAL) == 3995
+
+
+def _lamp_down(j):
+    """LAMP tests 10-11 expected next value, in its own 16-bit arithmetic."""
+    lv = ((0 - j) & 0xFFFF) >> 9
+    if lv == 0:
+        return j - 1
+    lv = (lv | 0o177600) & 0xFFFF
+    if lv & 7 == 0:                             # "hardware tri-z obfuscation"
+        lv += 1
+    return j + lv - 0x10000
+
+
+def test_lamp_volume_ramps():
+    """Tests 8-11: each volume, up from 0 then down from 4095, step by step,
+    and the total times (up 1838 counts = 73.52 ms, down 1400)."""
+    for cur, dest in ((42, 43), (40, 41)):      # left, right
+        p = PolySynth(4, 256)
+        _set(p, (dest, 0), (cur, 0), (dest, 4095))
+        j = 0
+        for n in range(1, 1839):
+            j = j + max(1, (4095 - j) >> 9)
+            _ticks(p, 1)
+            assert _get(p, cur) == j, (cur, n)
+        assert j == 4095
+        _set(p, (dest, 0))
+        for n in range(1, 1401):
+            j = _lamp_down(j)
+            _ticks(p, 1)
+            assert _get(p, cur) == j, (cur, n)
+        assert j == 0
+
+
+def test_settled_counters_catch_up():
+    """A settled voice brought up to date in closed form (catch_up) equals
+    the same voice stepped tick by tick (odd moduli, increments, counts)."""
+    import copy
+    import random
+    from sim.devices.poly import PolyVoice
+    rnd = random.Random(5)
+    for _ in range(300):
+        v = PolyVoice()
+        v.emod, v.einc, v.eacu, v.ecnt = (rnd.randrange(4096) for _ in range(4))
+        v.elim = v.eval = rnd.randrange(4096)
+        w = copy.copy(v)
+        n = rnd.randrange(1, 20000)
+        for _ in range(n):
+            w.env_tick()
+        v.catch_up(n)
+        assert (v.ecnt, v.eacu, v.eval) == (w.ecnt, w.eacu, w.eval)
 
 
 if __name__ == "__main__":

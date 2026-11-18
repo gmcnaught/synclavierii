@@ -125,7 +125,7 @@ module board_top (
     logic [15:0] xr_wdata, xr_rdata;
     logic [26:0] xs_addr;
     logic        xs_rd, xs_ack, xs_rvalid;
-    logic [15:0] xs_rdata;
+    logic [63:0] xs_rdata;
 
     assign dev_rd = 1'b0;
     assign dev_wr = 1'b0;
@@ -134,7 +134,7 @@ module board_top (
 
     // one clock in simulation: the video runs at clk / 2
     synclavier_core core (
-        .clk, .rst_hard, .rst, .rt_enable, .rt_voices(rt_enable), .clk_vid(clk), .ps2_key, .ps2_mouse, .color(2'd0), .panel_over(1'b0), .stall_view(1'b0), .hw_cfg, .dig_stm_on(1'b0), .out_pair, .smpte_osd(1'b0),
+        .clk, .rst_hard, .rst, .rt_enable, .rt_voices(rt_enable), .clk_vid(clk), .ps2_key, .ps2_mouse, .color(2'd0), .panel_over(1'b0), .stall_view(1'b0), .hw_cfg, .dig_stm_on(1'b0), .out_pair, .poly_ftest(2'd0), .smpte_osd(1'b0),
         .printer_osd, .readback_en(1'b0),
         .img_mounted, .img_readonly, .img_size, .sd_lba0, .sd_lba1, .sd_lba2, .sd_lba3, .sd_lba4, .sd_lba5, .sd_lba6, .sd_rd, .sd_wr, .sd_blk_cnt3, .sd_blk_cnt4, .sd_blk_cnt5, .sd_ack,
         .sd_buff_addr, .sd_buff_dout, .sd_buff_din, .sd_buff_din6, .sd_buff_wr,

@@ -58,6 +58,7 @@ localparam CONF_STR = {
 	"O[4],VT640: panel strip,Hidden,Over bottom;",
 	"O[5],Status line,Health,Lag by cause;",
 	"O[6],Voice clock,Real time,CPU time;",
+	"O[55:54],DDR3 load test,Off,1/4 voices,1/2 voices,All voices;",
 	"-;",
 	"P1,Hardware (applies at reset);",
 	"P1-,Cards of the instrument;",
@@ -156,7 +157,7 @@ wire        xr_rd, xr_wr, xr_wide, xr_ack;
 wire [15:0] xr_wdata, xr_rdata;
 wire [26:0] xs_addr;
 wire        xs_rd, xs_ack, xs_rvalid;
-wire [15:0] xs_rdata;
+wire [63:0] xs_rdata;
 wire        ce_pix, hs, vs, hblank, vblank;
 wire  [7:0] r, g, b;
 wire        led_disk, booting, boot_error, halted;
@@ -180,6 +181,7 @@ synclavier_core #(.CLK_HZ(50_000_000), .VID_CE_DIV(1)) core
 	.dig_stm_on(status[21]),
 	.smpte_osd(status[27]),
 	.out_pair(status[34:31]),
+	.poly_ftest(status[55:54]),
 	.printer_osd(status[29]),
 	.readback_en(1'b1),
 

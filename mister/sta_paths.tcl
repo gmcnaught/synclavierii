@@ -50,7 +50,7 @@ close $fh
 # the worst path from each main module
 set mods {able_cpu:cpu code_cache:cache dev_muldiv:muldiv dev_fm:fm dev_extmem:extmem
           dev_terminal:terminal dev_floppy:floppy dev_keyboard:keyboard dev_vpk:vpk
-          dev_rtc:rtc throttle:pace pcm_out:pcm dev_poly:poly dev_scsi:scsi dev_midi:midi_card
+          dev_rtc:rtc throttle:pace poly_box:box pcm_out:pcm dev_poly:poly dev_scsi:scsi dev_midi:midi_card
           dev_mouse:mouse_port dev_multi:distributor term_display:display tek_plane:tek boot_loader:boot
           sd_floppy:media midi_in:midi midi_vpk:midi_to_vpk panel_mouse:mouse audio_fifo:to_real_time
           ddram_word:ext_memory}

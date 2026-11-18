@@ -113,6 +113,100 @@ def test_staircase_images_do_not_alias():
     assert results["new"] < -70, results
 
 
+
+def test_poly_box():
+    """M26: PolyBox averages the poly staircase over each 768 kHz interval,
+    x' = 64 x P for a constant P; a boundary inside an interval weights
+    the two values by their ns in it."""
+    f0 = pcm.F0_TICK_NS
+    box = pcm.PolyBox([1000, 1000, -3000, 7], [0, 5, 5, 5], 0)
+    assert box.step(0) == (0, 0)                     # the first instant: no interval
+    seen = []
+    for k in range(1, 40):
+        t = k * 1_000_000_000 // pcm.IN_RATE
+        seen.append((t, box.step(t)))
+    # [0, 1302): boundary 0 at the start, P(0) = (1000, 0) all through
+    assert seen[0] == (1302, (64000, 0))
+    # the interval holding 9900: P(0) up to 9900, P(1) after: still 1000 / 5
+    k = next(i for i, (t, _) in enumerate(seen) if t > f0)
+    t1, t0 = seen[k][0], seen[k - 1][0]
+    assert seen[k][1][0] == 64000
+    want_r = 5 * (t1 - f0) * pcm.RECIP[t1 - t0] >> pcm.POLY_SHIFT
+    assert seen[k][1][1] == want_r and 0 < want_r < 320
+    # the interval holding 19800: 1000 then -3000
+    k = next(i for i, (t, _) in enumerate(seen) if t > 2 * f0)
+    t1, t0 = seen[k][0], seen[k - 1][0]
+    want = (1000 * (2 * f0 - t0) - 3000 * (t1 - 2 * f0)) * pcm.RECIP[t1 - t0] >> pcm.POLY_SHIFT
+    assert seen[k][1][0] == want
+    # start(t) resumes a run: the same values as from reset
+    again = pcm.PolyBox([1000, 1000, -3000, 7], [0, 5, 5, 5], 0)
+    again.start(seen[9][0])
+    assert [again.step(t) for t, _ in seen[10:]] == [x for _, x in seen[10:]]
+    # a constant P comes out of the filter as P
+    frames = []
+    out, box = pcm.PcmOut(), pcm.PolyBox([12345] * 2000, [-321] * 2000, 0)
+    for k in range(1, 16 * 100 + 1):
+        xl, xr = box.step(k * 1_000_000_000 // pcm.IN_RATE)
+        f = out.push(0, 0, xl, xr)
+        if f:
+            frames.append(f)
+    assert frames[-1] == (12345, -321), frames[-1]
+
+
+def _tone_db(frames, f, side=0):
+    """Level of frequency f in 16-bit frames, dB re full scale (Hann)."""
+    n = len(frames)
+    re = im = 0.0
+    for i, fr in enumerate(frames):
+        w = 0.5 - 0.5 * math.cos(2 * math.pi * i / n)
+        a = 2 * math.pi * f * i / RATE
+        re += w * fr[side] * math.cos(a)
+        im += w * fr[side] * math.sin(a)
+    return 20 * math.log10(max(1e-9, 4 * math.hypot(re, im) / n / 32768))
+
+
+def test_poly_aliasing():
+    """M26: a voice stepping at F0 (101 kHz) plays a 17 kHz sine; its DAC
+    staircase has an image at F0 - 17 kHz = 84.0 kHz. Point-sampled at
+    48 kHz (the mix before M26) that image folds to 96 - 84.0 = 12.0 kHz;
+    through PolyBox and the FIR it does not."""
+    from sim.devices.poly import F0_TICK_NS, PolySynth
+    f, n_words = 17_000, 20_000
+    f0 = 1e9 / F0_TICK_NS
+    p = PolySynth(4, 256)
+    p.write(0o155, 0)
+    words = [int(round(16000 * math.sin(2 * math.pi * f * i / f0))) & 0xFFFF for i in range(n_words)]
+    for fc, vals in ((16, [0, 0] + words), (33, [4095] * 7), (40, [4095] * 4)):
+        p.write(0o156, fc)
+        for w in vals:
+            p.write(0o157, w)
+    neg = -n_words & 0xFFFFFFF
+    p.write(0o156, 0)
+    for w in (neg >> 8 & 0xFFFF, (neg >> 24) << 8 | neg & 0xFF, 0, 0, neg >> 8 & 0xFFFF,
+              (neg >> 24) << 8 | neg & 0xFF, 0, 1, 255, 0, 3):     # loop all of it, INC = MOD
+        p.write(0o157, w)
+    p.record()
+    t_end = 120_000_000
+    p.tick(t_end)
+    p.advance()
+    m0, pl = p.out_m0, p.out_l
+    # new: the M26 path (100 ms from 20 ms)
+    new = pcm.render_frames([], 20_000_000, t_end, voices=1, origin_ns=0, poly=(m0, pl, p.out_r))
+    # old: the DAC staircase point-sampled at the 48 kHz instants
+    old = []
+    for k in range(960, 960 + len(new)):
+        t = k * 1_000_000_000 // RATE
+        x = pl[t // F0_TICK_NS + 1 - m0] if t // F0_TICK_NS + 1 - m0 < len(pl) else 0
+        old.append((max(-32768, min(32767, x)), 0))
+    alias = 2 * RATE - (f0 - f)
+    tone_new, tone_old = _tone_db(new, f), _tone_db(old, f)
+    alias_new, alias_old = _tone_db(new, alias), _tone_db(old, alias)
+    print("  17 kHz: old %.1f dBFS, alias %.1f; new %.1f dBFS, alias %.1f"
+          % (tone_old, alias_old, tone_new, alias_new))
+    assert abs(tone_new - tone_old) < 1.0                # the tone keeps its level (ZOH droop)
+    assert alias_old - tone_old > -20                    # before: the image folds in at ~ -14 dB
+    assert alias_new - tone_new < -70                    # after: filtered out
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:

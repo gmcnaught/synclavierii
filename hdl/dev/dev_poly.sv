@@ -18,19 +18,28 @@
 // writes accepted, reads 0, nothing changes.
 //
 // Time: `tick`/`tick_ns` advance simulated time. Every 9900 ns a rate pass
-// steps the sounding voices (INC/MOD divider, position, end and loop); every
-// 40 000 ns an envelope pass steps every voice's envelope counter,
-// accumulator, value and volume ramps (the counters run while the envelope
-// is settled: NEWDIAGS/LOGCAT/LAMP tests 1-4). A D157 access waits until both passes have caught up with the
-// current time, as the Python model advances before each access. The passes
-// read and write the voice rows in block RAM, one voice per clock.
+// mixes the voices' DACs and steps the sounding voices (INC/MOD divider,
+// position, end and loop); every 40 000 ns an envelope pass steps every
+// voice's envelope counter, accumulator, value and volume ramps (the
+// counters run while the envelope is settled: NEWDIAGS/LOGCAT/LAMP tests
+// 1-4). Passes run in time order (a rate pass first when both fall due). A
+// D157 access waits until both passes have caught up with the current time,
+// as the Python model advances before each access. The passes read and
+// write the voice rows in block RAM, one voice per clock.
 //
-// Audio: on each `mix_in_valid` (a 48 kHz FM sample) the voices' current
-// words are fetched from poly memory and mixed: sample x EVAL x volume >> 24
-// per side, summed, added to the FM sample, clipped to 16 bits. The fetches
-// go out on the read stream port (s_*) without waiting for each other: a
-// read per sounding voice, its data back in order (s_rvalid), so 64-128
-// voices fit in a 48 kHz sample whatever the DDR3 latency.
+// Audio (M26, docs/poly-output.md): the rate pass for tick m, at each
+// voice: (1) its DAC word (latched by the last pass) x EVAL x volume >> 24
+// per side into the sums; (2) the DAC latches the word at the voice's
+// address (base + position; a stereo slave: its master's + 1), 0 when off
+// or outside the bin; (3) the step. After the last voice the sums go out as
+// P(m) (p_valid, p_l, p_r), the poly output for [m x 9900, (m+1) x 9900) ns
+// (poly_box.sv takes it to the 768 kHz output). A DAC word lives in the
+// voice's 64-bit line, the DDR3 beat holding it: a latch whose beat is not
+// the line's queues a fetch on the read stream (s_*, data back in order),
+// so a voice reads DDR3 once per 4 words it steps through. A rate pass
+// starts only when the last pass's fetches are back. Any poly memory write
+// (the CPU, dig_stm's imports, the clear) invalidates every line, and waits
+// for the fetches first, so a line is always what memory holds.
 //
 // Multichannel distributor (M19, dev_multi.sv, sim/devices/multi.py): each
 // voice side has a routing tag {connected, output} (rt_*; voice = 32 x bin
@@ -40,6 +49,14 @@
 // the stereo mix (mono cards: no left side). For the level detector (q_*:
 // q_live) three bits per voice follow the CPU's writes: envelope limit,
 // right and left destination volume non-zero.
+//
+// DDR3 load test (OSD, `ftest`; M26): in each rate pass, voices whose DAC
+// is off (every 4th, every 2nd or all of them) also fetch a beat at a
+// pseudo-random address in the first 4 MB, data thrown away; a pass waits
+// for these as for any fetch. With 128 voices and all of them that is one
+// fetch per voice per tick, 12.9 M/s, the worst case of PI >= 4 at F0. The
+// sound is unchanged; a .62 that cannot keep up shows `late` (poly_box).
+// Off in simulation.
 //
 // After reset the device clears its block RAM rows and all poly memory
 // (E_MCLR).
@@ -56,6 +73,7 @@ module dev_poly #(
     input  logic [10:0] size_units,   // memory per bin: size_units x 65536 words (128 KB)
     input  logic [5:0]  last_voices,  // voices in the last bin, 4-32 (M16; others: 32)
     input  logic        mono,         // mono voice cards (o#pvoice): the right sum to both outputs
+    input  logic [1:0]  ftest,        // DDR3 load test: 0 off, 1 every 4th idle voice, 2 every 2nd, 3 all
     input  logic        tick,
     input  logic [9:0]  tick_ns,
 
@@ -76,20 +94,19 @@ module dev_poly #(
     input  logic [15:0] m_rdata,
     input  logic        m_ack,
 
-    // mix reads: s_rd held with s_addr until s_ack (command taken; the
-    // clock after s_ack is ignored); data in order, one s_rvalid each
+    // DAC line fetches: s_rd held with s_addr until s_ack (command taken;
+    // the clock after s_ack is ignored); the 64-bit beat holding word
+    // s_addr (s_addr & ~3 .. | 3, word i in bits 16i+15..16i) comes back
+    // in order, one s_rvalid each
     output logic [MEM_BITS-1:0] s_addr,
     output logic        s_rd,
     input  logic        s_ack,
     input  logic        s_rvalid,
-    input  logic [15:0] s_rdata,
+    input  logic [63:0] s_rdata,
 
-    input  logic        mix_in_valid,
-    input  logic signed [15:0] mix_in_l,
-    input  logic signed [15:0] mix_in_r,
-    output logic        mix_out_valid,
-    output logic signed [15:0] mix_out_l,
-    output logic signed [15:0] mix_out_r,
+    output logic        p_valid,      // P(m), once per rate pass (M26)
+    output logic signed [31:0] p_l,
+    output logic signed [31:0] p_r,
 
     input  logic [3:0]  out_pair,     // M19: 0 the stereo mix, n distributor outputs 2n-2, 2n-1
     input  logic        rt_we,        // M19: voice rt_voice's side rt_side switched to rt_tag
@@ -106,9 +123,7 @@ module dev_poly #(
                            FC_MOD = 7'd9, FC_EVSM = 7'd59;
 
     localparam logic [3:0] E_CLEAR = 4'd0, E_IDLE = 4'd1, E_RATE = 4'd2, E_ENV = 4'd3,
-                           E_CPU_RD = 4'd4, E_MEM = 4'd6, E_MIX_RD = 4'd7,
-                           E_MIX_Q = 4'd8, E_MIX_ISS = 4'd9, E_MIX_WAIT = 4'd10, E_MIX_OUT = 4'd11,
-                           E_MCLR = 4'd12;
+                           E_CPU_RD = 4'd4, E_MEM = 4'd6, E_POUT = 4'd7, E_MCLR = 4'd12;
 
     // ------------------------------------------------------------ helpers
     function automatic logic [6:0] succ(input logic [6:0] f);
@@ -206,7 +221,6 @@ module dev_poly #(
 
     wire [2:0] nb = bin_count >= 3'd1 && bin_count <= 3'd4 ? bin_count : 3'd1;
     wire [7:0] nv = {nb, 5'd0};                  // voices: 32 per bin
-    wire [6:0] last_v = 7'(nv - 8'd1);
     wire       bin_ok = {1'b0, channel[7:6]} < nb;
     wire [5:0] lastn = last_voices >= 6'd4 && last_voices <= 6'd32 ? last_voices : 6'd32;
     // voices in the latched channel's bin (an absent bin reads as 32)
@@ -282,29 +296,61 @@ module dev_poly #(
     logic [ER_W-1:0] e_row_n;
     always_comb for (int i = 0; i < 11; i++) e_row_n[12 * i +: 12] = ef_n[i];
 
-    // ----------------------------------------------------------- mixing
-    logic [29:0] mbp;                            // even voice's base + position
-    logic        mon;
-    logic signed [31:0] acc_l, acc_r;
-    logic signed [15:0] fm_l, fm_r;
-    logic        mix_req;
-    wire  [29:0] q_bp = {2'd0, q_ba} + q_pos[29:0];
-    wire         x_slave = pv[0] && master[pv - 7'd1];
-    wire  [29:0] x_bp = x_slave ? mbp + 30'd1 : q_bp;      // within the bin
-    wire         x_fetch = (x_slave ? mon : on0[pv]) && er_q[60 +: 12] != 12'd0
-                           && x_bp < {2'd0, limit};
-    // factors of each read in flight {EVAL, L cur, R cur}, in issue order;
-    // the data comes back in the same order: a 3-stage multiply-accumulate
-    logic [39:0] fq [128];
-    logic [39:0] fq_q;
-    logic [7:0]  fq_wp, fq_rp;
-    wire         fq_we = es == E_MIX_Q && x_fetch;
-    wire  [7:0]  fq_rp_n = s_rvalid ? fq_rp + 8'd1 : fq_rp;
+    // ------------------------------------------------- DACs and the mix
+    // per voice: its line (lr_mem, the 64-bit beat holding the DAC's word;
+    // lval: it holds that beat), the line's beat address and the word in it
+    // (dr_mem), and whether the DAC sounds (dac_on); read with the voice
+    // rows in the rate pass (address cnt, q at pv)
+    localparam int BW = MEM_BITS - 2;            // beat address bits
+    logic [63:0]   lr_mem [128];
+    logic [BW+1:0] dr_mem [128];                 // {beat, word in it}
+    logic [63:0]   lr_q;
+    logic [BW+1:0] dr_q;
+    logic [127:0]  dac_on, lval;
+    logic [29:0]   mbp;                          // the even voice's base + position
+    logic          mon;                          // ... and on bit, before its step
+    wire  [29:0]   q_bp = {2'd0, q_ba} + q_pos[29:0];
+    wire           x_pass = es == E_RATE && pq;
+    wire           x_slave = pv[0] && master[pv - 7'd1];
+    wire  [29:0]   x_bp = x_slave ? mbp + 30'd1 : q_bp;              // within the bin
+    wire           x_on = (x_slave ? mon : on0[pv]) && x_bp < {2'd0, limit};
+    wire  [29:0]   x_wa = boff(pv[6:5], limit) + x_bp;
+    wire  [BW-1:0] x_beat = x_wa[MEM_BITS-1:2];
+    wire           x_hit = lval[pv] && dr_q[BW+1:2] == x_beat;
+    wire           x_fetch = x_pass && x_on && !x_hit;
+    wire           t_fetch = x_pass && !x_on && (ftest == 2'd3 || (ftest == 2'd2 && !pv[0])
+                                                 || (ftest == 2'd1 && pv[1:0] == 2'd0));
+    logic [22:0]   lfsr;                         // load test addresses
+    wire           mac_in = x_pass && dac_on[pv];
+    wire signed [15:0] x_w = lr_q[{dr_q[1:0], 4'd0} +: 16];
+
+    // fetch queue: a voice and beat per latch that misses its line, issued
+    // in order on s_*; f_tp follows the data back. At most 128 a pass, all
+    // back before the next.
+    logic [7:0]    fv_mem [128];                 // {load test, voice}
+    logic [BW-1:0] fb_mem [128];
+    logic [7:0]    f_wp, f_wp_d, f_rp, f_tp;
+    logic [7:0]    fv_q;                         // the voice of the next data back
+    logic [BW-1:0] fb_q;                         // the beat of the next read to issue
+    wire  [7:0]    f_rp_n = s_ack ? f_rp + 8'd1 : f_rp;
+    wire  [7:0]    f_tp_n = s_rvalid ? f_tp + 8'd1 : f_tp;
+    wire           fetch_idle = f_wp == f_tp;
+    assign s_rd = f_rp != f_wp_d;
+    assign s_addr = {fb_q, 2'b00};
     always_ff @(posedge clk) begin
-        if (fq_we) fq[fq_wp[6:0]] <= {x_rb, er_q[60 +: 12], er_q[108 +: 12], er_q[84 +: 12]};
-        fq_q <= fq[fq_rp_n[6:0]];
+        lr_q <= lr_mem[cnt[6:0]];
+        dr_q <= dr_mem[cnt[6:0]];
+        if (s_rvalid && !fv_q[7]) lr_mem[fv_q[6:0]] <= s_rdata;
+        if (x_pass && x_on) dr_mem[pv] <= {x_beat, x_wa[1:0]};
+        if (x_fetch || t_fetch) begin
+            fv_mem[f_wp[6:0]] <= {t_fetch, pv};
+            fb_mem[f_wp[6:0]] <= t_fetch ? BW'(lfsr[18:0]) : x_beat;
+        end
+        fv_q <= fv_mem[f_tp_n[6:0]];
+        fb_q <= fb_mem[f_rp_n[6:0]];
     end
-    // M19: routing tags (read with the row, q at E_MIX_Q) and detector bits
+
+    // M19: routing tags (read with the rows) and detector bits
     logic [4:0]  tag_l [128], tag_r [128];
     logic [4:0]  tag_q [2];
     wire         tag_clr = es == E_CLEAR && cnt < 11'd128;
@@ -313,8 +359,8 @@ module dev_poly #(
     always_ff @(posedge clk) begin
         if (tag_clr || (rt_we && !rt_side)) tag_l[tag_wa] <= tag_wd;
         if (tag_clr || (rt_we && rt_side)) tag_r[tag_wa] <= tag_wd;
-        tag_q[0] <= tag_l[pv];
-        tag_q[1] <= tag_r[pv];
+        tag_q[0] <= tag_l[cnt[6:0]];
+        tag_q[1] <= tag_r[cnt[6:0]];
     end
     wire  [3:0]  pa = {3'(out_pair - 4'd1), 1'b0}, pb = {3'(out_pair - 4'd1), 1'b1};
     wire  [3:0]  x_rb = out_pair == 4'd0 ? 4'b1001 :
@@ -322,25 +368,16 @@ module dev_poly #(
                          !mono && tag_q[0] == {1'b1, pb}, !mono && tag_q[0] == {1'b1, pa}};
     logic [127:0] elim_nz, rdest_nz, ldest_nz;
     assign q_live = elim_nz[q_voice] && (q_side ? rdest_nz[q_voice] : ldest_nz[q_voice] && !mono);
+    // DAC word x EVAL, then x volume per side: a 3-stage multiply-accumulate
+    logic signed [31:0] acc_l, acc_r;
     logic        a1, a2;                         // stage valid
     logic signed [15:0] x_s;
     logic [11:0] x_eval, x_lcur, x_rcur, y_lcur, y_rcur;
-    logic [3:0]  x_rb_q, y_rb;                   // {rr, rl, lr, ll} of the read
+    logic [3:0]  x_rb_q, y_rb;                   // {rr, rl, lr, ll} of the voice
     logic signed [28:0] y_e;
     wire signed [28:0] x_e = x_s * $signed({1'b0, x_eval});
     wire signed [41:0] x_pl = y_e * $signed({1'b0, y_lcur});
     wire signed [41:0] x_pr = y_e * $signed({1'b0, y_rcur});
-    wire         mix_drained = fq_wp == fq_rp && !a1 && !a2;
-    logic [29:0] s_addr_w;
-    assign s_addr = s_addr_w[MEM_BITS-1:0];
-    assign s_rd = es == E_MIX_ISS;
-    wire signed [32:0] o_l = 33'(fm_l) + 33'(mono && out_pair == 4'd0 ? acc_r : acc_l);
-    wire signed [32:0] o_r = 33'(fm_r) + 33'(acc_r);
-    function automatic logic signed [15:0] sat(input logic signed [32:0] v);
-        if (v > 33'sd32767) sat = 16'sd32767;
-        else if (v < -33'sd32768) sat = -16'sd32768;
-        else sat = v[15:0];
-    endfunction
 
     // ------------------------------------------------- RAM port control
     always_comb begin
@@ -389,7 +426,6 @@ module dev_poly #(
                     default: ;
                 endcase
             end
-            E_MIX_RD: begin vr_ra = pv; er_ra = pv; end
             default: ;
         endcase
     end
@@ -404,14 +440,13 @@ module dev_poly #(
     // ------------------------------------------------------------ engine
     always_ff @(posedge clk) begin
         ack <= 1'b0;
-        mix_out_valid <= 1'b0;
+        p_valid <= 1'b0;
         if (tick && !rst) now <= now + {38'd0, tick_ns};
-        // mix reads coming back: factors, then sample x EVAL, then x volume
-        a1 <= s_rvalid;
-        if (s_rvalid) begin
-            x_s <= s_rdata;
-            {x_rb_q, x_eval, x_lcur, x_rcur} <= fq_q;
-            fq_rp <= fq_rp_n;
+        // the mix: DAC word and factors, then word x EVAL, then x volume
+        a1 <= mac_in;
+        if (mac_in) begin
+            x_s <= x_w;
+            {x_rb_q, x_eval, x_lcur, x_rcur} <= {x_rb, er_q[60 +: 12], er_q[108 +: 12], er_q[84 +: 12]};
         end
         a2 <= a1;
         if (a1) begin y_e <= x_e; y_lcur <= x_lcur; y_rcur <= x_rcur; y_rb <= x_rb_q; end
@@ -419,9 +454,17 @@ module dev_poly #(
             acc_l <= acc_l + (y_rb[0] ? 32'(x_pl >>> 24) : 32'sd0) + (y_rb[2] ? 32'(x_pr >>> 24) : 32'sd0);
             acc_r <= acc_r + (y_rb[1] ? 32'(x_pl >>> 24) : 32'sd0) + (y_rb[3] ? 32'(x_pr >>> 24) : 32'sd0);
         end
-        if (mix_in_valid) begin
-            fm_l <= mix_in_l; fm_r <= mix_in_r;
-            mix_req <= 1'b1;
+        // line fetches: issued, back
+        f_wp_d <= f_wp;
+        if (x_fetch || t_fetch) f_wp <= f_wp + 8'd1;
+        if (t_fetch) lfsr <= {lfsr[21:0], lfsr[22] ^ lfsr[17]};
+        f_rp <= f_rp_n;
+        f_tp <= f_tp_n;
+        if (s_rvalid && !fv_q[7]) lval[fv_q[6:0]] <= 1'b1;
+        if (x_pass) begin
+            dac_on[pv] <= x_on;
+            if (x_fetch) lval[pv] <= 1'b0;
+            if (!pv[0]) begin mbp <= q_bp; mon <= on0[pv]; end
         end
         if (start) begin
             req <= 1'b1; req_rd <= rd; req_reg <= reg_sel; req_w <= wdata; req_fc <= fc;
@@ -432,8 +475,10 @@ module dev_poly #(
             on0 <= '0; on1 <= '0; master <= '0;
             elim_nz <= '0; rdest_nz <= '0; ldest_nz <= '0;
             now <= '0; next_rate <= '0; next_env <= '0;
-            req <= 1'b0; mix_req <= 1'b0; pq <= 1'b0;
-            fq_wp <= '0; fq_rp <= '0; a1 <= 1'b0; a2 <= 1'b0;
+            req <= 1'b0; pq <= 1'b0;
+            a1 <= 1'b0; a2 <= 1'b0;
+            dac_on <= '0; lval <= '0; lfsr <= 23'h5A5A5;
+            f_wp <= '0; f_wp_d <= '0; f_rp <= '0; f_tp <= '0;
         end else case (es)
             E_CLEAR: begin
                 cnt <= cnt + 11'd1;
@@ -450,9 +495,12 @@ module dev_poly #(
                 maddr <= maddr + 30'd512;
                 if (maddr + 30'd512 >= total) es <= E_IDLE;
             end
+            // passes in time order; a rate pass waits for the last one's fetches
             E_IDLE:
-                if (rate_due) begin
-                    es <= E_RATE; cnt <= '0; pq <= 1'b0;
+                if (rate_due && (!env_due || next_rate <= next_env)) begin
+                    if (fetch_idle) begin
+                        es <= E_RATE; cnt <= '0; pq <= 1'b0; acc_l <= '0; acc_r <= '0;
+                    end
                 end else if (env_due) begin
                     es <= E_ENV; cnt <= '0; pq <= 1'b0;
                 end else if (req && !enable) begin       // the old stub
@@ -488,6 +536,8 @@ module dev_poly #(
                     end else begin
                         ack <= 1'b1; req <= 1'b0;
                     end
+                end else if (req && req_reg == 2'd3 && req_fc == FC_MDATA_W && !fetch_idle) begin
+                    // a poly memory write waits for the line fetches in flight
                 end else if (req) begin              // D157 write
                     fc <= succ(req_fc);
                     if (req_fc == FC_WMA || req_fc == FC_RMA) begin
@@ -496,7 +546,10 @@ module dev_poly #(
                         addr <= {req_w[11:8], addr_hi, req_w[7:0]}; ack <= 1'b1; req <= 1'b0;
                     end else if (req_fc == FC_MDATA_W) begin
                         addr <= addr + 28'd1;
-                        if (in_range) begin maddr <= boff(channel[7:6], limit) + {2'd0, addr}; mwr <= 1'b1; es <= E_MEM; end
+                        if (in_range) begin
+                            maddr <= boff(channel[7:6], limit) + {2'd0, addr}; mwr <= 1'b1; es <= E_MEM;
+                            lval <= '0;
+                        end
                         else begin ack <= 1'b1; req <= 1'b0; end
                     end else if (!ch_ok) begin
                         ack <= 1'b1; req <= 1'b0;
@@ -515,9 +568,6 @@ module dev_poly #(
                         if (req_fc == FC_EVSM) master[cv] <= req_w[0];
                         ack <= 1'b1; req <= 1'b0;
                     end
-                end else if (mix_req) begin
-                    mix_req <= 1'b0; pv <= 7'd0; acc_l <= '0; acc_r <= '0;
-                    es <= E_MIX_RD;
                 end
             // pipelined passes: read voice cnt, write voice pv (= cnt - 1)
             E_RATE, E_ENV: begin
@@ -526,9 +576,8 @@ module dev_poly #(
                 if (es == E_RATE && pq && r_active && r_stop) on0[pv] <= 1'b0;
                 cnt <= cnt + 11'd1;
                 if (cnt == {3'd0, nv}) begin
-                    if (es == E_RATE) next_rate <= next_rate + RATE_NS;
-                    else next_env <= next_env + ENV_NS;
-                    es <= E_IDLE;
+                    if (es == E_RATE) begin next_rate <= next_rate + RATE_NS; es <= E_POUT; end
+                    else begin next_env <= next_env + ENV_NS; es <= E_IDLE; end
                 end
             end
             E_CPU_RD:                                // the row/word is in q now
@@ -550,26 +599,11 @@ module dev_poly #(
                 rdata <= mwr ? 16'd0 : m_rdata;
                 ack <= 1'b1; req <= 1'b0; es <= E_IDLE;
             end
-            // the mix: read each voice's row, issue a read for each one that
-            // sounds; the reads come back above; then wait for the last
-            E_MIX_RD: es <= E_MIX_Q;
-            E_MIX_Q: begin
-                if (!pv[0]) begin mbp <= q_bp; mon <= on0[pv]; end
-                if (x_fetch) begin
-                    s_addr_w <= boff(pv[6:5], limit) + x_bp;
-                    fq_wp <= fq_wp + 8'd1;
-                    es <= E_MIX_ISS;
-                end else if (pv == last_v) es <= E_MIX_WAIT;
-                else begin pv <= pv + 7'd1; es <= E_MIX_RD; end
-            end
-            E_MIX_ISS: if (s_ack) begin
-                if (pv == last_v) es <= E_MIX_WAIT;
-                else begin pv <= pv + 7'd1; es <= E_MIX_RD; end
-            end
-            E_MIX_WAIT: if (mix_drained) es <= E_MIX_OUT;
-            E_MIX_OUT: begin
-                mix_out_l <= sat(o_l); mix_out_r <= sat(o_r);
-                mix_out_valid <= 1'b1;
+            // P(m) out when the last voice is through the multiply-accumulate
+            E_POUT: if (!a1 && !a2) begin
+                p_l <= mono && out_pair == 4'd0 ? acc_r : acc_l;
+                p_r <= acc_r;
+                p_valid <= 1'b1;
                 es <= E_IDLE;
             end
             default: es <= E_IDLE;

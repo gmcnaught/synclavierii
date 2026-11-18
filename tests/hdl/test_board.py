@@ -268,7 +268,7 @@ def test_term_display_panel():
     font, lab = glyphs(), labels()
     assert term[0] == "HELLO" and term[1] == "WORLD", term[:3]
     assert panel[1] == " Display  [1234]   Units 0004", panel[1]
-    assert panel[2] == " Lag us 00012A3F   Underrun 0002   Overrun 0000   MIDI 0123 F8 Err 0000 9k6", panel[2]
+    assert panel[2] == " Lag us 00012A3F   Underrun 0002   Overrun 0000   MIDI 0123 F8 Err 0000 9k6 PFFF", panel[2]
     # the segment codes as written (NED DIGITS), decimal point on digit 2
     assert display == [0o006, 0o133 | 0o200, 0o117, 0o146], [oct(c) for c in display]
     # lit: HSus (word 0 bit 15), Bk1 (word 6 bit 0), Tb2 (word 6 bit 9)
@@ -322,7 +322,7 @@ def test_term_display_vpk():
         lit = {33, 159} | ({108} if phase else set())
         want = expected_panel(vpk=True, display=display, lit=lit, status=panel[1])
         assert panel == want, "\n".join(panel + ["--- expected"] + want)
-        assert panel[1] == " Lag us 00012A3F   Underrun 0002   Overrun 0000   MIDI 0123 F8 Err 0000 9k6", panel[1]
+        assert panel[1] == " Lag us 00012A3F   Underrun 0002   Overrun 0000   MIDI 0123 F8 Err 0000 9k6 PFFF", panel[1]
         for pbn in range(160):
             r, c = 2 + pbn // 16, 5 * (pbn % 16)
             assert all(inverted[(r, c + i)] == (pbn in lit) for i in range(4)), (phase, pbn)
@@ -343,7 +343,8 @@ def poly_stimulus(path, seed=1, ops=6000, bins=1, sectors=65536, last_voices=32,
     """Stimulus for hdl/sim/dev_poly_tb.sv from sim/devices/poly.py: POLY.CHECK-
     style init, poly memory writes/reads, voices (loops, stereo master,
     PSWL rewrites, restarts), envelopes and volume ramps, random time steps,
-    register reads and mixes, each with the model's answer. With bins > 1
+    register reads and the output P(m) of every rate tick (M26), each with
+    the model's answer. With bins > 1
     each bin gets its own tables and voices (channel 64 x bin + c).
     last_voices: voices in the last bin (M16); mono: mono voice cards.
     multi: also a 16-output distributor (M19, sim/devices/multi.py): routing
@@ -353,6 +354,7 @@ def poly_stimulus(path, seed=1, ops=6000, bins=1, sectors=65536, last_voices=32,
     from sim.devices.poly import PolySynth
     rng = random.Random(seed)
     p = PolySynth(sectors=sectors, bins=bins, last_voices=last_voices, mono=mono)
+    p.record()
     end = p.sectors * 256
     out = []
     dist = None
@@ -360,8 +362,14 @@ def poly_stimulus(path, seed=1, ops=6000, bins=1, sectors=65536, last_voices=32,
         from sim.devices.multi import Distributor, poly_input
         dist = p.multi = Distributor(16, poly=p)
 
+    seen = [0]
+
     def t(ns):
         p.tick(ns)
+        p.advance()
+        for j in range(seen[0], len(p.out_l)):         # the P values this time makes
+            out.append("Y %d %d" % (p.out_l[j], p.out_r[j]))
+        seen[0] = len(p.out_l)
         out.append("T %d 0" % ns)
 
     def w(r, v):
@@ -370,12 +378,6 @@ def poly_stimulus(path, seed=1, ops=6000, bins=1, sectors=65536, last_voices=32,
 
     def rd(r):
         out.append("R %d %d" % (r, p.read(0o154 + r)))
-
-    def mix():
-        p.advance()
-        l, r = p._mix()
-        sat = lambda x: max(-32768, min(32767, x))
-        out.append("X %d %d" % (sat(l), sat(r)))
 
     def fc(ch, f, *words):
         w(1, ch)
@@ -452,6 +454,9 @@ def poly_stimulus(path, seed=1, ops=6000, bins=1, sectors=65536, last_voices=32,
             fc(ch, 10, rng.randrange(4))
         elif op < 0.19:
             fc(ch, rng.choice([8, 9]), rng.randrange(256))
+        elif op < 0.20:                             # M26: memory writes under sounding voices
+            fc(64 * b, 16, *two(rng.choice([1000, 9000, 1500]) + rng.randrange(400)),
+               *[rng.randrange(65536) for _ in range(rng.randrange(1, 6))])
         elif dist is not None and op < 0.25:        # M19: routing, pair, detector
             v, side = rng.randrange(min(96, 32 * bins)), rng.randrange(2)
             m = poly_input(v, side)
@@ -468,8 +473,8 @@ def poly_stimulus(path, seed=1, ops=6000, bins=1, sectors=65536, last_voices=32,
         elif op < 0.45:                             # reads
             f = rng.choice([11, 11, 37, 36, 40, 41, 42, 43, 32, 34, 0, 3, 7, 8, 9, 10, 12, 50])
             w(1, ch); w(2, f); rd(3); rd(2)
-        elif op < 0.55:
-            mix()
+        elif op < 0.55:                             # a tick or two
+            t(rng.choice([9900, 19800, 4950]))
         else:
             t(rng.choice([1, 50, 333, 999, 3000, 9900, 20000, 40000, 123456]))
     with open(path, "w") as f:
@@ -477,9 +482,80 @@ def poly_stimulus(path, seed=1, ops=6000, bins=1, sectors=65536, last_voices=32,
     return len(out)
 
 
+def poly_box_stimulus(path, seed=1, instants=3000):
+    """Stimulus for hdl/sim/poly_box_tb.sv: voice ticks of 333/666/999 ns
+    with dev_fm's 768 kHz instants (from 0), the FM samples a little after
+    their instants, P(m) a little after its boundary (never late enough to
+    give up on), and the x' sim/pcm.py PolyBox and x_in give."""
+    import random
+    from sim import pcm
+    rng = random.Random(seed)
+    n_p = instants * 1302 // pcm.F0_TICK_NS + 4
+    big = lambda b: rng.choice([0, rng.randrange(-(1 << b), 1 << b), rng.randrange(-1000, 1000)])
+    pl = [big(23) for _ in range(n_p)]
+    pr = [big(rng.choice([12, 20, 23])) for _ in range(n_p)]
+    box = pcm.PolyBox(pl, pr, 0)
+    out, fm_wait, p_wait = [], [], []
+    now, k, m = 0, 0, 0
+    inst = lambda j: j * 1_000_000_000 // pcm.IN_RATE
+    while k < instants:
+        n = rng.choice([333, 666, 999])
+        if inst(k) < now + n:
+            out.append("K %d 1 %d" % (n, inst(k) - now))
+            fm_wait.append((k, rng.randrange(3)))
+            k += 1
+        else:
+            out.append("K %d 0 0" % n)
+        now += n
+        while m * pcm.F0_TICK_NS <= now:            # dev_poly's pass for boundary m falls due
+            p_wait.append((m, rng.randrange(4)))
+            m += 1
+        for q in (p_wait, fm_wait):
+            for i in range(len(q)):
+                q[i] = (q[i][0], q[i][1] - 1)
+        while p_wait and p_wait[0][1] < 0:
+            j = p_wait.pop(0)[0]
+            out.append("P %d %d" % (pl[j], pr[j]))
+        while fm_wait and fm_wait[0][1] < 0:
+            j = fm_wait.pop(0)[0]
+            fl, fr = big(37), big(rng.choice([20, 37]))
+            out.append("F %d %d" % (fl, fr))
+            xl, xr = box.step(inst(j))
+            out.append("X %d %d" % (pcm.x_in(fl, xl), pcm.x_in(fr, xr)))
+        if rng.random() < 0.1:
+            out.append("W %d" % rng.randrange(1, 30))
+    for j, _ in p_wait:
+        out.append("P %d %d" % (pl[j], pr[j]))
+    for j, _ in fm_wait:
+        fl, fr = big(37), big(37)
+        out.append("F %d %d" % (fl, fr))
+        xl, xr = box.step(inst(j))
+        out.append("X %d %d" % (pcm.x_in(fl, xl), pcm.x_in(fr, xr)))
+    with open(path, "w") as f:
+        f.write("\n".join(out) + "\n")
+
+
+def test_poly_box():
+    """M26: the poly output at the 768 kHz instants (hdl/dev/poly_box.sv)
+    against sim/pcm.py PolyBox and x_in."""
+    if not HAVE_VERILATOR:
+        print("  skip test_poly_box (needs verilator)")
+        return
+    import tempfile
+    with tempfile.NamedTemporaryFile(suffix=".stim", delete=False) as f:
+        path = f.name
+    try:
+        for seed in (1, 2):
+            poly_box_stimulus(path, seed=seed)
+            out = _testbench("poly_box", "hdl/dev/poly_box.sv", args=["+stim=" + path])
+            print("  " + [ln for ln in out.splitlines() if "poly_box OK" in ln][0])
+    finally:
+        os.unlink(path)
+
+
 def test_dev_poly():
     """The poly synth (hdl/dev/dev_poly.sv) against sim/devices/poly.py:
-    every register read and mix of a random register stream."""
+    every register read and P(m) of a random register stream."""
     if not HAVE_VERILATOR:
         print("  skip test_dev_poly (needs verilator)")
         return
@@ -490,17 +566,19 @@ def test_dev_poly():
         # a 3200 (1 bin, 32 MB); a 6400 (2 bins); 4 bins (the most SYN-5.3 looks for);
         # M16: a part-filled last bin (4, 8, 20 voices), mono voice cards
         # M19: with a distributor (routing, output pairs, level detector)
-        for bins, units, last, mono, multi in ((1, 256, 32, False, False), (2, 128, 32, False, False),
-                                               (4, 64, 32, False, False), (1, 32, 4, True, False),
-                                               (3, 64, 8, False, False), (2, 96, 20, True, False),
-                                               (3, 64, 32, False, True), (1, 64, 12, True, True)):
+        # M26: 4 bins with the DDR3 load test on (extra fetches, same P)
+        for bins, units, last, mono, multi, ftest in (
+                (1, 256, 32, False, False, 0), (2, 128, 32, False, False, 0),
+                (4, 64, 32, False, False, 0), (1, 32, 4, True, False, 0),
+                (3, 64, 8, False, False, 0), (2, 96, 20, True, False, 0),
+                (3, 64, 32, False, True, 0), (1, 64, 12, True, True, 0), (4, 64, 32, False, False, 3)):
             poly_stimulus(path, bins=bins, sectors=units * 256, last_voices=last, mono=mono,
                           multi=multi)
             out = _testbench("dev_poly", "hdl/dev/dev_poly.sv",
                              args=["+stim=" + path, "+bins=%d" % bins, "+units=%d" % units,
-                                   "+last=%d" % last, "+mono=%d" % mono])
-            print("  %d bin(s), last %d%s%s: %s" % (bins, last, ", mono" if mono else "",
-                  ", distributor" if multi else "",
+                                   "+last=%d" % last, "+mono=%d" % mono, "+ftest=%d" % ftest])
+            print("  %d bin(s), last %d%s%s%s: %s" % (bins, last, ", mono" if mono else "",
+                  ", distributor" if multi else "", ", load test" if ftest else "",
                   [ln for ln in out.splitlines() if "dev_poly OK" in ln][0]))
     finally:
         os.unlink(path)
@@ -1035,7 +1113,7 @@ def expected_panel(display="    ", units=0, vpk=False, lit=(), status=None):
         return rows
     lab = labels()
     rows = ["-" * 80, (" Display  [%s]   Units %04X" % (display, units)).rstrip(),
-            " Lag us 00000000   Underrun 0000   Overrun 0000   MIDI 0000 00 Err 0000 31k"]
+            " Lag us 00000000   Underrun 0000   Overrun 0000   MIDI 0000 00 Err 0000 31k P000"]
     for r in range(8):
         rows.append(" ".join(lab[16 * r:16 * r + 16]).rstrip())
     rows.append(" Click a button to press it.   MIDI: ch 1-15 keys, ch 16 buttons, prog = timbre")
@@ -1071,7 +1149,7 @@ def test_board_boots_release_l():
         # status line: no throttle in the bench (lag 0); the bench runs faster
         # than real time, so the audio FIFO overruns there
         import re
-        assert re.fullmatch(r" Lag us 00000000   Underrun [0-9A-F?]{4}   Overrun [0-9A-F?]{4}   MIDI 0000 00 Err 0000 31k", panel[2]), panel[2]
+        assert re.fullmatch(r" Lag us 00000000   Underrun [0-9A-F?]{4}   Overrun [0-9A-F?]{4}   MIDI 0000 00 Err 0000 31k P000", panel[2]), panel[2]
         assert panel[:2] + panel[3:] == expected_panel()[:2] + expected_panel()[3:], "\n".join(panel)
     finally:
         shutil.rmtree(tmp)

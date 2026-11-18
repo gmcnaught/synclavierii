@@ -76,6 +76,8 @@ module dev_fm #(
     output logic        stall,        // CPU: wait before the next fetch
 
     output logic        audio_valid,
+    output logic        inst,         // a sample instant falls in this tick (poly_box.sv, M26) ...
+    output logic [9:0]  inst_d,       // ... this many ns into it
     output logic signed [39:0] audio_l,
     output logic signed [39:0] audio_r,
 
@@ -181,6 +183,8 @@ module dev_fm #(
     // multiplier sits in a tick's clock.
     `include "fm_num_rom.svh"
     wire        sample_now = tick && to_next < 14'(tick_ns);
+    assign inst = sample_now;
+    assign inst_d = to_next[9:0];
     wire [9:0]  d = to_next[9:0];                         // offset in this tick
     wire [39:0] num_tick = tick_ns == 10'd333 ? OSC_NUM * 40'd333 :
                            tick_ns == 10'd666 ? OSC_NUM * 40'd666 :

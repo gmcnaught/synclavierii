@@ -134,7 +134,7 @@ which capture cards take), `vsync_adjust=0` with a standard `video_mode`
 | `data/demos/smoke.demo` | W0-53, W1-TIMBRES | three keys and START/STOP on SIMPLE FM SINE; FM Timbre display (6 s) |
 | `data/demos/chorale-synclav-organ.demo` | W0-53, W1-TIMBRES | Bach BWV 269 (`data/sequences/`), live on SYNCLAV-ORGAN 2. (W1:RESYNTH5 3-6), FM Timbre display. Also tried: SYNCLAV-ORGAN 1. (3-1), STRINGS 5. (1-7), PIPE ORGAN #1 (W1:TIMBDSK3 1-2: 8 voices a note, clips 2.25 % at the 1/4 FM gain) |
 | `data/demos/gymnopedie-piano.demo` | W0-53, W1-SAMPLES | Satie, Gymnopedie No. 1 (musetrainer MusicXML), live at 69 BPM on FULL PIANO (W1:PIANO1 2-1, sampled), Patch display |
-| `data/demos/gymnopedie-notation.demo` | W0-53-GYMNO, W1-SAMPLES | the same piece played by the sequencer (W0:.SQ5DATA, FULL PIANO tracks) while Music Notation follows it |
+| `data/demos/gymnopedie-notation.demo` | W0-53-GYMNO, W1-SAMPLES-FIX | the same piece played by the sequencer (W0:.SQ5DATA) on CONCERT GRAND-16, melody/bass/chords at velocity 17/13/9, while Music Notation follows it |
 
 ## Notes
 
@@ -178,3 +178,29 @@ keyboard / SYN-5.3's key range:
 * The three lowest bass notes (B1, A1, B1: NED keys 9-11, the VPK's lowest
   keys) were saved an octave up (B2, A2) [UNK: whether SYN-5.3's recorder
   or the sequence format moves keys below 12].
+
+## Velocity layers: CONCERT GRAND-16 (2026-11-17)
+
+W1:PIANO2 is NED's concert grand recorded at four dynamics (sound files
+`PNO??71` pp, `72` mf, `73` f, `74` ff). CONCERT GRAND-16 (W1:PIANO2 1-2)
+has one partial per dynamic over the whole keyboard, and its velocity
+slot drives DYN.ENV (sampled destination `1024`) and volume (continuous
+`4`), so key velocity picks the recording, and with it the attack. In the
+simulator, C4 by MIDI velocity [OBS, sim/devices/synth.py velocity table,
+which hdl/core/midi_vpk.sv shares]:
+
+| Velocity | Recording | Peak (16-bit) |
+|---|---|---|
+| 1-5 | pp | 140-370 |
+| 9-17 | mf | 1,360-2,310 |
+| 21-77 | f | 2,080-5,460 |
+| 81-127 | ff | 8,970-12,080 |
+
+`seq_record.py record --velocity STAFF/VOICE=V,...` sets a MusicXML
+voice's velocity (the Gymnopedie: melody 1/2, bass 2/5, chords 1/1 and
+2/6). At 17/13/9 (all mf) the melody is about 13 dB over the chords.
+
+Recording on a timbre this size needed two fixes in `seq_record.py`: wait
+until the sound files have loaded (3 s without LOADING on the panel), and
+repeat STOP until the RECORD and START lights are off (SYN-5.3 missed a
+single 0.1 s press and kept recording into the next part).

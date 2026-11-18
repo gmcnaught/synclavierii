@@ -248,13 +248,16 @@ def read_midi(path):
 CLEF_BY_SIGN = {"G": "G", "F": "F", "C": "A"}
 
 
-def read_musicxml(path):
+def read_musicxml(path, velocity=None):
     """A MusicXML score (.mxl compressed, or .musicxml/.xml) as a Piece:
     one part per (score part, staff), so a piano part gives a right-hand
     and a left-hand part; beat = quarter note, beat_ms from the first
     tempo (<sound tempo=...>, default 500), time, key and clefs from the
     first attributes. Tied notes are joined; rests, grace and cue notes are
-    skipped; repeats are played once (the score as written, in order)."""
+    skipped; repeats are played once (the score as written, in order).
+    velocity: {(staff, voice): velocity} (the MusicXML <staff> and <voice>
+    numbers, e.g. {(1, 2): 110}) for a balance between the voices; other
+    notes get 90 (MusicXML dynamics are not read)."""
     import xml.etree.ElementTree as ET
     import zipfile
     if zipfile.is_zipfile(path):
@@ -329,7 +332,8 @@ def read_musicxml(path):
                             prev.dur += dur
                             continue
                     if dur > 0:
-                        notes.append(Note(start, dur, k, 90))
+                        voice = int(el.findtext("voice") or 1)
+                        notes.append(Note(start, dur, k, (velocity or {}).get((staff, voice), 90)))
         for staff in sorted(staves):
             part = staves[staff]
             part.notes.sort(key=lambda n: (n.start, n.key))
@@ -340,13 +344,27 @@ def read_musicxml(path):
     return p
 
 
-def read_piece(path):
+def read_piece(path, velocity=None):
+    """velocity: MusicXML only, see read_musicxml."""
     low = path.lower()
     if low.endswith((".mid", ".midi")):
         return read_midi(path)
     if low.endswith((".mxl", ".musicxml", ".xml")):
-        return read_musicxml(path)
+        return read_musicxml(path, velocity)
     return read_text(path)
+
+
+def parse_velocity(text):
+    """'1/2=110,2/5=85' -> {(1, 2): 110, (2, 5): 85} (staff/voice=velocity)."""
+    out = {}
+    for item in filter(None, (x.strip() for x in (text or "").split(","))):
+        where, _, v = item.partition("=")
+        staff, _, voice = where.partition("/")
+        v = int(v)
+        if not 1 <= v <= 127:
+            raise ValueError("velocity %d: 1-127" % v)
+        out[(int(staff), int(voice))] = v
+    return out
 
 
 def split_voices(part, names=("upper", "lower")):
@@ -544,6 +562,14 @@ class Synclavier:
         self.button("entryb")
         self.button("timb.%d" % (entry - 1))
         self.run(2)
+        quiet = 0                                # a patch timbre loads its sound files one
+        for _ in range(480):                     # by one: wait for 3 s without LOADING
+            quiet = quiet + 1 if "LOADING" not in "".join(self.display()) else 0
+            if quiet >= 12:
+                break
+            self.run(0.25)
+        else:
+            raise RuntimeError("timbre still loading after 120 s: %s | %s" % self.display())
         self.log("timbre: %s | %s" % self.display())
 
     def click_ms(self):
@@ -620,8 +646,13 @@ class Synclavier:
                 if not down[k]:
                     self.kb.press_key(k, False)
         self.run(0.5)
-        self.button("stop")
-        self.run(0.5)
+        for _ in range(10):                       # STOP until the recorder has stopped (a busy
+            self.button("stop")                   # SYN-5.3 can miss a 0.1 s press)
+            self.run(0.5)
+            if not (self.light("record") or self.light("start")):
+                break
+        else:
+            raise RuntimeError("recorder did not stop: %s | %s" % self.display())
         if self.light(name):
             self.button(name)                     # unsolo: the next track records alone
         self.log("track %d (%s): %d notes | %s | %s" % ((track, part.name, len(part.notes)) + self.display()))
@@ -867,6 +898,8 @@ def main(argv=None):
     r.add_argument("--offset-ms", type=int, default=OFFSET_MS)
     r.add_argument("--w1", help="W1 image (with --catalog: recall the timbre from a W1: library)")
     r.add_argument("--catalog", help="sub-catalog the timbre is recalled from, e.g. W1:PIANO1")
+    r.add_argument("--velocity", metavar="STAFF/VOICE=V,...",
+                   help="MusicXML: key velocity by staff and voice, e.g. 1/2=110,2/5=85,1/1=55 (others 90)")
     v = sub.add_parser("view", help="recall a sequence in the simulator: Music Notation PNGs, playback")
     v.add_argument("--w0", required=True)
     v.add_argument("--w1", help="W1 image (e.g. from tools/timbre_disk.py --seq)")
@@ -927,7 +960,7 @@ def main(argv=None):
         with open(a.txt, "w", encoding="utf-8") as f:
             write_text(piece, f)
         return 0
-    piece = read_piece(a.piece)
+    piece = read_piece(a.piece, parse_velocity(a.velocity))
     if a.beat_ms:
         piece.beat_ms = a.beat_ms
     if not 0 <= a.slot <= 7:

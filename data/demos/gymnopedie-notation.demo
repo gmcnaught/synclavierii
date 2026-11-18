@@ -1,21 +1,29 @@
 # Erik Satie, Gymnopedie No. 1, played by SYN-5.3's sequencer on the sampled
-# FULL PIANO while Music Notation (Main Menu K) follows it: two staves
-# (right hand track 1, left hand track 2), D major, 3/4, four measures a
-# screen; the screen turns its own pages during playback.
+# CONCERT GRAND-16 (W1:PIANO2 1-2: the grand recorded at pp, mf, f, ff; key
+# velocity picks the recording) while Music Notation (Main Menu K) follows
+# it: two staves (right hand track 1, left hand track 2), D major, 3/4, four
+# measures a screen; the screen turns its own pages during playback. All
+# three voices on the mf recordings: melody 17 (top of mf), bass 13, chords 9
+# (bottom of mf).
 #
+# W1-SAMPLES-FIX.IMG = W1-SAMPLES built with the patch transposition fix
+# (PR #68, tools/sample_pitch.py), so the piano is in tune.
 # W0-53-GYMNO.IMG = W0-53.IMG with the piece as W0:.SQ5DATA (docs/demo-video.md):
 #   python3 tools/seq_record.py record out/scores/Erik_Satie_-_Gymnopedie_No.1.mxl \
-#     --w0 out/images/W0-53.IMG --w1 out/images/W1-SAMPLES.IMG --catalog W1:PIANO1 \
-#     --timbre 2-1 --slot 5 --beat-ms 870 --sseq out/gymnopedie.sseq      # 69 BPM
+#     --w0 out/images/W0-53.IMG --w1 out/images/W1-SAMPLES-FIX.IMG --catalog W1:PIANO2 \
+#     --timbre 1-2 --slot 5 --beat-ms 870 --velocity 1/2=17,2/5=13,1/1=9,2/6=9 \
+#     --sseq out/gymnopedie.sseq                                          # 69 BPM
 #   python3 tools/seq_record.py install out/gymnopedie.sseq --w0 out/images/W0-53.IMG \
 #     --slot 5 --out out/images/W0-53-GYMNO.IMG
-title: Satie - Gymnopedie No. 1 (FULL PIANO, Music Notation)
+# (--velocity: MusicXML staff/voice: 1/2 melody, 2/5 bass, 1/1 and 2/6 chords.)
+# On the MiSTer: Synclavier-Gymnopedie.mgl (M23G core, these two images).
+title: Satie - Gymnopedie No. 1 (CONCERT GRAND-16, Music Notation)
 w0: W0-53-GYMNO.IMG
-w1: W1-SAMPLES.IMG
+w1: W1-SAMPLES-FIX.IMG
 
-button seqb                 # SEQUENCE + 5: W0:.SQ5DATA, with its FULL PIANO tracks
+button seqb                 # SEQUENCE + 5: W0:.SQ5DATA, with its CONCERT GRAND-16 tracks
 button timb.5
-wait 30                     # the sound files load into poly memory
+wait 60                     # the four layers' sound files load into poly memory
 type K                      # Music Notation
 wait 12
 type 2                      # Staves

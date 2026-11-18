@@ -262,6 +262,20 @@ def test_install():
         assert read_file(W, ".SQ5DATA")[:300] == list(range(300))
 
 
+def test_musicxml_velocity():
+    with tempfile.TemporaryDirectory() as d:
+        xml = os.path.join(d, "t.musicxml")
+        with open(xml, "w") as f:
+            f.write(MUSICXML.replace("<staff>1</staff>", "<voice>2</voice><staff>1</staff>", 1))
+        v = sr.parse_velocity("1/2=110, 2/1=85,1/1=55")
+        assert v == {(1, 2): 110, (2, 1): 85, (1, 1): 55}
+        rh, lh = sr.read_piece(xml, v).parts
+        # the first D5 is voice 2 (melody); the rest of staff 1 voice 1; the bass staff 2 voice 1
+        assert [(n.key, n.vel) for n in rh.notes] == [(66, 55), (74, 110), (67, 55), (70, 55)]
+        assert [n.vel for n in lh.notes] == [85]
+        assert [n.vel for n in sr.read_piece(xml).parts[0].notes] == [90] * 4
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:

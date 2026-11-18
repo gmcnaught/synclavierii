@@ -9,10 +9,11 @@
 // write is acknowledged when the controller accepts it (Avalon keeps the
 // order, so a later read sees it).
 //
-// Read stream (s_*, the poly mix, M15): s_rd held with s_addr until s_ack
-// (the command was accepted; the clock after s_ack is ignored); reads do
-// not wait for each other's data, which comes back in order as s_rvalid
-// pulses. A port request waits until the stream's reads are back (its
+// Read stream (s_*, the poly voices' fetches, M15/M26): s_rd held with
+// s_addr until s_ack (the command was accepted; the clock after s_ack is
+// ignored); each read is the 64-bit beat holding word s_addr (words
+// s_addr & ~3 .. | 3, word i in bits 16i+15..16i); reads do not wait for
+// each other's data, which comes back in order as s_rvalid pulses. A port request waits until the stream's reads are back (its
 // read takes the next DOUT_READY), and the stream waits while a port
 // request is pending: the port goes first.
 module ddram_word #(
@@ -33,7 +34,7 @@ module ddram_word #(
     input  logic        s_rd,
     output logic        s_ack,
     output logic        s_rvalid,
-    output logic [15:0] s_rdata,
+    output logic [63:0] s_rdata,
 
     input  logic        DDRAM_BUSY,
     output logic [7:0]  DDRAM_BURSTCNT,
@@ -53,10 +54,7 @@ module ddram_word #(
     logic [6:0] beat;
     logic       burst;
 
-    // the stream's reads in flight: their word lanes, in order
-    logic [1:0] s_lane [32];
-    logic [4:0] s_wp, s_rp;
-    logic [5:0] s_out;                           // reads in flight
+    logic [5:0] s_out;                           // stream reads in flight
     wire        s_ret = DDRAM_DOUT_READY && s_out != 6'd0;
     wire        s_take = state == S_SCMD && !DDRAM_BUSY;
     wire        port_req = (rd || wr) && !ack;
@@ -67,20 +65,17 @@ module ddram_word #(
         ack <= 1'b0;
         s_ack <= 1'b0;
         s_rvalid <= 1'b0;
-        if (s_take) s_lane[s_wp] <= s_addr[1:0];
         if (s_ret) begin
-            s_rdata <= DDRAM_DOUT[{s_lane[s_rp], 4'd0} +: 16];
+            s_rdata <= DDRAM_DOUT;
             s_rvalid <= 1'b1;
-            s_rp <= s_rp + 5'd1;
         end
-        if (s_take) s_wp <= s_wp + 5'd1;
         s_out <= s_out + (s_take ? 6'd1 : 6'd0) - (s_ret ? 6'd1 : 6'd0);
         if (rst) begin
             state <= S_IDLE;
             DDRAM_RD <= 1'b0;
             DDRAM_WE <= 1'b0;
             burst <= 1'b0;
-            s_wp <= '0; s_rp <= '0; s_out <= '0;
+            s_out <= '0;
         end else case (state)
             S_IDLE:
                 if (port_req && s_out == 6'd0) begin

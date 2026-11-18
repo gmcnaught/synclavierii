@@ -8,7 +8,9 @@
 //                  row (row r = panel word r), each a 4-character label shown
 //                  inverted while its light is on; a help line; and a status
 //                  line: real time given up by the throttle (us) and audio
-//                  FIFO underruns/overruns, in hex;
+//                  FIFO underruns/overruns, in hex, ..., and "P" with the
+//                  poly P values given up on (poly_box.sv `late`, M26; the
+//                  low 12 bits, so two looks tell whether it still counts);
 //   and the mouse pointer (panel_mouse.sv) once the mouse has moved.
 // With `vpk` set the strip shows the velocity keyboard (D130) panel
 // instead, 12 rows of 8 lines: the 2 x 16-character display as two
@@ -63,6 +65,7 @@ module term_display #(
     input  logic [31:0] lag_us,         // real-time health (hex on panel row 2)
     input  logic [15:0] underruns,
     input  logic [15:0] overruns,
+    input  logic [15:0] poly_late,
     input  logic [15:0] midi_count,     // MIDI bytes received, the last, framing errors
     input  logic [7:0]  midi_last,
     input  logic [15:0] midi_errs,
@@ -413,6 +416,7 @@ module term_display #(
     end
 
     // the status line's character at column h[9:3]
+    wire  [11:0] pl3 = poly_late[11:0];
     logic [7:0] st_ch;
     always_comb begin
         st_ch = 8'h20;
@@ -442,6 +446,9 @@ module term_display #(
             7'd72: st_ch = midi_alt ? "9" : "3";
             7'd73: st_ch = midi_alt ? "k" : "1";
             7'd74: st_ch = midi_alt ? "6" : "k";
+            7'd76: st_ch = "P";
+            7'd77: st_ch = hex_char(pl3[11:8]); 7'd78: st_ch = hex_char(pl3[7:4]);
+            7'd79: st_ch = hex_char(pl3[3:0]);
             default: ;
         endcase
     end

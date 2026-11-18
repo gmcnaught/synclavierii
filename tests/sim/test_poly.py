@@ -169,12 +169,14 @@ def test_two_bins():
     assert p.read(PSD) == 222
     # voice 3 of each bin plays word 10 of its own bin's memory
     for ch in (3, 67):
-        _voice(p, ch, 100, 10)
+        _voice(p, ch, 100, 10, inc=1)                    # one step per 256 ticks
         p.write(PSC, ch)
         _fc(p, PSEMOD, 4095, 4095, 4095, 4095, 4095, 4095, 4095)   # EVAL 4095
         _fc(p, PSRCVOL, 4095, 4095, 4095, 4095)
     assert p.voice[3].eval == 4095 and p.voice[35].eval == 4095
     assert p.sounding() == [3, 67]
+    p.tick(F0_TICK_NS)                                   # the DACs latch word 10
+    p.advance()
     l, r = p._mix()
     e = 4095 * 4095
     assert l == (111 * e >> 24) + (222 * e >> 24) and r == l
@@ -224,7 +226,7 @@ def test_card_complement():
     m = PolySynth(sectors=256, mono=True)
     v = m.voice[0]
     v.on, v.eval, v.lcur, v.rcur = 1, 4095, 0, 4095
-    m.mem[0] = 1000
+    v.dac = 1000
     left, right = m._mix()
     assert left == right and right != 0
 
@@ -367,6 +369,68 @@ def test_settled_counters_catch_up():
             w.env_tick()
         v.catch_up(n)
         assert (v.ecnt, v.eacu, v.eval) == (w.ecnt, w.eacu, w.eval)
+
+
+def test_dac_output():
+    """M26: P(m) is each DAC's word from the tick before x EVAL x volume
+    >> 24; a DAC re-reads memory at every tick and is 0 once its voice is
+    off; a stereo slave's DAC holds the word after its master's."""
+    p = PolySynth(4, 256)
+    p.write(PSC, 0)
+    _fc(p, PSWMA, 0, 100, *range(1000, 1010))                # words 100-109
+    for ch in (0, 1):
+        p.write(PSC, ch)
+        _fc(p, PSEMOD, 4095, 4095, 4095, 4095, 4095, 4095, 4095)   # EVAL 4095
+        _fc(p, PSRCVOL, 4095, 4095, 4095, 4095)
+    _voice(p, 0, 4, 100)                                     # one step a tick, 4 words
+    p.record()
+    m0 = p.out_m0
+    p.tick(F0_TICK_NS * (m0 + 7) - p.time_ns)
+    p.advance()
+    e = 4095 * 4095
+    g = lambda w: w * e >> 24
+    # tick m0: DAC 0 (latched before the voice started), then it latches
+    # word 100 (position 0) and steps; each word is heard for a tick, the
+    # step at position 4 stops the voice
+    assert list(p.out_l) == [0, g(1000), g(1001), g(1002), g(1003), 0, 0, 0], list(p.out_l)
+    assert list(p.out_r) == list(p.out_l)
+    # a memory write reaches a held DAC at the next tick (no step needed)
+    _voice(p, 0, 100, 100, inc=1)                            # slow: no step for 255 ticks
+    p.tick(F0_TICK_NS)
+    p.advance()
+    assert p.voice[0].dac == 1000
+    _fc(p, PSWMA, 0, 100, 1234)
+    p.tick(F0_TICK_NS)
+    p.advance()
+    assert p.voice[0].dac == 1234 and p.out_l[-1] == g(1000)
+    # stereo: voice 1 slaved to voice 0 plays the word after it
+    p.write(PSC, 0)
+    _fc(p, 59, 1)
+    p.write(PSC, 1)
+    _fc(p, 10, 3)
+    p.tick(F0_TICK_NS)
+    p.advance()
+    assert (p.voice[0].dac, p.voice[1].dac) == (1234, 1001)
+    p.write(PSC, 0)
+    _fc(p, 10, 0)                                            # master off: both DACs 0
+    p.tick(F0_TICK_NS)
+    p.advance()
+    assert (p.voice[0].dac, p.voice[1].dac) == (0, 0)
+    assert p.out_l[-1] == g(1234) + g(1001)
+    p.tick(F0_TICK_NS)
+    p.advance()
+    assert p.out_l[-1] == 0
+
+
+def test_record_skips_silence():
+    """Recording through silence (the skipped clocks) gives zeros, one per tick."""
+    p = PolySynth(4, 256)
+    p.tick(5 * F0_TICK_NS + 3)
+    p.advance()
+    p.record()
+    p.tick(10 * F0_TICK_NS)
+    p.advance()
+    assert p.out_m0 == 6 and list(p.out_l) == [0] * 10 and len(p.out_r) == 10
 
 
 if __name__ == "__main__":

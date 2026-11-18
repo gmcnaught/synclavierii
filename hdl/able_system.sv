@@ -107,6 +107,13 @@ module able_system #(
     output logic        audio_valid,
     output logic signed [39:0] audio_l,
     output logic signed [39:0] audio_r,
+    // poly output (M26): dev_poly's P(m) when there is a dev_poly (poly_en),
+    // added before pcm_out's filter by poly_box.sv
+    input  logic        poly_en,
+    input  logic        poly_p_valid,
+    input  logic signed [31:0] poly_p_l,
+    input  logic signed [31:0] poly_p_r,
+    output logic [15:0] poly_late,         // real-time voices: P values given up on
     output logic        pcm_valid,         // 48 kHz 16-bit stereo (pcm_out.sv)
     output logic signed [15:0] pcm_l,
     output logic signed [15:0] pcm_r,
@@ -175,11 +182,11 @@ module able_system #(
     logic [15:4] irq;
     logic        stall;
 
-    logic        rt_stall, fm_stall, pcm_stall;
+    logic        rt_stall, fm_stall, pcm_stall, box_stall;
     logic [6:0]  lost_ns;
     throttle #(.CLK_HZ(CLK_HZ)) pace (.clk, .rst, .enable(rt_enable), .tick, .tick_ns, .stall(rt_stall),
                                       .lag_us, .lost_ns);
-    assign stall = rt_stall || fm_stall || pcm_stall || dbg_stall;
+    assign stall = rt_stall || fm_stall || pcm_stall || box_stall || dbg_stall;
 
     // voice time: the CPU's ticks, or real time (M14)
     voice_clock #(.CLK_HZ(CLK_HZ)) vclk (
@@ -250,6 +257,7 @@ module able_system #(
         else if (io_wait && sel_xm)                   cause = 3'(STALL_XMEM);
         else if (io_wait)                             cause = 3'(STALL_IO);
         else if (fm_stall || pcm_stall)               cause = 3'(STALL_FM);
+        else if (box_stall)                           cause = 3'(STALL_POLY);
         else                                          cause = 3'(STALL_RUN);
     end
     logic [10:0] stall_ns [7];
@@ -370,7 +378,7 @@ module able_system #(
         .clk, .rst, .sel(sel_fm), .rd(io_rd), .wr(io_wr), .reg_sel(io_dev[1:0]),
         .wdata(io_wdata), .rdata(fm_rdata), .ack(fm_ack), .nosyn(fm_nosyn), .strict(synth_strict),
         .tick(voice_tick), .tick_ns(voice_tick_ns), .stall(fm_stall),
-        .audio_valid, .audio_l, .audio_r,
+        .audio_valid, .audio_l, .audio_r, .inst(fm_inst), .inst_d(fm_inst_d),
         .nvoices_ovr({cfg_q[13:11], 3'd0}),
         .busy_o(fm_busy), .out_pair, .rt_we(fm_rt_we), .rt_voice(fm_rt_voice), .rt_side(fm_rt_side),
         .rt_tag(fm_rt_tag), .q_voice(fm_q_voice), .q_side(fm_q_side), .q_live(fm_q_live),
@@ -415,8 +423,21 @@ module able_system #(
         .ld_we(ld_dev_we && ld_dev_sel == 3'd4), .ld_addr(ld_dev_addr[4:0]), .ld_data(ld_dev_data)
     );
 
+    // the poly output averaged over each 768 kHz interval, added to the FM
+    // sum (M26)
+    logic        fm_inst, x_valid;
+    logic [9:0]  fm_inst_d;
+    logic signed [26:0] x_l, x_r;
+    poly_box box (
+        .clk, .rst, .en(poly_en), .hold_ok(!rt_voices), .tick(voice_tick), .tick_ns(voice_tick_ns),
+        .inst(fm_inst), .inst_d(fm_inst_d),
+        .fm_valid(audio_valid), .fm_l(audio_l), .fm_r(audio_r),
+        .p_valid(poly_p_valid), .p_l(poly_p_l), .p_r(poly_p_r),
+        .out_valid(x_valid), .out_l(x_l), .out_r(x_r), .stall(box_stall), .late(poly_late)
+    );
+
     pcm_out pcm (
-        .clk, .rst, .in_valid(audio_valid), .in_l(audio_l), .in_r(audio_r),
+        .clk, .rst, .in_valid(x_valid), .in_l(x_l), .in_r(x_r),
         .out_valid(pcm_valid), .out_l(pcm_l), .out_r(pcm_r), .stall(pcm_stall)
     );
 

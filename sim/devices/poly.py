@@ -44,9 +44,22 @@ Voice model (sections 3.1-3.7) [INF, CHOICES marked]:
     (dest - cur) >> 9 (arithmetic; -8 becomes -7);
   * an odd voice whose even neighbour has FC 59 (even stereo master) set
     plays the word after its master's position (interleaved stereo frames);
-  * output of a voice [CHOICE: the mix is not in the source]: the word at
-    its current address (base + position; 0 when off) x EVAL / 4096 x
-    volume / 4096 per side; the voices are summed.
+  * output (M26, docs/poly-output.md) [CHOICE: the mix is not in the
+    source]: each voice has a DAC that the rate generator's clock latches.
+    At rate tick m (time m x 9900 ns), in this order:
+      1. P(m) = sum over voices of dac x EVAL x volume >> 24 per side (the
+         gains as they are now; routed by the distributor's output pair;
+         mono cards: the right sum on both sides). P(m) is the poly output
+         for [m x 9900, (m + 1) x 9900) ns;
+      2. every DAC latches the word at its voice's address (base +
+         position; a stereo slave: its master's + 1) as memory holds it
+         now, or 0 when the voice (a slave: its master) is off or the
+         address is outside the bin;
+      3. the voices step.
+    So every word a voice steps to is heard for one step period, from the
+    tick after the one that latched it (the HDL fetches it from DDR3 in
+    that tick): 1-2 ticks after the step. sim/pcm.py PolyBox averages
+    the P staircase over each 768 kHz interval for the FM output filter.
 """
 from array import array
 
@@ -96,7 +109,7 @@ class PolyVoice:
         self.ecnt = self.emod = self.eacu = self.einc = 0
         self.elim = self.eval = self.edel = 0
         self.rcur = self.rdest = self.lcur = self.ldest = 0
-        self.out = 0                 # current sample (signed)
+        self.dac = 0                 # the word its DAC latched at the last tick (signed)
         self.slave = False           # follows the even voice below (FC 59)
         self.et = 0                  # envelope ticks applied (catch_up)
 
@@ -171,8 +184,7 @@ class PolySynth(Device):
 
     numbers = (0o154, 0o155, 0o156, 0o157)
 
-    def __init__(self, voices=32, sectors=65536, sample_rate=None, bins=1,
-                 last_voices=None, mono=False):
+    def __init__(self, voices=32, sectors=65536, bins=1, last_voices=None, mono=False):
         if not 4 <= voices <= 32 or voices % 4:
             raise ValueError("voices: 4..32 in steps of 4")
         if last_voices is None:
@@ -199,10 +211,9 @@ class PolySynth(Device):
         self.done_ns = 0             # voices advanced to here
         self.rate_tick = 0           # next rate-generator tick number
         self.env_tick = 0
-        #: optional 48 kHz (or `sample_rate`) stereo output: list of (l, r)
-        self.sample_rate = sample_rate
-        self.samples = [] if sample_rate else None
-        self.sample_k = 0
+        #: optional output record (record()): P(m) for ticks out_m0, out_m0 + 1, ...
+        self.out_m0 = None
+        self.out_l = self.out_r = None
         self.writes = 0
         #: M19: a devices.multi.Distributor; with its `pair` set the mix is
         #: that output pair (devices.multi.route_pair)
@@ -296,10 +307,7 @@ class PolySynth(Device):
             if value & 1 and not v.on & 1:
                 v.pos = 0
                 v.acc = 0
-                v.out = self._sample(v.ba, self._bin())
             v.on = value & 3
-            if not v.on & 1:
-                v.out = 0
         elif fc in ENV_REGS:
             v.catch_up(self.env_tick)
             setattr(v, ENV_REGS[fc], value & 0xFFF)
@@ -323,6 +331,12 @@ class PolySynth(Device):
     def tick(self, ns):
         self.time_ns += ns
 
+    def record(self):
+        """Keep the output P(m) (see the module notes) from the next tick
+        not yet run on: out_l[j], out_r[j] = P(out_m0 + j)."""
+        self.out_m0 = self.rate_tick
+        self.out_l, self.out_r = array("q"), array("q")
+
     def advance(self):
         """Run the voices up to the current time."""
         t_end = self.time_ns
@@ -331,28 +345,42 @@ class PolySynth(Device):
             v.slave = bool(i & 1 and voices[i - 1].master)
         sounding = [(i, v) for i, v in enumerate(voices) if v.on & 1]
         moving = [v for v in voices if not v.settled()]
-        if not sounding and not moving and self.samples is None:
-            # nothing changes: skip the clocks
-            self.rate_tick = t_end // F0_TICK_NS + 1
+        # the DACs that can be non-zero in this run: sounding voices, the
+        # slaves of sounding masters, and any DAC not yet back at 0
+        dacs = {i for i, v in sounding}
+        dacs.update(i + 1 for i, v in sounding if not i & 1 and i + 1 < len(voices)
+                    and voices[i + 1].slave)
+        dacs.update(i for i, v in enumerate(voices) if v.dac)
+        dacs = sorted(dacs)
+        rec = self.out_l is not None
+        if not dacs and not moving:
+            # nothing changes and the output is 0: skip the clocks
+            m_end = t_end // F0_TICK_NS + 1
+            if rec and m_end > self.rate_tick:
+                zeros = array("q", bytes(8 * (m_end - self.rate_tick)))
+                self.out_l.extend(zeros)
+                self.out_r.extend(zeros)
+            self.rate_tick = max(self.rate_tick, m_end)
             self.env_tick = t_end // ENV_TICK_NS + 1
             self.done_ns = t_end
             return
+        nv = self.nvoices
         while True:
             t_rate = self.rate_tick * F0_TICK_NS
             t_env = self.env_tick * ENV_TICK_NS
-            t_smp = (self.sample_k * 1_000_000_000 // self.sample_rate
-                     if self.samples is not None else 1 << 62)
-            t = min(t_rate, t_env, t_smp)
-            if t > t_end:
+            if min(t_rate, t_env) > t_end:
                 break
-            if t == t_smp:
-                self.samples.append(self._mix())
-                self.sample_k += 1
-            elif t == t_rate:
+            if t_rate <= t_env:              # a rate tick first when both fall due
                 self.rate_tick += 1
+                left, right = self._mix(dacs)
+                if rec:
+                    self.out_l.append(left)
+                    self.out_r.append(right)
+                for i in dacs:
+                    voices[i].dac = self._dac(i, i // nv)
                 for i, v in sounding:
                     if v.on & 1 and not v.slave:
-                        self._rate(v, i // self.nvoices)
+                        self._rate(v)
             else:
                 self.env_tick += 1
                 for v in voices:
@@ -362,7 +390,7 @@ class PolySynth(Device):
                         v.et = self.env_tick
         self.done_ns = t_end
 
-    def _rate(self, v, b):
+    def _rate(self, v):
         inc = (v.inc_w & 0xFF) + 1
         mod = 256 - (v.mod_w & 0xFF)
         acc = v.acc + inc
@@ -378,27 +406,30 @@ class PolySynth(Device):
                     v.pos = 0
             else:
                 v.on &= ~1
-                v.out = 0
-                return
-        v.out = self._sample(v.ba + v.pos, b)
 
-    def _mix(self):
+    def _dac(self, i, b):
+        """The word voice i's DAC latches now (module notes, step 2)."""
+        v = self.voice[i]
+        if v.slave:
+            m = self.voice[i - 1]
+            return self._sample(m.ba + m.pos + 1, b) if m.on & 1 else 0
+        return self._sample(v.ba + v.pos, b) if v.on & 1 else 0
+
+    def _mix(self, voices=None):
+        """P: the DACs x EVAL x volume >> 24 per side, summed (`voices`: the
+        indices to look at, default all)."""
         left = right = 0
         multi = self.multi
         pair = multi.pair if multi is not None else 0
-        for i in range(len(self.voice)):
+        for i in range(len(self.voice)) if voices is None else voices:
             v = self.voice[i]
-            b = i // self.nvoices
-            if i & 1 and self.voice[i - 1].master:
-                m = self.voice[i - 1]
-                s = self._sample(m.ba + m.pos + 1, b) if m.on & 1 else 0
-            else:
-                s = self._sample(v.ba + v.pos, b) if v.on & 1 else 0
+            s = v.dac
             if s == 0 or v.eval == 0:
                 continue
             e = s * v.eval
             if pair:
                 from .multi import route_pair
+                b = i // self.nvoices
                 tags = multi.poly_tags(32 * b + i % self.nvoices)
                 sl, sr = route_pair(e * v.lcur >> 24, e * v.rcur >> 24, tags, pair, self.mono)
                 left += sl

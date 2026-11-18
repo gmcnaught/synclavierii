@@ -199,13 +199,13 @@ def test_write_mix():
     import struct
     with tempfile.TemporaryDirectory() as d:
         path = os.path.join(d, "m.wav")
-        fm = [(2048, -2048), (32767, 0)]         # one voice at full level (1/16); pcm_out.sv clipped
-        n = demo.write_mix(path, fm, [(100, -100), (-1000, 0)], 3)
+        frames = [(2048, -2048), (32767, 0)]     # pcm_out.sv's frames (FM + poly), clipped
+        n = demo.write_mix(path, frames, 3)
         data = open(path, "rb").read()[44:]
-        assert struct.unpack("<6h", data) == (2148, -2148, 31767, 0, 0, 0) and n == 1
-        n = demo.write_mix(path, fm, [(31000, 0)], 2)    # FM + poly over full scale: clipped again
-        assert struct.unpack("<4h", open(path, "rb").read()[44:]) == (32767, -2048, 32767, 0) and n == 2
-        n = demo.write_mix(path, fm, [], 2, gain=0.5)
+        assert struct.unpack("<6h", data) == (2048, -2048, 32767, 0, 0, 0) and n == 1
+        n = demo.write_mix(path, frames, 2, gain=2.0)    # over full scale: clipped again
+        assert struct.unpack("<4h", open(path, "rb").read()[44:]) == (4096, -4096, 32767, 0) and n == 2
+        n = demo.write_mix(path, frames, 2, gain=0.5)
         assert struct.unpack("<4h", open(path, "rb").read()[44:]) == (1024, -1024, 16384, 0) and n == 1
 
 

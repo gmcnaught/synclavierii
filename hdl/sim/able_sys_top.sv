@@ -144,6 +144,10 @@ module able_sys_top (
     logic [3:0]  nat_num;
     wire         nat_ack = 1'b0, nat_wr = 1'b0;
     wire  [15:0] nat_result = 16'd0;
+    wire         poly_en = 1'b0;        // no dev_poly here: pcm_out takes the FM sum alone
+    wire         poly_p_valid = 1'b0;
+    wire  [31:0] poly_p_l = '0, poly_p_r = '0;
+    logic [15:0] poly_late;
 
     able_system sys (.*);
 endmodule

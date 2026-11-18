@@ -56,6 +56,7 @@ module synclavier_core #(
     input  logic        dig_stm_on,      // OSD (M18): digital STM input (D57 bit 0x4000), taken at reset
     input  logic        smpte_osd,       // OSD: SMPTE reader on (M20), taken at reset; or the state image's
     input  logic [3:0]  out_pair,        // OSD Outputs (M19): 0 stereo mix, n distributor outputs 2n-1, 2n
+    input  logic [1:0]  poly_ftest,      // OSD DDR3 load test (dev_poly.sv `ftest`, M26)
     input  logic        printer_osd,     // OSD Hardware page (M21): a printer on D40, taken at reset
     input  logic        readback_en,     // VT640 read-back replies (0: the board bench, whose
                                          // traces carry Python's as terminal input)
@@ -98,7 +99,7 @@ module synclavier_core #(
     output logic        xs_rd,
     input  logic        xs_ack,
     input  logic        xs_rvalid,
-    input  logic [15:0] xs_rdata,
+    input  logic [63:0] xs_rdata,
 
     output logic        ce_pix,
     output logic [7:0]  vga_r,
@@ -314,6 +315,7 @@ module synclavier_core #(
         .kb_vpk, .vpk_host_we(v_we), .vpk_host_op(v_op), .vpk_host_addr(v_addr),
         .vpk_host_data(v_data), .vpk_lights, .vpk_chars, .vpk_dp,
         .audio_valid, .audio_l(audio_sum_l), .audio_r(audio_sum_r),
+        .poly_en(1'b1), .poly_p_valid, .poly_p_l, .poly_p_r, .poly_late,
         .pcm_valid, .pcm_l, .pcm_r,
         .ld_voice_we, .ld_voice_addr, .ld_voice_data,
         .term_rx_valid(kb_rx_valid || sim_rx_valid || rb_valid),
@@ -418,11 +420,12 @@ module synclavier_core #(
     logic        poly_ack, p_rd, p_wr, p_ack;
     logic [26:0] p_addr, p_saddr;
     logic        p_wide;
-    logic        mix_valid;
-    logic signed [15:0] mix_l, mix_r;
+    logic        poly_p_valid;
+    logic signed [31:0] poly_p_l, poly_p_r;
+    logic [15:0] poly_late;
     dev_poly #(.MEM_BITS(27)) poly (
         .clk, .rst(cpu_rst), .enable(term_bits[10]), .bin_count(poly_bins), .size_units(poly_units),
-        .last_voices(poly_last), .mono(poly_mono),
+        .last_voices(poly_last), .mono(poly_mono), .ftest(poly_ftest),
         .tick(voice_tick), .tick_ns(voice_tick_ns),
         .sel(sel_poly || stm_pwr), .rd(dev_rd && !stm_pwr), .wr(dev_wr || stm_pwr),
         .reg_sel(stm_pwr ? 2'd3 : dev_num[1:0]), .wdata(stm_pwr ? stm_pdata : dev_wdata),
@@ -431,8 +434,7 @@ module synclavier_core #(
         .clearing(poly_clearing),
         .m_ack(p_ack),
         .s_addr(p_saddr), .s_rd(xs_rd), .s_ack(xs_ack), .s_rvalid(xs_rvalid), .s_rdata(xs_rdata),
-        .mix_in_valid(pcm_valid), .mix_in_l(pcm_l), .mix_in_r(pcm_r),
-        .mix_out_valid(mix_valid), .mix_out_l(mix_l), .mix_out_r(mix_r),
+        .p_valid(poly_p_valid), .p_l(poly_p_l), .p_r(poly_p_r),
         .out_pair(pair), .rt_we(rt_we && !rt_fm), .rt_voice, .rt_side, .rt_tag,
         .q_voice, .q_side, .q_live(poly_q_live)
     );
@@ -514,7 +516,7 @@ module synclavier_core #(
     // to real time: a FIFO played at a steady 48 kHz (audio_fifo.sv)
     logic [15:0] underruns, overruns;
     audio_fifo #(.CLK_HZ(CLK_HZ)) to_real_time (
-        .clk, .rst, .in_valid(mix_valid), .in_l(mix_l), .in_r(mix_r),
+        .clk, .rst, .in_valid(pcm_valid), .in_l(pcm_l), .in_r(pcm_r),
         .out_l(audio_l), .out_r(audio_r), .out_strobe(), .underruns, .overruns
     );
 
@@ -671,7 +673,7 @@ module synclavier_core #(
         .color, .lights(kb_lights), .display(kb_display),
         .vpk(kb_vpk), .vpk_lights, .vpk_chars, .vt640(term_vt640), .panel_over,
         .tick, .tick_ns, .rb_en(readback_en), .rb_valid, .rb_data,
-        .ptr_on, .ptr_x, .ptr_y, .lag_us, .underruns, .overruns, .stall_view, .stall_us,
+        .ptr_on, .ptr_x, .ptr_y, .lag_us, .underruns, .overruns, .poly_late, .stall_view, .stall_us,
         .midi_count, .midi_last, .midi_errs, .midi_alt,
         .ce_pix, .r(vga_r), .g(vga_g), .b(vga_b), .hs(vga_hs), .vs(vga_vs),
         .hblank(vga_hblank), .vblank(vga_vblank),

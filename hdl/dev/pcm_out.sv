@@ -1,6 +1,6 @@
-// Audio output stage (M5, M23): the voice engine's 768 kHz sums to 48 kHz
-// 16-bit PCM, bit for bit as sim/pcm.py:
-//   x' = in >>> 14 (floor)
+// Audio output stage (M5, M23, M26): the 768 kHz x' (poly_box.sv: the FM
+// sum >>> 14 plus the poly part, saturated to 27 bits) to 48 kHz 16-bit
+// PCM, bit for bit as sim/pcm.py:
 //   every 16th input, newest at n:
 //     acc = sum(fir_coeff(j) x x'[n - j], j = 0 .. 511)   (x' = 0 before the first)
 //     pcm = clip(round_half_even(acc x 32767 / 2^41))
@@ -20,15 +20,15 @@ module pcm_out (
     input  logic        clk,
     input  logic        rst,
     input  logic        in_valid,
-    input  logic signed [39:0] in_l,
-    input  logic signed [39:0] in_r,
+    input  logic signed [26:0] in_l,           // x'
+    input  logic signed [26:0] in_r,
     output logic        out_valid,
     output logic signed [15:0] out_l,
     output logic signed [15:0] out_r,
     output logic        stall          // a sum is due while another runs: hold the CPU
 );
     `include "pcm_fir.svh"
-    localparam int XW = 26;                         // x' bits (|x'| < 2^22 for 32 voices)
+    localparam int XW = 27;                         // x' bits (saturated in poly_box.sv)
     localparam int AW = XW + FIR_W + 9;             // sum of 512 products
 
     logic signed [XW-1:0] hist_l [1024];
@@ -73,8 +73,8 @@ module pcm_out (
         rd_l <= hist_l[newest - j];
         rd_r <= hist_r[newest - j];
         if (in_valid && !rst) begin
-            hist_l[wp] <= in_l[XW+13:14];
-            hist_r[wp] <= in_r[XW+13:14];
+            hist_l[wp] <= in_l;
+            hist_r[wp] <= in_r;
         end
     end
 

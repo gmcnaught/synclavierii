@@ -546,7 +546,7 @@ SYSTEM_RTL = ["hdl/able_cpu.sv", "hdl/code_cache.sv", "hdl/dev/dev_rtc.sv", "hdl
               "hdl/dev/dev_extmem.sv", "hdl/dev/dev_terminal.sv",
               "hdl/dev/dev_floppy.sv", "hdl/dev/dev_keyboard.sv", "hdl/dev/dev_vpk.sv",
               "hdl/dev/dev_fm.sv",
-              "hdl/dev/pcm_out.sv", "hdl/throttle.sv", "hdl/voice_clock.sv", "hdl/able_system.sv"]
+              "hdl/dev/poly_box.sv", "hdl/dev/pcm_out.sv", "hdl/throttle.sv", "hdl/voice_clock.sv", "hdl/able_system.sv"]
 CORE_RTL = ["hdl/core/sd_floppy.sv", "hdl/dev/dev_scsi.sv", "hdl/dev/dev_poly.sv", "hdl/dev/dev_midi.sv", "hdl/dev/dev_smpte.sv", "hdl/dev/dev_mouse.sv", "hdl/dev/dev_multi.sv",
             "hdl/dev/dev_printer.sv", "hdl/core/print_capture.sv",
             "hdl/core/boot_loader.sv", "hdl/core/term_display.sv", "hdl/core/tek_plane.sv",
@@ -575,13 +575,16 @@ def build(top="cpu", force=False):
             os.path.getmtime(exe) > max(os.path.getmtime(s) for s in srcs):
         return exe
     os.makedirs(mdir, exist_ok=True)          # older Verilator does not create parents
-    subprocess.run(["verilator", "--cc", "--exe", "--build", "-O3", "-Wall", "-Wno-fatal",
+    b = subprocess.run(["verilator", "--cc", "--exe", "--build", "-O3", "-Wall", "-Wno-fatal",
                     "--x-assign", "unique", "--x-initial", "unique",
                     "-I" + os.path.join(ROOT, "hdl", "dev"), "-I" + os.path.join(ROOT, "hdl", "core"),
                     "--top-module", name, "-Mdir", mdir, "-o", "V" + name,
                     "-CFLAGS", "-O2 " + " ".join(defines)]
                    + [x for x in srcs if not x.endswith(".svh")],
-                   check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                   capture_output=True, text=True)
+    if b.returncode:
+        errs = [ln for ln in (b.stdout + b.stderr).splitlines() if "%Error" in ln or "error:" in ln]
+        raise RuntimeError("verilator build of %s failed:\n%s" % (top, "\n".join(errs[:40])))
     return exe
 
 

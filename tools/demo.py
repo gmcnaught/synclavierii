@@ -42,11 +42,10 @@ then runs the events; the board starts from its state image instead.
 
 render: the frame is tools/vt100.py's VT640 picture (term_display.sv draws
 the same), green as the core's default colour, scaled by whole pixels to
---height; audio is sim/pcm.py render_frames() of the FM writes (pcm_out.sv
-bit for bit: 768 kHz instants, 512-tap FIR, gain 1/16) plus devices/poly.py's
-mix at the same 48 kHz instants,
-clipped to 16 bits, as dev_poly.sv adds them. Simulated time runs about
-2-3 x slower than real time.
+--height; audio is sim/pcm.py render_frames() of the FM writes and
+devices/poly.py's output P(m) (pcm_out.sv bit for bit: 768 kHz instants,
+the poly staircase averaged over each, 512-tap FIR, gain 1/16; M26).
+Simulated time runs about 2-3 x slower than real time.
 """
 import argparse
 import json
@@ -347,9 +346,9 @@ def render(a):
         t = min(t_frame, t_ev, t_later)
         if t >= end_ns and t != t_frame:
             break
-        if poly.samples is None and t >= rec_ns:
-            run_to(rec_ns)
-            start_audio(poly, rec_ns)
+        if poly.out_l is None and t >= rec_ns - POLY_LEAD_NS:
+            run_to(max(0, rec_ns - POLY_LEAD_NS))
+            poly.record()
         run_to(t)
         inp.due(cpu.time_ns)
         while events and t_start + int(events[0][0] * 1e9) <= cpu.time_ns:
@@ -376,8 +375,9 @@ def render(a):
     poly.advance()
     log("rendering audio (%d FM writes)" % len(cpu.fm.log))
     n = (end_ns - rec_ns) * 48_000 // 1_000_000_000
-    fm = fm_render_parallel(cpu.fm.log, rec_ns, end_ns, cpu.fm.voices, a.jobs)
-    clipped = write_mix(wav, fm, poly.samples, n, 10 ** (a.gain / 20))
+    fm = fm_render_parallel(cpu.fm.log, rec_ns, end_ns, cpu.fm.voices, a.jobs,
+                            poly=(poly.out_m0, poly.out_l, poly.out_r))
+    clipped = write_mix(wav, fm, n, 10 ** (a.gain / 20))
     log("audio: %.1f s, %d of %d samples clipped (%.2f%%)%s"
         % (n / 48_000, clipped, 2 * n, 100 * clipped / max(1, 2 * n),
            "" if a.gain == 0 else ", gain %+g dB (not the core's level)" % a.gain))
@@ -394,25 +394,40 @@ def render(a):
 
 
 CHUNK_NS = 1_000_000_000          # render chunks: whole seconds = whole 16-instant groups
+POLY_LEAD_NS = 2_000_000          # poly recorded from before the FIR's warm-up (512 instants)
 
 
 def _fm_chunk(job):
     from sim.pcm import render_frames
-    log, c0, c1, voices, origin = job
-    return render_frames(log, c0, c1, voices=voices, origin_ns=origin)
+    log, c0, c1, voices, origin, poly = job
+    return render_frames(log, c0, c1, voices=voices, origin_ns=origin, poly=poly)
 
 
-def fm_render_parallel(log, start_ns, end_ns, voices, jobs=None):
+def _poly_slice(poly, c0, c1):
+    """The part of (m0, pl, pr) a chunk from c0 to c1 ns reads (with its
+    warm-up), or None."""
+    if poly is None:
+        return None
+    from sim.pcm import F0_TICK_NS
+    m0, pl, pr = poly
+    a = max(m0, (c0 - POLY_LEAD_NS) // F0_TICK_NS)
+    b = max(a, min(m0 + len(pl), c1 // F0_TICK_NS + 2))
+    return a, pl[a - m0:b - m0], pr[a - m0:b - m0]
+
+
+def fm_render_parallel(log, start_ns, end_ns, voices, jobs=None, poly=None):
     """pcm_out.sv's 16-bit FM frames from start_ns to end_ns (sim/pcm.py
     render_frames, instants start_ns + k x 1e9 // 768000) in chunks on
     `jobs` processes. Chunks start at start_ns + whole multiples of CHUNK_NS
     (768 instants a ms: whole groups of 16); render_frames rebuilds the
     voice state by replaying the log and warms the FIR up over the 512
-    instants before each chunk, so the joined chunks equal one call."""
+    instants before each chunk, so the joined chunks equal one call.
+    poly: (m0, pl, pr), the poly output added before the filter."""
     from multiprocessing import get_context
     log = sorted(log, key=lambda e: e[0])
     cuts = list(range(start_ns, end_ns, CHUNK_NS)) + [end_ns]
-    work = [(log, c0, c1, voices, start_ns) for c0, c1 in zip(cuts, cuts[1:])]
+    work = [(log, c0, c1, voices, start_ns, _poly_slice(poly, c0, c1))
+            for c0, c1 in zip(cuts, cuts[1:])]
     if (jobs or 0) == 1 or len(work) == 1:
         parts = [_fm_chunk(w) for w in work]
     else:
@@ -421,40 +436,26 @@ def fm_render_parallel(log, start_ns, end_ns, voices, jobs=None):
     return [x for part in parts for x in part]
 
 
-def start_audio(poly, rec_ns):
-    """Collect the poly mix from the first 48 kHz instant at or after rec_ns."""
-    poly.advance()
-    poly.sample_rate = 48_000
-    poly.sample_k = -(-rec_ns * 48_000 // 1_000_000_000)
-    poly.samples = []
-
-
-def write_mix(path, fm, poly, n, gain=1.0):
-    """The core's 48 kHz output: FM 16-bit frames (pcm_out.sv, already
-    clipped; one at a rail is counted as clipped) plus the poly mix,
-    clipped again (dev_poly.sv); `n` frames. gain != 1 scales the sum
-    before that clip (not the core's output). Returns the number of
-    clipped samples."""
+def write_mix(path, frames, n, gain=1.0):
+    """The core's 48 kHz output: pcm_out.sv's 16-bit frames (FM and poly,
+    already clipped; one at a rail is counted as clipped); `n` frames.
+    gain != 1 scales them, clipped again (not the core's level). Returns
+    the number of clipped samples."""
     clipped = 0
-    frames = bytearray()
+    out = bytearray()
     for i in range(n):
-        fl, fr = fm[i] if i < len(fm) else (0, 0)
-        pl, pr = poly[i] if i < len(poly) else (0, 0)
-        for f, p in ((fl, pl), (fr, pr)):
+        for f in frames[i] if i < len(frames) else (0, 0):
             if f >= 32767 or f <= -32768:
                 clipped += 1
-            if gain == 1.0:
-                y = f + p
-            else:
-                y = int(round((f + p) * gain))
+            y = f if gain == 1.0 else int(round(f * gain))
             if y > 32767 or y < -32768:
                 clipped += 1
                 y = max(-32768, min(32767, y))
-            frames += struct.pack("<h", y)
+            out += struct.pack("<h", y)
     with open(path, "wb") as f:
-        f.write(b"RIFF" + struct.pack("<I", 36 + len(frames)) + b"WAVE")
+        f.write(b"RIFF" + struct.pack("<I", 36 + len(out)) + b"WAVE")
         f.write(b"fmt " + struct.pack("<IHHIIHH", 16, 1, 2, 48_000, 192_000, 4, 16))
-        f.write(b"data" + struct.pack("<I", len(frames)) + frames)
+        f.write(b"data" + struct.pack("<I", len(out)) + out)
     return clipped
 
 

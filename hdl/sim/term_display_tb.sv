@@ -38,7 +38,7 @@ module term_display_tb;
     term_display #(.CE_DIV(1)) dut (
         .clk, .rst, .vclk(clk), .in_valid, .in_data, .color(2'd0),
         .lights, .display, .ptr_on(1'b1), .ptr_x(10'd600), .ptr_y(9'd100),
-        .lag_us(32'h0001_2a3f), .underruns(16'h0002), .overruns(16'h0000),
+        .lag_us(32'h0001_2a3f), .underruns(16'h0002), .overruns(16'h0000), .poly_late(16'h1234),
         .midi_count(16'h0123), .midi_last(8'hf8), .midi_errs(16'h0000), .midi_alt(1'b1),
         .vpk, .vpk_lights, .vpk_chars, .vt640, .panel_over(1'b0), .stall_view, .stall_us,
         .tick, .tick_ns(10'd100), .rb_en(1'b1), .rb_valid, .rb_data,

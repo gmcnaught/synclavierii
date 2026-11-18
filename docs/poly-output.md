@@ -104,8 +104,9 @@ need has come. With voices on CPU time (lockstep) 4 waiting hold the CPU
 never depends on how long `dev_poly` takes. With voices on real time (M14)
 a hold would not stop them, only add lag, so there is none: with 8 waiting
 the oldest sample goes out with that P taken as P_cur and the P is dropped
-when it arrives; `late` counts these, shown on the status line as `P` + 3
-hex digits (col 76; FFF and up as FFF).
+when it arrives; `late` counts these, shown on the status line as `P` + its
+low 3 hex digits (col 76; it wraps, so two looks tell whether it still
+counts).
 
 `dev_poly` runs its passes between the bursts of the poly memory clear
 after reset, so voice time does not fall behind during it. (The first .62

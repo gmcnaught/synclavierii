@@ -268,7 +268,7 @@ def test_term_display_panel():
     font, lab = glyphs(), labels()
     assert term[0] == "HELLO" and term[1] == "WORLD", term[:3]
     assert panel[1] == " Display  [1234]   Units 0004", panel[1]
-    assert panel[2] == " Lag us 00012A3F   Underrun 0002   Overrun 0000   MIDI 0123 F8 Err 0000 9k6 PFFF", panel[2]
+    assert panel[2] == " Lag us 00012A3F   Underrun 0002   Overrun 0000   MIDI 0123 F8 Err 0000 9k6 P234", panel[2]
     # the segment codes as written (NED DIGITS), decimal point on digit 2
     assert display == [0o006, 0o133 | 0o200, 0o117, 0o146], [oct(c) for c in display]
     # lit: HSus (word 0 bit 15), Bk1 (word 6 bit 0), Tb2 (word 6 bit 9)
@@ -322,7 +322,7 @@ def test_term_display_vpk():
         lit = {33, 159} | ({108} if phase else set())
         want = expected_panel(vpk=True, display=display, lit=lit, status=panel[1])
         assert panel == want, "\n".join(panel + ["--- expected"] + want)
-        assert panel[1] == " Lag us 00012A3F   Underrun 0002   Overrun 0000   MIDI 0123 F8 Err 0000 9k6 PFFF", panel[1]
+        assert panel[1] == " Lag us 00012A3F   Underrun 0002   Overrun 0000   MIDI 0123 F8 Err 0000 9k6 P234", panel[1]
         for pbn in range(160):
             r, c = 2 + pbn // 16, 5 * (pbn % 16)
             assert all(inverted[(r, c + i)] == (pbn in lit) for i in range(4)), (phase, pbn)

@@ -9,8 +9,8 @@
 //                  inverted while its light is on; a help line; and a status
 //                  line: real time given up by the throttle (us) and audio
 //                  FIFO underruns/overruns, in hex, ..., and "P" with the
-//                  poly P values given up on (poly_box.sv `late`, M26; FFF
-//                  and up shown as FFF);
+//                  poly P values given up on (poly_box.sv `late`, M26; the
+//                  low 12 bits, so two looks tell whether it still counts);
 //   and the mouse pointer (panel_mouse.sv) once the mouse has moved.
 // With `vpk` set the strip shows the velocity keyboard (D130) panel
 // instead, 12 rows of 8 lines: the 2 x 16-character display as two
@@ -416,7 +416,7 @@ module term_display #(
     end
 
     // the status line's character at column h[9:3]
-    wire  [11:0] pl3 = poly_late > 16'h0FFF ? 12'hFFF : poly_late[11:0];
+    wire  [11:0] pl3 = poly_late[11:0];
     logic [7:0] st_ch;
     always_comb begin
         st_ch = 8'h20;

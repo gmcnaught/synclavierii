@@ -129,7 +129,7 @@ module poly_box (
             pq_n <= pq_n + 6'(p_valid && !p_drop) - 6'(p_take);
             if (p_take) pq_rp <= pq_rp + 5'd1;
             debt <= debt + 32'(go && bnd && !p_have) - 32'(p_drop);
-            if (go && bnd && !p_have && late != 16'hFFFF) late <= late + 16'd1;
+            if (go && bnd && !p_have) late <= late + 16'd1;
             fq_n <= fq_n + 4'(fm_valid) - 4'(st == 4'd7);
 
             case (st)

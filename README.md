@@ -43,7 +43,6 @@ Not done yet:
   a real instrument.
 * **Launchkey defaults** for pads and pots are not checked against a
   captured device.
-* No packaged release: build the RBF yourself or take it from a CI run.
 
 Not planned: Direct-to-Disk, sample-to-memory recording (no audio input),
 mono sampling, the Macintosh terminal.
@@ -54,6 +53,13 @@ M0–M15, with acceptance criteria and results, are in
 
 ## Using the core
 
+Download the core from [Releases](../../releases): `Synclavier_YYYYMMDD.rbf`
+(the version is the build date; the OSD shows `vYYMMDD`) goes in
+`_Computer/` on the SD card, and the release's MGLs
+(`Synclavier-5.3.mgl`, `Synclavier-ReleaseL.mgl`, also in
+[`mister/mgl/`](mister/mgl/)) in the SD card's root. The disk images they
+mount are not included; you build them from your own NED images.
+
 [`mister/README.md`](mister/README.md) has the build, the image tools and
 the MIDI mapping. In short, for Release 5.3:
 
@@ -63,13 +69,13 @@ python3 tools/w0_image.py "Synclavier³.app/Contents/Resources/W0 Disk Image.sim
 
 writes `W0-53.IMG` (the hard disk) and `W0-53.SST` (a state image that
 sets up the machine). Copy both to `games/Synclavier/` and load them with
-an MGL; options give 32 FM voices (`--fm-voices 32`), more poly memory
+`Synclavier-5.3.mgl`; options give 32 FM voices (`--fm-voices 32`), more poly memory
 (`--poly-mb`), a second poly bin (`--poly-bins 2`), the MIDI card
 (`--midi`), a VT640 (`--vt640`) or a second disk (`--w1`). Set the MiSTer
 UART to MidiLink for MIDI.
 
-Build the core with `mister/build.sh` (Quartus Lite 17.0) or take the
-`synclavier-rbf` artifact from a **Build RBF** run on `main`.
+Or build the core with `mister/build.sh` (Quartus Lite 17.0), or take
+the `synclavier-rbf` artifact from a **Build RBF** run on `main`.
 
 ## How it is checked
 

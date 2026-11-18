@@ -6,11 +6,11 @@
 # three voices on the mf recordings: melody 17 (top of mf), bass 13, chords 9
 # (bottom of mf).
 #
-# W1-SAMPLES-FIX.IMG = W1-SAMPLES built with the patch transposition fix
-# (PR #68, tools/sample_pitch.py), so the piano is in tune.
+# W1-SAMPLES.IMG: built with timbre_disk.py --samples since PR #68, which
+# corrects the patch transpositions (tools/sample_pitch.py), so the piano is in tune.
 # W0-53-GYMNO.IMG = W0-53.IMG with the piece as W0:.SQ5DATA (docs/demo-video.md):
 #   python3 tools/seq_record.py record out/scores/Erik_Satie_-_Gymnopedie_No.1.mxl \
-#     --w0 out/images/W0-53.IMG --w1 out/images/W1-SAMPLES-FIX.IMG --catalog W1:PIANO2 \
+#     --w0 out/images/W0-53.IMG --w1 out/images/W1-SAMPLES.IMG --catalog W1:PIANO2 \
 #     --timbre 1-2 --slot 5 --beat-ms 870 --velocity 1/2=17,2/5=13,1/1=9,2/6=9 \
 #     --sseq out/gymnopedie.sseq                                          # 69 BPM
 #   python3 tools/seq_record.py install out/gymnopedie.sseq --w0 out/images/W0-53.IMG \
@@ -19,7 +19,7 @@
 # On the MiSTer: Synclavier-Gymnopedie.mgl (M23G core, these two images).
 title: Satie - Gymnopedie No. 1 (CONCERT GRAND-16, Music Notation)
 w0: W0-53-GYMNO.IMG
-w1: W1-SAMPLES-FIX.IMG
+w1: W1-SAMPLES.IMG
 
 button seqb                 # SEQUENCE + 5: W0:.SQ5DATA, with its CONCERT GRAND-16 tracks
 button timb.5

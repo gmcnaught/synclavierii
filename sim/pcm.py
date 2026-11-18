@@ -14,29 +14,47 @@ voice.FULL_SCALE = 2**31) and poly part p (PolyBox):
   x' = sat27((x >> IN_SHIFT) + p)                 (floor; |x >> IN_SHIFT| < 2**23 for 32 voices)
 every DECIM inputs, with the newest at n:
   acc = sum(COEFFS[j] x x'[n - j], j = 0 .. TAPS-1)   (x' = 0 before the first)
-  pcm = clip(round_half_even(acc x 32767 / 2**(SUM_BITS + 35 - IN_SHIFT)))
-so one voice at full level, hard-panned, is 1/16 of full scale (M23; it was
-1/4, and 32 voices clipped: a dense 32-voice organ chorale clipped 2.25 % of
-samples at 1/4 and peaks at -5.6 dBFS at 1/16).
+  v   = round_half_even(acc x 32767 / 2**(SUM_BITS + 35 - IN_SHIFT))
+  pcm = Limiter (OSD Limiter On, the default) or clip(v) (Off)
+At 0 dB (IN_SHIFT = 14) one voice at full level, hard-panned, is 1/16 of
+full scale (M23; at 1/4 a dense 32-voice organ chorale clipped 2.25 % of
+samples). The OSD FM level and Poly level (#76) shift the two parts before
+they are summed: x' = sat27((x >> fm_shift) + p), fm_shift = 14 - dB/6;
+the poly part's shift is POLY_SHIFT - dB/6. Defaults: FM +12 dB (one voice
+1/4), poly +6 dB, limiter on (docs/poly-output.md 4).
 """
 from .pcm_fir import COEFFS, SUM_BITS, TAPS
 
 DECIM = 16                      # 768 kHz -> 48 kHz
 IN_RATE = 48_000 * DECIM
-IN_SHIFT = 14
-OUT_SHIFT = SUM_BITS + 35 - IN_SHIFT          # 41: gain 1/16
+IN_SHIFT = 14                                 # FM at 0 dB
+OUT_SHIFT = SUM_BITS + 35 - IN_SHIFT          # 41: one voice 1/16 at 0 dB
+
+#: OSD level codes (status bits, 0 = the first option = the default) to dB
+#: (#76): FM level +12/+18/+6/0 dB, Poly level +6/+12/0/-6 dB. Whole 6 dB
+#: steps, so a level is a shift.
+FM_LEVEL_DB = (12, 18, 6, 0)
+POLY_LEVEL_DB = (6, 12, 0, -6)
+
+
+def fm_shift(level=0):
+    return IN_SHIFT - FM_LEVEL_DB[level] // 6
+
+
+def poly_shift(level=0):
+    return POLY_SHIFT - POLY_LEVEL_DB[level] // 6
 
 
 #: poly (M26, docs/poly-output.md): sim/devices/poly.py's P(m) holds for
 #: [m x F0_TICK_NS, (m + 1) x F0_TICK_NS); PolyBox gives each 768 kHz
 #: instant the staircase's average over the interval since the previous
-#: instant, scaled so that x' = 64 x P (pcm = P, the level the poly mix had
-#: when it was added to the 16-bit output):
-#:   x'_poly = (sum of P x ns in the interval) x RECIP[d] >> POLY_SHIFT
+#: instant, scaled so that at 0 dB x' = 64 x P (pcm = P, the level the poly
+#: mix had when it was added to the 16-bit output):
+#:   x'_poly = (sum of P x ns in the interval) x RECIP[d] >> poly_shift(level)
 #: d = the interval in ns: 1302 or 1303 (the first interval after reset
 #: may be shorter: RECIP 0, no poly in it).
 F0_TICK_NS = 9900
-POLY_SHIFT = 20
+POLY_SHIFT = 20                 # poly at 0 dB
 POLY_GAIN = 64
 RECIP = {d: round(POLY_GAIN * (1 << POLY_SHIFT) / d) for d in (1302, 1303)}
 
@@ -46,10 +64,11 @@ class PolyBox:
     instants. P(m) = (pl[m - m0], pr[m - m0]), 0 outside the arrays.
     State as the HDL has it after reset: previous instant 0, next boundary
     tick 0, current P 0; start(t) puts it where a run of instants from just
-    after t would find it."""
+    after t would find it. level: the OSD Poly level code."""
 
-    def __init__(self, pl=(), pr=(), m0=0):
+    def __init__(self, pl=(), pr=(), m0=0, level=0):
         self.pl, self.pr, self.m0 = pl, pr, m0
+        self.shift = poly_shift(level)
         self.t_prev = 0
         self.nb = 0                       # tick of the next boundary
         self.cur = (0, 0)
@@ -80,7 +99,7 @@ class PolyBox:
             yl, yr = cl * d, cr * d
         self.t_prev = t
         k = RECIP.get(d, 0)
-        return yl * k >> POLY_SHIFT, yr * k >> POLY_SHIFT
+        return yl * k >> self.shift, yr * k >> self.shift
 
 
 def _round_shift(p, s):
@@ -93,9 +112,61 @@ def _round_shift(p, s):
     return q
 
 
+def pcm_wide(acc):
+    """The filter sum in 16-bit units, not clipped (pcm_out.sv's output:
+    |v| < 2**21 for any 27-bit x')."""
+    return _round_shift(acc * 32767, OUT_SHIFT)
+
+
+def clip16(v):
+    return max(-32768, min(32767, v))
+
+
 def pcm(acc):
-    q = _round_shift(acc * 32767, OUT_SHIFT)
-    return max(-32768, min(32767, q))
+    return clip16(pcm_wide(acc))
+
+
+#: Limiter (hdl/dev/pcm_limit.sv, #76): one gain for both sides,
+#: G / 2**24, 0 < G <= 2**24. Per 48 kHz sample (vl, vr) = pcm_wide:
+#:   p = max(|vl|, |vr|)
+#:   if p x G > T x 2**24:  G = floor(T x 2**24 / p); hold = HOLD   (attack, instant)
+#:   out = (v x G + 2**23) >> 24          (|out| <= T: never clips)
+#:   then: hold > 0: hold -= 1;  else G = min(2**24, G + ((2**24 - G) >> REL) + 1)
+#: T = -1 dBFS; HOLD 20 ms; REL 12: release time constant 4096 samples
+#: (85 ms, about 100 dB/s). Off: out = clip16(v), and G, hold reset.
+LIM_ONE = 1 << 24
+LIM_T = 29204                   # round(32767 x 10**(-1/20))
+LIM_HOLD = 960
+LIM_REL = 12
+
+
+class Limiter:
+    def __init__(self, on=True):
+        self.on = on
+        self.g = LIM_ONE
+        self.hold = 0
+
+    def step(self, vl, vr):
+        if not self.on:
+            self.g, self.hold = LIM_ONE, 0
+            return clip16(vl), clip16(vr)
+        p = max(abs(vl), abs(vr))
+        if p * self.g > LIM_T << 24:
+            self.g = (LIM_T << 24) // p
+            self.hold = LIM_HOLD
+        g = self.g
+        out = (vl * g + (1 << 23)) >> 24, (vr * g + (1 << 23)) >> 24
+        if self.hold:
+            self.hold -= 1
+        elif g < LIM_ONE:
+            self.g = min(LIM_ONE, g + ((LIM_ONE - g) >> LIM_REL) + 1)
+        return out
+
+
+def limit_frames(wide, on=True):
+    """16-bit frames for a run of pcm_wide (left, right) pairs from reset."""
+    lim = Limiter(on)
+    return [lim.step(l, r) for l, r in wide]
 
 
 #: taps oldest-first, for a history kept oldest-first (COEFFS[0] = newest)
@@ -112,25 +183,29 @@ X_BITS = 27                     # x' (FM and poly) saturates to 27 bits (poly_bo
 X_MAX, X_MIN = (1 << (X_BITS - 1)) - 1, -(1 << (X_BITS - 1))
 
 
-def x_in(fm, poly=0):
-    """x' for pcm_out: the FM sum >> IN_SHIFT plus the poly part (PolyBox),
-    saturated to X_BITS (poly_box.sv)."""
-    return max(X_MIN, min(X_MAX, (fm >> IN_SHIFT) + poly))
+def x_in(fm, poly=0, fm_level=0):
+    """x' for pcm_out: the FM sum >> fm_shift(fm_level) plus the poly part
+    (PolyBox), saturated to X_BITS (poly_box.sv)."""
+    return max(X_MIN, min(X_MAX, (fm >> fm_shift(fm_level)) + poly))
 
 
 class PcmOut:
     """pcm_out.sv (after poly_box.sv): push 768 kHz (left, right) integer FM
     sums and the poly x' parts; every DECIM-th push returns a (left, right)
-    16-bit frame, otherwise None."""
+    16-bit frame (pcm_limit.sv's), otherwise None. limit None: the
+    unclipped pcm_wide pair instead (pcm_out.sv's), for a Limiter run
+    over a whole render later."""
 
-    def __init__(self):
+    def __init__(self, fm_level=0, limit=True):
         self.hl = [0] * TAPS          # oldest first; trimmed now and then
         self.hr = [0] * TAPS
         self.count = 0
+        self.fm_level = fm_level
+        self.lim = None if limit is None else Limiter(limit)
 
     def push(self, left, right, pl=0, pr=0):
-        self.hl.append(x_in(left, pl))
-        self.hr.append(x_in(right, pr))
+        self.hl.append(x_in(left, pl, self.fm_level))
+        self.hr.append(x_in(right, pr, self.fm_level))
         self.count += 1
         if self.count < DECIM:
             return None
@@ -138,13 +213,14 @@ class PcmOut:
         if len(self.hl) > 8 * TAPS:
             del self.hl[:-TAPS]
             del self.hr[:-TAPS]
-        return pcm(fir(self.hl)), pcm(fir(self.hr))
+        v = pcm_wide(fir(self.hl)), pcm_wide(fir(self.hr))
+        return v if self.lim is None else self.lim.step(*v)
 
 
-def frames(samples):
+def frames(samples, fm_level=0, limit=True):
     """16-bit frames for a list of integer (left, right) 768 kHz sums."""
     out = []
-    p = PcmOut()
+    p = PcmOut(fm_level, limit)
     for l, r in samples:
         f = p.push(l, r)
         if f is not None:
@@ -166,7 +242,8 @@ def _instant(origin_ns, k):
     return origin_ns + k * 1_000_000_000 // IN_RATE
 
 
-def render_frames(log, start_ns, end_ns, voices=8, origin_ns=None, poly=None):
+def render_frames(log, start_ns, end_ns, voices=8, origin_ns=None, poly=None,
+                  fm_level=0, poly_level=0, limit=True):
     """pcm_out.sv's 16-bit frames for a window of a D162 write log
     (sim/voice.py FMSynth at the 768 kHz instants origin + k x 1e9 // 768000,
     origin = start_ns by default). Frame j is the filter at instant
@@ -176,7 +253,10 @@ def render_frames(log, start_ns, end_ns, voices=8, origin_ns=None, poly=None):
     the log), so windows that meet join into exactly one longer call: a
     long render can be split across processes. poly: (m0, pl, pr), the
     poly output P(m0 + j) = (pl[j], pr[j]) (PolySynth.record), averaged
-    over each interval by PolyBox and added before the filter (M26)."""
+    over each interval by PolyBox and added before the filter (M26).
+    fm_level, poly_level: OSD level codes. limit: the Limiter (True/False)
+    from start_ns; None gives pcm_wide pairs, which windows that meet join
+    exactly (limit_frames over the joined pairs = one call)."""
     from .voice import FMSynth
     if origin_ns is None:
         origin_ns = start_ns
@@ -192,13 +272,14 @@ def render_frames(log, start_ns, end_ns, voices=8, origin_ns=None, poly=None):
         k_end += DECIM
     log = sorted(log, key=lambda e: e[0])
     synth = FMSynth(voices)
-    out = PcmOut()
+    out = PcmOut(fm_level, None)
+    lim = None if limit is None else Limiter(limit)
     frames = []
     i = 0
     box = None
     if poly is not None:
         m0, pl, pr = poly
-        box = PolyBox(pl, pr, m0)
+        box = PolyBox(pl, pr, m0, poly_level)
         box.start(_instant(origin_ns, k_start - TAPS - 1))
     for k in range(k_start - TAPS, k_end):
         t = _instant(origin_ns, k)
@@ -209,5 +290,5 @@ def render_frames(log, start_ns, end_ns, voices=8, origin_ns=None, poly=None):
         xl, xr = box.step(t) if box is not None else (0, 0)
         f = out.push(left, right, xl, xr)
         if f is not None and k >= k_start:
-            frames.append(f)
+            frames.append(f if lim is None else lim.step(*f))
     return frames

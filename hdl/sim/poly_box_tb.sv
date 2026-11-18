@@ -6,6 +6,7 @@
 //   P l r      dev_poly's next P(m)
 //   X l r      the next x' out is (l, r)
 //   W n        n clocks pass
+// +fm_level=N, +poly_level=N: the OSD level codes (#76; default 0).
 // The checker queues both sides (outputs may come before their X lines).
 module poly_box_tb;
     logic        clk = 0, rst = 1;
@@ -16,10 +17,11 @@ module poly_box_tb;
     logic        out_valid, stall;
     logic signed [26:0] out_l, out_r;
     logic [15:0] late;
+    logic [1:0]  fm_level = 0, poly_level = 0;
     int          errors = 0, lines = 0, outs = 0, stalls = 0;
 
     poly_box dut (
-        .clk, .rst, .en(1'b1), .hold_ok(1'b1), .tick, .tick_ns, .inst, .inst_d, .fm_valid, .fm_l, .fm_r,
+        .clk, .rst, .en(1'b1), .fm_level, .poly_level, .hold_ok(1'b1), .tick, .tick_ns, .inst, .inst_d, .fm_valid, .fm_l, .fm_r,
         .p_valid, .p_l, .p_r, .out_valid, .out_l, .out_r, .stall, .late
     );
 
@@ -51,9 +53,12 @@ module poly_box_tb;
         int fd, code;
         byte k;
         longint a, b, c;
+        int lv;
         if (!$value$plusargs("stim=%s", path)) begin
             $display("no +stim=FILE"); $finish;
         end
+        if ($value$plusargs("fm_level=%d", lv)) fm_level = 2'(lv);
+        if ($value$plusargs("poly_level=%d", lv)) poly_level = 2'(lv);
         fd = $fopen(path, "r");
         repeat (4) @(posedge clk);
         rst = 0;

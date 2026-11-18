@@ -42,11 +42,14 @@ def test_pan_law():
 
 
 def test_pcm_out_arithmetic():
-    """One voice at full level, hard-panned, reaches 1/16 of full scale (M23; was 1/4)."""
-    p = pcm.PcmOut()
+    """One voice at full level, hard-panned: 1/16 of full scale at FM level
+    0 dB (M23), 1/4 at the default +12 dB (#76), each OSD step 6 dB."""
     full = voice.FULL_SCALE
-    frames = [f for f in (p.push(full, -full) for _ in range(pcm.DECIM * 40)) if f]
-    assert frames[-1] == (2048, -2048), frames[-1]       # round(32767 / 16)
+    want = {0: 8192, 1: 16384, 2: 4096, 3: 2048}         # round(32767 x 2**(dB/6) / 16)
+    for level, v in want.items():
+        p = pcm.PcmOut(level, False)
+        frames = [f for f in (p.push(full, -full) for _ in range(pcm.DECIM * 40)) if f]
+        assert frames[-1] == (v, -v), (level, frames[-1])
     assert frames[0] != frames[-1]                        # the window fills over 32 frames
     assert pcm._round_shift(5, 1) == 2 and pcm._round_shift(7, 1) == 4 and pcm._round_shift(-5, 1) == -2
 
@@ -71,6 +74,32 @@ def test_render_frames_join():
         if f is not None and t >= 5_000_000:
             ref.append(f)
     assert ref == whole and max(abs(l) for l, _ in whole) > 1000
+    # unlimited (pcm_wide) windows join too, and the limiter over the
+    # joined pairs is one limited call
+    wide = (pcm.render_frames(log, 5_000_000, 15_000_000, voices=1, origin_ns=0, fm_level=1, limit=None)
+            + pcm.render_frames(log, 15_000_000, 25_000_000, voices=1, origin_ns=0, fm_level=1, limit=None))
+    assert pcm.limit_frames(wide) == pcm.render_frames(log, 5_000_000, 25_000_000, voices=1,
+                                                       origin_ns=0, fm_level=1)
+
+
+def test_limiter():
+    """#76: transparent below -1 dBFS; never above it; holds 20 ms, then
+    releases (85 ms time constant); off clips as before."""
+    lim = pcm.Limiter()
+    quiet = [(int(20000 * math.sin(i / 7)), -int(15000 * math.sin(i / 7))) for i in range(500)]
+    assert [lim.step(*v) for v in quiet] == quiet
+    loud = [(int(120000 * math.sin(i / 7)), int(60000 * math.sin(i / 5))) for i in range(4000)]
+    out = [lim.step(*v) for v in loud]
+    assert max(max(abs(l), abs(r)) for l, r in out) == pcm.LIM_T
+    g = lim.g
+    for _ in range(pcm.LIM_HOLD + 1):
+        lim.step(0, 0)
+    assert lim.g > g and lim.hold == 0
+    for _ in range(48_000):                             # 1 s of silence: back to unity
+        lim.step(0, 0)
+    assert lim.g == pcm.LIM_ONE and lim.step(1234, -1234) == (1234, -1234)
+    off = pcm.Limiter(False)
+    assert off.step(120000, -120000) == (32767, -32768) and off.step(-5, 5) == (-5, 5)
 
 
 def _sine_log(onu, nnu, inc):
@@ -119,7 +148,7 @@ def test_poly_box():
     x' = 64 x P for a constant P; a boundary inside an interval weights
     the two values by their ns in it."""
     f0 = pcm.F0_TICK_NS
-    box = pcm.PolyBox([1000, 1000, -3000, 7], [0, 5, 5, 5], 0)
+    box = pcm.PolyBox([1000, 1000, -3000, 7], [0, 5, 5, 5], 0, level=2)     # 0 dB
     assert box.step(0) == (0, 0)                     # the first instant: no interval
     seen = []
     for k in range(1, 40):
@@ -139,18 +168,24 @@ def test_poly_box():
     want = (1000 * (2 * f0 - t0) - 3000 * (t1 - 2 * f0)) * pcm.RECIP[t1 - t0] >> pcm.POLY_SHIFT
     assert seen[k][1][0] == want
     # start(t) resumes a run: the same values as from reset
-    again = pcm.PolyBox([1000, 1000, -3000, 7], [0, 5, 5, 5], 0)
+    again = pcm.PolyBox([1000, 1000, -3000, 7], [0, 5, 5, 5], 0, level=2)
     again.start(seen[9][0])
     assert [again.step(t) for t, _ in seen[10:]] == [x for _, x in seen[10:]]
-    # a constant P comes out of the filter as P
-    frames = []
-    out, box = pcm.PcmOut(), pcm.PolyBox([12345] * 2000, [-321] * 2000, 0)
-    for k in range(1, 16 * 100 + 1):
-        xl, xr = box.step(k * 1_000_000_000 // pcm.IN_RATE)
-        f = out.push(0, 0, xl, xr)
-        if f:
-            frames.append(f)
-    assert frames[-1] == (12345, -321), frames[-1]
+    # a constant P comes out of the filter as P at 0 dB, 2P at the default
+    # +6 dB (#76), and so on
+    for level, mul in ((2, 1), (0, 2), (1, 4), (3, 0.5)):
+        frames = []
+        out, box = pcm.PcmOut(0, False), pcm.PolyBox([6000] * 2000, [-320] * 2000, 0, level)
+        for k in range(1, 16 * 100 + 1):
+            xl, xr = box.step(k * 1_000_000_000 // pcm.IN_RATE)
+            f = out.push(0, 0, xl, xr)
+            if f:
+                frames.append(f)
+        # RECIP is rounded: within 1 LSB per doubling
+        assert all(abs(g - w) <= max(1, mul) for g, w in zip(frames[-1], (6000 * mul, -320 * mul))), \
+            (level, frames[-1])
+        if level == 2:
+            assert frames[-1] == (6000, -320)
 
 
 def _tone_db(frames, f, side=0):
@@ -191,7 +226,8 @@ def test_poly_aliasing():
     p.advance()
     m0, pl = p.out_m0, p.out_l
     # new: the M26 path (100 ms from 20 ms)
-    new = pcm.render_frames([], 20_000_000, t_end, voices=1, origin_ns=0, poly=(m0, pl, p.out_r))
+    new = pcm.render_frames([], 20_000_000, t_end, voices=1, origin_ns=0, poly=(m0, pl, p.out_r),
+                            poly_level=2)                           # 0 dB, as before #76
     # old: the DAC staircase point-sampled at the 48 kHz instants
     old = []
     for k in range(960, 960 + len(new)):

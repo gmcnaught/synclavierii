@@ -482,7 +482,7 @@ def poly_stimulus(path, seed=1, ops=6000, bins=1, sectors=65536, last_voices=32,
     return len(out)
 
 
-def poly_box_stimulus(path, seed=1, instants=3000):
+def poly_box_stimulus(path, seed=1, instants=3000, fm_level=0, poly_level=0):
     """Stimulus for hdl/sim/poly_box_tb.sv: voice ticks of 333/666/999 ns
     with dev_fm's 768 kHz instants (from 0), the FM samples a little after
     their instants, P(m) a little after its boundary (never late enough to
@@ -494,7 +494,7 @@ def poly_box_stimulus(path, seed=1, instants=3000):
     big = lambda b: rng.choice([0, rng.randrange(-(1 << b), 1 << b), rng.randrange(-1000, 1000)])
     pl = [big(23) for _ in range(n_p)]
     pr = [big(rng.choice([12, 20, 23])) for _ in range(n_p)]
-    box = pcm.PolyBox(pl, pr, 0)
+    box = pcm.PolyBox(pl, pr, 0, poly_level)
     out, fm_wait, p_wait = [], [], []
     now, k, m = 0, 0, 0
     inst = lambda j: j * 1_000_000_000 // pcm.IN_RATE
@@ -521,7 +521,7 @@ def poly_box_stimulus(path, seed=1, instants=3000):
             fl, fr = big(37), big(rng.choice([20, 37]))
             out.append("F %d %d" % (fl, fr))
             xl, xr = box.step(inst(j))
-            out.append("X %d %d" % (pcm.x_in(fl, xl), pcm.x_in(fr, xr)))
+            out.append("X %d %d" % (pcm.x_in(fl, xl, fm_level), pcm.x_in(fr, xr, fm_level)))
         if rng.random() < 0.1:
             out.append("W %d" % rng.randrange(1, 30))
     for j, _ in p_wait:
@@ -530,14 +530,14 @@ def poly_box_stimulus(path, seed=1, instants=3000):
         fl, fr = big(37), big(37)
         out.append("F %d %d" % (fl, fr))
         xl, xr = box.step(inst(j))
-        out.append("X %d %d" % (pcm.x_in(fl, xl), pcm.x_in(fr, xr)))
+        out.append("X %d %d" % (pcm.x_in(fl, xl, fm_level), pcm.x_in(fr, xr, fm_level)))
     with open(path, "w") as f:
         f.write("\n".join(out) + "\n")
 
 
 def test_poly_box():
     """M26: the poly output at the 768 kHz instants (hdl/dev/poly_box.sv)
-    against sim/pcm.py PolyBox and x_in."""
+    against sim/pcm.py PolyBox and x_in, at each OSD FM/Poly level (#76)."""
     if not HAVE_VERILATOR:
         print("  skip test_poly_box (needs verilator)")
         return
@@ -545,10 +545,59 @@ def test_poly_box():
     with tempfile.NamedTemporaryFile(suffix=".stim", delete=False) as f:
         path = f.name
     try:
-        for seed in (1, 2):
-            poly_box_stimulus(path, seed=seed)
-            out = _testbench("poly_box", "hdl/dev/poly_box.sv", args=["+stim=" + path])
+        for seed, fm_level, poly_level in ((1, 0, 0), (2, 1, 1), (3, 2, 2), (4, 3, 3), (5, 0, 3)):
+            poly_box_stimulus(path, seed=seed, fm_level=fm_level, poly_level=poly_level)
+            out = _testbench("poly_box", "hdl/dev/poly_box.sv",
+                             args=["+stim=" + path, "+fm_level=%d" % fm_level, "+poly_level=%d" % poly_level])
             print("  " + [ln for ln in out.splitlines() if "poly_box OK" in ln][0])
+    finally:
+        os.unlink(path)
+
+
+def pcm_limit_stimulus(path, seed=1, n=6000):
+    """Stimulus for hdl/sim/pcm_limit_tb.sv: pcm_out values (quiet, loud,
+    near the threshold, full range), the limiter on or off in runs, and
+    sim/pcm.py Limiter's output for each."""
+    import random
+    from sim import pcm
+    rng = random.Random(seed)
+    lim = pcm.Limiter(True)
+    out, on = [], 1
+    big = (1 << 21) - 1
+    for i in range(n):
+        if rng.random() < 0.002:
+            on = 1 - on
+        r = rng.random()
+        if r < 0.3:
+            amp = rng.choice([1000, 20000, 29204, 29205, 32767, 40000])
+        elif r < 0.9:
+            amp = rng.choice([60000, 200000, big])
+        else:
+            amp = rng.randrange(big)
+        l, rr = rng.randrange(-amp, amp + 1), rng.randrange(-amp, amp + 1)
+        if rng.random() < 0.05:
+            l, rr = rng.choice([big, -big]), rng.choice([0, big, -big])
+        lim.on = bool(on)
+        ol, orr = lim.step(l, rr)
+        out.append("X %d %d" % (ol, orr))
+        out.append("V %d %d %d" % (on, l, rr))
+    with open(path, "w") as f:
+        f.write("\n".join(out) + "\n")
+
+
+def test_pcm_limit():
+    """#76: the output limiter (hdl/dev/pcm_limit.sv) against sim/pcm.py Limiter."""
+    if not HAVE_VERILATOR:
+        print("  skip test_pcm_limit (needs verilator)")
+        return
+    import tempfile
+    with tempfile.NamedTemporaryFile(suffix=".stim", delete=False) as f:
+        path = f.name
+    try:
+        for seed in (1, 2):
+            pcm_limit_stimulus(path, seed=seed)
+            out = _testbench("pcm_limit", "hdl/dev/pcm_limit.sv", args=["+stim=" + path])
+            print("  " + [ln for ln in out.splitlines() if "pcm_limit OK" in ln][0])
     finally:
         os.unlink(path)
 

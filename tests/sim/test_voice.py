@@ -71,7 +71,7 @@ def test_oscillator_rate_is_pitch_formula():
         cycles = (n * increment // divisor >> (7 - octave)) / 256
         assert abs(cycles - frequency(*regs)) < 1.0 / 256 + 1e-9 + frequency(*regs) * 1e-6
         assert o.point == (n * increment // divisor >> (7 - octave)) & 255
-    assert abs(float(OSC_CLOCK) - 5_333_458) < 1
+    assert OSC_CLOCK * 6 == 32_000_000                 # 32 MHz crystal / 6 (#83)
 
 
 def test_interpolator_closed_form_matches_steps():

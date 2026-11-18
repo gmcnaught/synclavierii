@@ -73,8 +73,8 @@ analysis (Hann, 1 s at 0.3–1.3 s, ±15-bin harmonic exclusion):
   110 Hz to 4.2 kHz
   (`tests/sim/test_pcm.py`).
 * What remains near −66 to −73 dB at high notes is in the model's
-  staircase: its steps fall on the 5.3335 MHz oscillator tick grid
-  (`OSC_CLOCK`, clock tree [UNKNOWN] in `fm-voice.md`); the same
+  staircase: its steps fall on the 5.3333 MHz oscillator tick grid
+  (`OSC_CLOCK` = 32 MHz / 6 since #83; divider chain [UNKNOWN] in `fm-voice.md`); the same
   staircase on a 4× finer grid is cleaner (2637 Hz: −66 → −73 dB;
   1568 Hz: −71 → −89 dB). The real cards' clock would settle it.
 * Not comparable: Synclavier V "C6" is 1046.5 Hz; the doc's ORK-LM key 72

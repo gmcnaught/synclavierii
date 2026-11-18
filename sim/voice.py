@@ -16,8 +16,9 @@ Per channel (even = modulator, odd = carrier):
     each wrap is a pulse; a 7-stage binary divider passes one pulse in
     2^(7 - ONU) to the 8-bit point counter (256 points per cycle). This
     gives f = K x 2^ONU x increment / divisor exactly (sim/fm.py), with
-    OSC_CLOCK_HZ = 256 x 128 x K = 5.3335 MHz. The real clock tree is not
-    known; only the resulting step rate is verified. The increment can
+    OSC_CLOCK_HZ = 256 x 128 x K = 32 MHz / 6 = 5.3333 MHz [INFERRED: the
+    SS4 card's 32 MHz crystal and a fit over .STAB-6, #83; the interpolator
+    clock 333 1/3 kHz = 32 MHz / 96]. The divider chain is not known. The increment can
     exceed the divisor (A 440: 123 / 91; .STAB-6 ratios span about
     0.8-1.6), so at this clock a tick can produce two pulses; the real
     circuit must clock the accumulator faster or differently [UNKNOWN].
@@ -60,7 +61,7 @@ from .pcm import DECIM, fir
 from .pcm_fir import SUM_BITS, TAPS
 
 #: Oscillator tick rate: the step rate at ONU 7, increment = divisor [INFERRED].
-OSC_CLOCK = Fraction(256 * 128 * 440 * 91, 246)
+OSC_CLOCK = Fraction(32_000_000, 6)
 assert abs(float(OSC_CLOCK) - 256 * 128 * K_HZ) < 1e-6
 OCTAVE_STAGES = 7
 

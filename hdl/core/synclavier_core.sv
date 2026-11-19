@@ -57,6 +57,7 @@ module synclavier_core #(
     input  logic        smpte_osd,       // OSD: SMPTE reader on (M20), taken at reset; or the state image's
     input  logic [3:0]  out_pair,        // OSD Outputs (M19): 0 stereo mix, n distributor outputs 2n-1, 2n
     input  logic [4:0]  out_level,       // OSD (#76): {Limiter off, Poly level, FM level}; 0 the defaults
+    input  logic [3:0]  reverb,          // OSD: {Reverb mix, Reverb} (pcm_reverb.sv); 0 Off
     input  logic [1:0]  poly_ftest,      // OSD DDR3 load test (dev_poly.sv `ftest`, M26)
     input  logic        printer_osd,     // OSD Hardware page (M21): a printer on D40, taken at reset
     input  logic        readback_en,     // VT640 read-back replies (0: the board bench, whose
@@ -296,7 +297,7 @@ module synclavier_core #(
         .clk, .rst(cpu_rst), .rt_enable, .lag_us, .stall_us,
         .rt_voices, .dbg_stall(1'b0), .voice_tick, .voice_tick_ns,
         .cpu_model, .cpu_d57(d57), .term_bits, .hw_cfg, .poly_units, .poly_bins, .poly_last, .term_vt640, .term_mouse, .smpte_img, .scsi_block_ns, .scsi_seek_ns,
-        .out_pair(pair), .out_level, .fm_rt_we(rt_we && rt_fm), .fm_rt_voice(rt_voice[4:0]), .fm_rt_side(rt_side),
+        .out_pair(pair), .out_level, .reverb, .fm_rt_we(rt_we && rt_fm), .fm_rt_voice(rt_voice[4:0]), .fm_rt_side(rt_side),
         .fm_rt_tag(rt_tag), .fm_q_voice(q_voice[4:0]), .fm_q_side(q_side), .fm_q_live, .fm_busy,
         .dev_rd, .dev_wr, .dev_num, .dev_wdata,
         .dev_rdata, .dev_ack, .dev_nosyn, .dev_hold(scsi_hold),           // SCSI disk time

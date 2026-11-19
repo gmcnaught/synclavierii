@@ -3,7 +3,7 @@
 Code: `sim/devices/poly.py` (P(m)), `sim/pcm.py` (`PolyBox`, `x_in`,
 `Limiter`), `hdl/dev/dev_poly.sv`, `hdl/dev/poly_box.sv`,
 `hdl/dev/pcm_out.sv`, `hdl/dev/pcm_limit.sv`, `hdl/board/ddram_word.sv`.
-Output levels and the limiter: §7.
+Output levels and the limiter: §7. Output reverb (`hdl/dev/pcm_reverb.sv`): §9.
 
 ## 1. Problem (before M26)
 
@@ -219,6 +219,8 @@ user's mixer did (the 9600's levels are [UNK]).
 | FM level | **+12** / +18 / +24 / 0 dB | FM sum `>>>` 12 / 11 / 10 / 14 |
 | Poly level | **+6** / +12 / 0 / −6 dB | poly `y·RECIP >>>` 23 / 22 / 24 / 25 (P has 4 fraction bits, §8) |
 | Limiter | **On** / Off | — |
+| Reverb (§9, status bits 62–63) | **Off** / Room / Hall / Plate | — |
+| Reverb mix (bits 64–65) | **−12** / −6 / −18 / 0 dB | wet gain |
 
 0 dB is the level before #76. At the defaults one FM voice is 1/4 of full
 scale; at +24 dB it is full scale, about the 9600 figure the user quoted
@@ -274,3 +276,55 @@ The DC was a step each time voices started or stopped. Now
 `poly_box` keeps P at 32 bits (was 27) and shifts 4 more. 128 voices at
 full scale and volume need 2^27 per side: within 32 bits.
 
+## 9. Output reverb
+
+**[CHOICE]**: the Synclavier had no reverb; studios used outboard units
+(Lexicon, EMT). OSD Reverb adds one for listening on MiSTer. It is Off by
+default, and Off passes `pcm_out`'s samples through bit for bit, so the
+output, the tests and the renders are as before.
+
+**Place.** `hdl/dev/pcm_reverb.sv` (= `sim/pcm.py` `Reverb`, bit for bit)
+sits between `pcm_out` and the limiter (`able_system.sv`), so the limiter
+catches the wet build-up and renders (`tools/demo.py render --reverb N
+--reverb-mix M`) include it.
+
+**Algorithm.** An 8-line feedback delay network at 48 kHz, constants from
+`tools/gen_pcm_reverb.py` (`sim/pcm_reverb.py`, `hdl/dev/pcm_reverb.svh`):
+
+```
+x = sat20((vl + vr) >>> 2)                      mono, −6 dB
+predelay, then 4 series all-passes (241, 173, 409, 307 samples; g 0.75, 0.75, 0.625, 0.625) → d
+lines i = 0..7:  lp[i] += (line_out[i] − lp[i]) · damp          (one-pole damping)
+h = Hadamard8(lp)                                (adds only)
+line_in[i] = sat20(h[i] · g[i] ± d/2),  g[i] = 10^(−3·L[i] / (T60·48000)) / √8
+out = sat22(vl + h[1] · mix), sat22(vr + h[2] · mix)   (two orthogonal Hadamard rows)
+```
+
+Products are `/2^15` truncated toward zero (the tail decays to within
+±1 LSB, no limit cycles); the wet output rounds. One delay memory of
+16384 × 20-bit words (32 M10K) holds the predelay, the all-passes and the
+lines: a pointer decremented each sample, a line written at `p + B` and read
+`L` samples later at `p + B + L`. Types use the same regions (Room reads
+shorter).
+
+| type | predelay | lines (samples) | T60 design (no damping) | measured broadband / above 4 kHz |
+|---|---|---|---|---|
+| Room | 8 ms | 661 – 1319 | 0.8 s | 0.65 s / 0.58 s |
+| Hall | 25 ms | 1201 – 2399 | 2.6 s | 1.96 s / 1.62 s |
+| Plate | 4 ms | 967 – 1913 | 2.0 s | 1.59 s / 1.49 s |
+
+Mix 0 dB: an impulse's wet energy per side equals its dry energy (within
+0.05 dB measured); the default −12 dB is a quarter of that. L/R
+correlation of the wet impulse response is under 0.07.
+
+**Changes.** The type and mix are taken with each sample. A change to
+Room, Hall or Plate (or reset in one) clears the delay memory: that sample
+and the next 63 pass dry while 256 words a sample are zeroed (1.3 ms).
+
+**Cost.** One multiplier (24 × 18), about 100 clocks a sample (a clear
+256); `pcm_out` gives one every 512 or more.
+
+| check | result |
+|---|---|
+| `tests/sim/test_pcm.py` `test_reverb_*` | tables generated; Off = dry; T60 per type within 10 % of design without damping, high band shortest with it; mix 0 dB wet energy = dry ±0.5 dB; decorrelated sides; tail within 2 LSB; full-range noise stays within 22 bits and under −1 dBFS after the limiter |
+| `tests/hdl/test_board.py` `test_pcm_reverb` | HDL = `sim/pcm.py` `Reverb`, 2 × 20000 samples (impulses, noise to 2^21, type and mix changes, clears), inputs 300 clocks apart |

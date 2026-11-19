@@ -58,7 +58,7 @@ def _testbench(name, rtl, args=()):
     mdir = os.path.join(BUILD_DIR, name)
     os.makedirs(mdir, exist_ok=True)
     b = subprocess.run(["verilator", "--binary", "-Wno-fatal", "-Wno-WIDTH", "-Wno-UNUSED",
-                        "-I" + os.path.join(ROOT, "hdl/core"),
+                        "-I" + os.path.join(ROOT, "hdl/core"), "-I" + os.path.join(ROOT, "hdl/dev"),
                         "--top-module", name + "_tb", "-Mdir", mdir]
                        + [os.path.join(ROOT, r) for r in ((rtl,) if isinstance(rtl, str) else rtl)]
                        + [os.path.join(ROOT, "hdl/sim/%s_tb.sv" % name)],
@@ -598,6 +598,58 @@ def test_pcm_limit():
             pcm_limit_stimulus(path, seed=seed)
             out = _testbench("pcm_limit", "hdl/dev/pcm_limit.sv", args=["+stim=" + path])
             print("  " + [ln for ln in out.splitlines() if "pcm_limit OK" in ln][0])
+    finally:
+        os.unlink(path)
+
+
+def pcm_reverb_stimulus(path, seed=1, n=20000):
+    """Stimulus for hdl/sim/pcm_reverb_tb.sv: pcm_out values in runs of 2000
+    (silence with impulses, moderate noise, full-range noise that saturates
+    the delay memory and the output, quiet noise), the OSD Reverb type and
+    mix changed now and then (each change of type clears), and sim/pcm.py
+    Reverb's output for each. Seed 1 starts Off, seed 2 in Plate."""
+    import random
+    from sim import pcm
+    rng = random.Random(seed)
+    rv = pcm.Reverb()
+    kind, mix = (0, 0) if seed == 1 else (3, 1)
+    big = (1 << 21) - 1
+    out = []
+    for i in range(n):
+        if seed == 1 and i == 50:
+            kind = 2
+        elif rng.random() < 0.0004:
+            kind = rng.randrange(4)
+        if rng.random() < 0.001:
+            mix = rng.randrange(4)
+        phase = (i // 2000) % 4
+        if phase == 0:
+            l = r = 0
+            if rng.random() < 0.002:
+                l = r = rng.choice([big, -big, 30000])
+        else:
+            amp = (20000, big, 100)[phase - 1]
+            l, r = rng.randrange(-amp, amp + 1), rng.randrange(-amp, amp + 1)
+        ol, orr = rv.step(l, r, kind, mix)
+        out.append("X %d %d" % (ol, orr))
+        out.append("V %d %d %d %d" % (kind, mix, l, r))
+    with open(path, "w") as f:
+        f.write("\n".join(out) + "\n")
+
+
+def test_pcm_reverb():
+    """The output reverb (hdl/dev/pcm_reverb.sv) against sim/pcm.py Reverb."""
+    if not HAVE_VERILATOR:
+        print("  skip test_pcm_reverb (needs verilator)")
+        return
+    import tempfile
+    with tempfile.NamedTemporaryFile(suffix=".stim", delete=False) as f:
+        path = f.name
+    try:
+        for seed in (1, 2):
+            pcm_reverb_stimulus(path, seed=seed)
+            out = _testbench("pcm_reverb", "hdl/dev/pcm_reverb.sv", args=["+stim=" + path])
+            print("  " + [ln for ln in out.splitlines() if "pcm_reverb OK" in ln][0])
     finally:
         os.unlink(path)
 

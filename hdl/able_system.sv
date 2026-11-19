@@ -38,6 +38,7 @@ module able_system #(
     // the level detector's question for the FM voices; the output pair heard
     input  logic [3:0]  out_pair,          // 0 the stereo mix, n outputs 2n-1, 2n
     input  logic [4:0]  out_level,         // OSD (#76): {limiter off, Poly level, FM level}; 0 the defaults
+    input  logic [3:0]  reverb,            // OSD: {Reverb mix, Reverb} (pcm_reverb.sv); 0 Off
     input  logic        fm_rt_we,
     input  logic [4:0]  fm_rt_voice,
     input  logic        fm_rt_side,
@@ -444,9 +445,17 @@ module able_system #(
         .out_valid(v_valid), .out_l(v_l), .out_r(v_r), .stall(pcm_stall)
     );
 
+    // the OSD reverb (not on the instrument; Off passes v through)
+    logic        rv_valid;
+    logic signed [21:0] rv_l, rv_r;
+    pcm_reverb verb (
+        .clk, .rst, .kind(reverb[1:0]), .mix(reverb[3:2]), .in_valid(v_valid), .in_l(v_l), .in_r(v_r),
+        .out_valid(rv_valid), .out_l(rv_l), .out_r(rv_r)
+    );
+
     // limited (or clipped) to 16 bits (#76)
     pcm_limit limit (
-        .clk, .rst, .on(!out_level[4]), .in_valid(v_valid), .in_l(v_l), .in_r(v_r),
+        .clk, .rst, .on(!out_level[4]), .in_valid(rv_valid), .in_l(rv_l), .in_r(rv_r),
         .out_valid(pcm_valid), .out_l(pcm_l), .out_r(pcm_r)
     );
 

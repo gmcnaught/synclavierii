@@ -243,6 +243,113 @@ def test_poly_aliasing():
     assert alias_old - tone_old > -20                    # before: the image folds in at ~ -14 dB
     assert alias_new - tone_new < -70                    # after: filtered out
 
+
+def test_reverb_tables_are_generated():
+    r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "gen_pcm_reverb.py"), "--check"],
+                       capture_output=True, text=True)
+    assert r.returncode == 0, r.stdout + r.stderr
+
+
+def test_reverb_off_is_dry():
+    """OSD Reverb Off leaves the samples alone; a change to a type passes
+    CLEAR samples dry, then the wet signal starts."""
+    from sim.pcm_reverb import CLEAR
+    rv = pcm.Reverb()
+    ins = [(i * 997 % 4001 - 2000, i * 389 % 3001 - 1500) for i in range(3000)]
+    assert [rv.step(l, r, 0) for l, r in ins] == ins
+    assert pcm.limit_frames(ins, True, 0) == pcm.limit_frames(ins, True)
+    outs = [rv.step(l, r, 2) for l, r in ins]
+    assert outs[:CLEAR] == ins[:CLEAR] and outs[CLEAR:] != ins[CLEAR:]
+
+
+def _edc_t60(ir, lo=-5, hi=-35):
+    """T60 from the Schroeder backward integral between lo and hi dB."""
+    e = [v * v for v in ir]
+    s = tot = sum(e)
+    edc = []
+    for v in e:
+        edc.append(10 * math.log10(max(s, 1e-30) / tot))
+        s -= v
+    t1 = next(i for i, v in enumerate(edc) if v <= lo)
+    t2 = next(i for i, v in enumerate(edc) if v <= hi)
+    return (t2 - t1) / RATE * 60 / (lo - hi)
+
+
+def _lowpass(x, fc):
+    """Two one-pole low-passes at fc."""
+    a = math.exp(-2 * math.pi * fc / RATE)
+    for _ in range(2):
+        y, out = 0.0, []
+        for v in x:
+            y = (1 - a) * v + a * y
+            out.append(y)
+        x = out
+    return x
+
+
+def _reverb_ir(kind, a, n, tables=None):
+    """The wet part of each side's response to an impulse a, from the end of
+    the clear, mix 0 dB."""
+    from sim.pcm_reverb import CLEAR, MIX_DB
+    m0 = MIX_DB.index(0)
+    rv = pcm.Reverb(tables)
+    for _ in range(CLEAR):
+        rv.step(0, 0, kind, m0)
+    wl, wr = [], []
+    for k in range(n):
+        v = a if k == 0 else 0
+        ol, orr = rv.step(v, v, kind, m0)
+        wl.append(ol - v)
+        wr.append(orr - v)
+    return rv, wl, wr
+
+
+def test_reverb_decay_and_level():
+    """Each type's impulse response. Without damping, the line gains give
+    the design T60 (within 10 %); with it, the high band dies first. Wet
+    energy at mix 0 dB equals the dry impulse's within 0.5 dB, the two sides
+    are decorrelated, and the tail settles to within 2 LSB."""
+    import types
+    from sim import pcm_reverb
+    from sim.pcm_reverb import MIX_DB
+    from tools.gen_pcm_reverb import TYPES
+    a = 1 << 18
+    undamped = types.SimpleNamespace(**{k: getattr(pcm_reverb, k) for k in dir(pcm_reverb)
+                                        if k.isupper()})
+    undamped.DAMP = (1 << 15,) * 4
+    for kind, (name, _pre, _scale, t60, _damp, _mix0) in TYPES.items():
+        n = int(RATE * t60)
+        _, ul, _ = _reverb_ir(kind, a, n, undamped)
+        rv, wl, wr = _reverb_ir(kind, a, n)
+        design = _edc_t60(_lowpass(ul, 200))
+        broad, high = _edc_t60(wl), _edc_t60([x - y for x, y in zip(wl, _lowpass(wl, 4000))])
+        el, er = sum(v * v for v in wl), sum(v * v for v in wr)
+        corr = sum(x * y for x, y in zip(wl, wr)) / math.sqrt(el * er)
+        for _ in range(int(RATE * 3 * t60)):
+            tail = rv.step(0, 0, kind, MIX_DB.index(0))
+        print("  %s: T60 %.2f s undamped (design %.2f), %.2f s broadband, %.2f s above 4 kHz; "
+              "wet %+.2f dB; L/R correlation %+.3f; tail %s"
+              % (name, design, t60, broad, high, 10 * math.log10(el / a ** 2), corr, tail))
+        assert abs(design / t60 - 1) < 0.10
+        assert high < broad < design
+        assert abs(10 * math.log10(el / a ** 2)) < 0.5 and abs(10 * math.log10(er / a ** 2)) < 1.0
+        assert abs(corr) < 0.2
+        assert max(abs(v) for v in tail) <= 2
+
+
+def test_reverb_full_scale_bounded():
+    """Full-range noise into Hall at 0 dB mix: the output stays within the
+    22 bits pcm_limit takes, and the Limiter holds it under -1 dBFS."""
+    import random
+    rng = random.Random(3)
+    big = (1 << 21) - 1
+    wide = [(rng.randrange(-big, big + 1), rng.randrange(-big, big + 1)) for _ in range(20000)]
+    rv = pcm.Reverb()
+    out = [rv.step(l, r, 2, 3) for l, r in wide]
+    assert max(abs(v) for f in out for v in f) <= big
+    assert max(abs(v) for f in pcm.limit_frames(wide, True, 2, 3) for v in f) <= pcm.LIM_T
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:

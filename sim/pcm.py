@@ -165,10 +165,109 @@ class Limiter:
         return out
 
 
-def limit_frames(wide, on=True):
-    """16-bit frames for a run of pcm_wide (left, right) pairs from reset."""
+def limit_frames(wide, on=True, reverb=0, reverb_mix=0):
+    """16-bit frames for a run of pcm_wide (left, right) pairs from reset,
+    through Reverb (OSD Reverb type and mix codes) then the Limiter."""
     lim = Limiter(on)
+    if reverb:
+        rv = Reverb()
+        return [lim.step(*rv.step(l, r, reverb, reverb_mix)) for l, r in wide]
     return [lim.step(l, r) for l, r in wide]
+
+
+#: Reverb (hdl/dev/pcm_reverb.sv, OSD Reverb; not on the instrument): an
+#: 8-line feedback delay network between pcm_out and the Limiter, constants
+#: from tools/gen_pcm_reverb.py (sim/pcm_reverb.py). Per 48 kHz sample
+#: (vl, vr) = pcm_wide, type t (0 Off, 1 Room, 2 Hall, 3 Plate), mix code m;
+#: one delay memory mem[2**14] of 20-bit words, a pointer p (decremented
+#: each sample), so a line of length L written at p + B is read L samples
+#: later at p + B + L (addresses mod 2**14). mul(a, c) = a x c / 2**15
+#: truncated toward zero, rmul = rounded half up, sat(v, n) = clamp to
+#: +-(2**(n-1) - 1):
+#:   x = sat((vl + vr) >> 2, 20)
+#:   d = mem[p + PD_BASE + PRE[t]];  mem[p + PD_BASE] = x
+#:   for k in 0..3 (all-pass):  wm = mem[p + AP_BASE[k] + AP_LEN[k]]
+#:       w = sat(d + mul(wm, AP_G[k]), 20);  mem[p + AP_BASE[k]] = w;  d = wm - mul(w, AP_G[k])
+#:   for i in 0..7:  lp[i] += mul(mem[p + LINE_BASE[i] + LENS[t][i]] - lp[i], DAMP[t])
+#:   h = Hadamard(lp)  (unnormalised fast Walsh-Hadamard, Sylvester order)
+#:   for i in 0..7:  mem[p + LINE_BASE[i]] = sat(mul(h[i], GAINS[t][i]) + SIGN[i] x (d >> 1), 20)
+#:   out = sat(vl + rmul(h[1], MIX[t][m]), 22), sat(vr + rmul(h[2], MIX[t][m]), 22)
+#:   p -= 1
+#: Off: out = (vl, vr). A change of type to Room/Hall/Plate (or the first
+#: sample after reset in one) clears the memory, lp and p, and the next
+#: CLEAR samples (this one included) pass dry while the HDL clears.
+def _mul(a, c):
+    p = a * c
+    return p >> 15 if p >= 0 else -((-p) >> 15)
+
+
+def _sat(v, bits):
+    lim = (1 << (bits - 1)) - 1
+    return lim if v > lim else -lim if v < -lim else v
+
+
+def hadamard8(a):
+    """Unnormalised 8-point Walsh-Hadamard transform (Sylvester order):
+    h[k] = sum((-1)**popcount(j & k) x a[j])."""
+    h = list(a)
+    s = 1
+    while s < 8:
+        for i in range(0, 8, 2 * s):
+            for j in range(i, i + s):
+                h[j], h[j + s] = h[j] + h[j + s], h[j] - h[j + s]
+        s *= 2
+    return h
+
+
+class Reverb:
+    def __init__(self, tables=None):
+        """tables: sim/pcm_reverb.py by default (a stand-in for tests)."""
+        from . import pcm_reverb
+        self.rv = tables or pcm_reverb
+        self.size = 1 << pcm_reverb.MEM_BITS
+        self.mem = [0] * self.size
+        self.lp = [0] * 8
+        self.p = 0
+        self.kind = 0
+        self.clear = 0
+
+    def step(self, vl, vr, kind, mix=0):
+        rv = self.rv
+        if kind != self.kind:
+            self.kind = kind
+            if kind:
+                self.mem = [0] * self.size
+                self.lp = [0] * 8
+                self.p = 0
+                self.clear = rv.CLEAR
+        if not kind:
+            return vl, vr
+        if self.clear:
+            self.clear -= 1
+            return vl, vr
+        m, p, M = self.mem, self.p, self.size - 1
+        x = _sat((vl + vr) >> 2, 20)
+        d = m[(p + rv.PD_BASE + rv.PRE[kind]) & M]
+        m[(p + rv.PD_BASE) & M] = x
+        for k in range(4):
+            g = rv.AP_G[k]
+            wm = m[(p + rv.AP_BASE[k] + rv.AP_LEN[k]) & M]
+            w = _sat(d + _mul(wm, g), 20)
+            m[(p + rv.AP_BASE[k]) & M] = w
+            d = wm - _mul(w, g)
+        lp, lens, damp = self.lp, rv.LENS[kind], rv.DAMP[kind]
+        for i in range(8):
+            y = m[(p + rv.LINE_BASE[i] + lens[i]) & M]
+            lp[i] += _mul(y - lp[i], damp)
+        h = hadamard8(lp)
+        inj, gains = d >> 1, rv.GAINS[kind]
+        for i in range(8):
+            u = _mul(h[i], gains[i]) + (inj if rv.SIGN[i] > 0 else -inj)
+            m[(p + rv.LINE_BASE[i]) & M] = _sat(u, 20)
+        self.p = (p - 1) & M
+        c = rv.MIX[kind][mix]
+        return (_sat(vl + ((h[1] * c + (1 << 14)) >> 15), 22),
+                _sat(vr + ((h[2] * c + (1 << 14)) >> 15), 22))
 
 
 #: taps oldest-first, for a history kept oldest-first (COEFFS[0] = newest)

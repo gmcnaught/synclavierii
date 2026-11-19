@@ -41,7 +41,8 @@ module pcm_reverb (
     logic [2:0]  u;                             // step within a state
     logic [2:0]  k;                             // all-pass / line index
 
-    (* ramstyle = "no_rw_check" *) logic signed [19:0] mem [1 << RV_MEM_BITS];
+    // 32 M10K: max_depth keeps Quartus from the 4K x 2 mode (40 blocks for 16K x 20)
+    (* ramstyle = "no_rw_check", max_depth = 2048 *) logic signed [19:0] mem [1 << RV_MEM_BITS];
     logic [13:0] raddr, waddr, ptr;
     logic signed [19:0] rdata, wdata;
     logic        we;

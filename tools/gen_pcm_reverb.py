@@ -7,7 +7,10 @@ memory (docs/poly-output.md 9): a predelay, four series all-pass diffusers,
 eight delay lines of prime lengths with a Hadamard feedback matrix. Each
 reverb type sets the predelay, the line lengths (Hall's, scaled), the decay
 time T60 (per-line gain g = 10^(-3 L / (T60 x 48000)) / sqrt(8), the
-Hadamard's 1/sqrt(8) folded in), the damping and the wet level. Writes
+Hadamard's 1/sqrt(8) folded in), the damping and the wet level. The line
+reads are modulated (a triangle 0 - MOD_SPAN samples, each line at its own
+rate, linear interpolation) so no high mode rings on; the input goes through
+a two-stage high cut (OSD Reverb tone). Writes
 sim/pcm_reverb.py and hdl/dev/pcm_reverb.svh; the committed files are the
 reference, so the sim and the HDL use the same integers.
 
@@ -25,17 +28,22 @@ CLEAR = 64                      # samples a type change takes to clear the memor
 Q = 15                          # coefficients: x / 2**15
 PRE_MAX = 1200                  # 25 ms
 AP_LEN = (241, 173, 409, 307)   # diffusers (primes, 3.6 - 8.5 ms)
-AP_G = (0.75, 0.75, 0.625, 0.625)
+AP_G = (0.6, 0.6, 0.5, 0.5)        # (0.75/0.625 left high modes ringing in the tail)
 LINES = 8
 SIGN = (1, -1, -1, 1, -1, 1, 1, -1)    # input to line i: SIGN[i] x d / 2
+MOD_BITS = 24                   # line modulation phase: a triangle from bits 23:8
+MOD_SPAN = 8                    # read delay L + 0 .. 8 samples (tri[14:12], fraction tri[11:0])
+MOD_HZ = tuple(1.0 * (1 + 0.13 * i) for i in range(8))   # 1.0 - 1.91 Hz
+#: OSD Reverb tone codes: the high cut's -3 dB frequency (None = full band)
+TONE_HZ = (8000, 5000, 3000, None)
 #: wet level codes (OSD Reverb mix, 0 = the default), dB from the type's 0 dB
 MIX_DB = (-12, -6, -18, 0)
 #: type code: (name, predelay ms, line-length scale, T60 s at DC, damping,
 #: 0 dB wet gain in dB: an impulse's wet energy = its dry energy, one side)
 TYPES = {
-    1: ("Room", 8, 0.55, 0.8, 0.25, 2.2),
-    2: ("Hall", 25, 1.0, 2.6, 0.35, 2.3),
-    3: ("Plate", 4, 0.8, 2.0, 0.08, -1.5),
+    1: ("Room", 8, 0.55, 0.8, 0.25, 3.3),
+    2: ("Hall", 25, 1.0, 2.6, 0.35, 2.9),
+    3: ("Plate", 4, 0.8, 2.0, 0.08, 0.6),
 }
 
 
@@ -52,6 +60,25 @@ def prime_near(n):
     raise ValueError(n)
 
 
+def tone_gain2(c, w):
+    """|H(w)|^2 of one tone stage s += c ((x + x_prev) / 2 - s): a one-pole
+    with a zero at half the sample rate."""
+    return c * c * math.cos(w / 2) ** 2 / (1 - 2 * (1 - c) * math.cos(w) + (1 - c) ** 2)
+
+
+def tone_coef(fc):
+    """c of the two tone stages, the cascade 3 dB down at fc (None: Full,
+    2**Q, which the reverb takes as a bypass)."""
+    if fc is None:
+        return 2 ** Q
+    w = 2 * math.pi * fc / RATE
+    lo, hi = 1e-6, 1.0
+    for _ in range(100):                  # each stage 1.5 dB down, by bisection
+        c = (lo + hi) / 2
+        lo, hi = (c, hi) if tone_gain2(c, w) < 2 ** -0.5 else (lo, c)
+    return round(2 ** Q * c)
+
+
 def design():
     line_max = tuple(prime_near(round(PRE_MAX * 2 ** (i / (LINES - 1)))) for i in range(LINES))
     a = 0
@@ -64,7 +91,7 @@ def design():
     line_base = []
     for n in line_max:
         line_base.append(a)
-        a += n + 1
+        a += n + MOD_SPAN + 1
     assert a <= 1 << MEM_BITS, a
     types = {}
     for t, (name, pre_ms, scale, t60, damp, mix0_db) in TYPES.items():
@@ -74,6 +101,9 @@ def design():
         types[t] = dict(name=name, pre=max(1, round(pre_ms * RATE / 1000)), lens=lens, gains=gains,
                         damp=round(2 ** Q * (1 - damp)), mix=mix)
     return dict(pd_base=pd_base, ap_base=tuple(ap_base), ap_g=tuple(round(2 ** Q * g) for g in AP_G),
+                mod_inc=tuple(round(f * 2 ** MOD_BITS / RATE) for f in MOD_HZ),
+                mod_ph0=tuple(i << (MOD_BITS - 3) for i in range(8)),
+                tone=tuple(tone_coef(f) for f in TONE_HZ),
                 line_max=line_max, line_base=tuple(line_base), used=a, types=types)
 
 
@@ -96,6 +126,12 @@ def py_text(d):
         f"LINE_MAX = {d['line_max']}",
         f"SIGN = {SIGN}",
         f"MIX_DB = {MIX_DB}",
+        f"MOD_BITS = {MOD_BITS}",
+        f"MOD_SPAN = {MOD_SPAN}",
+        f"MOD_INC = {d['mod_inc']}",
+        f"MOD_PH0 = {d['mod_ph0']}",
+        f"TONE_HZ = {TONE_HZ}",
+        f"TONE = {d['tone']}",
         "#: type code 1 Room, 2 Hall, 3 Plate (0 Off): predelay, line lengths,",
         "#: line gains, damping coefficient, wet gain per OSD Reverb mix code",
         "NAME = (None, " + ", ".join(repr(t[k]["name"]) for k in (1, 2, 3)) + ")",
@@ -134,6 +170,9 @@ def sv_text(d):
     lines += _case("rv_ap_len", 14, 2, enumerate(AP_LEN))
     lines += _case("rv_ap_g", 17, 2, enumerate(d["ap_g"]))
     lines += _case("rv_line_base", 14, 3, enumerate(d["line_base"]))
+    lines += _case("rv_mod_inc", 24, 3, enumerate(d["mod_inc"]))
+    lines += _case("rv_mod_ph0", 24, 3, enumerate(d["mod_ph0"]))
+    lines += _case("rv_tone", 17, 2, enumerate(d["tone"]))
     lines += _case("rv_pre", 14, 2, [(k, t[k]["pre"]) for k in (1, 2, 3)])
     lines += _case("rv_len", 14, 5, [(k * 8 + i, t[k]["lens"][i]) for k in (1, 2, 3) for i in range(8)])
     lines += _case("rv_gain", 17, 5, [(k * 8 + i, t[k]["gains"][i]) for k in (1, 2, 3) for i in range(8)])

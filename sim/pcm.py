@@ -165,36 +165,43 @@ class Limiter:
         return out
 
 
-def limit_frames(wide, on=True, reverb=0, reverb_mix=0):
+def limit_frames(wide, on=True, reverb=0, reverb_mix=0, reverb_tone=0):
     """16-bit frames for a run of pcm_wide (left, right) pairs from reset,
-    through Reverb (OSD Reverb type and mix codes) then the Limiter."""
+    through Reverb (OSD Reverb type, mix and tone codes) then the Limiter."""
     lim = Limiter(on)
     if reverb:
         rv = Reverb()
-        return [lim.step(*rv.step(l, r, reverb, reverb_mix)) for l, r in wide]
+        return [lim.step(*rv.step(l, r, reverb, reverb_mix, reverb_tone)) for l, r in wide]
     return [lim.step(l, r) for l, r in wide]
 
 
 #: Reverb (hdl/dev/pcm_reverb.sv, OSD Reverb; not on the instrument): an
 #: 8-line feedback delay network between pcm_out and the Limiter, constants
 #: from tools/gen_pcm_reverb.py (sim/pcm_reverb.py). Per 48 kHz sample
-#: (vl, vr) = pcm_wide, type t (0 Off, 1 Room, 2 Hall, 3 Plate), mix code m;
+#: (vl, vr) = pcm_wide, type t (0 Off, 1 Room, 2 Hall, 3 Plate), mix code m,
+#: tone code n;
 #: one delay memory mem[2**14] of 20-bit words, a pointer p (decremented
 #: each sample), so a line of length L written at p + B is read L samples
 #: later at p + B + L (addresses mod 2**14). mul(a, c) = a x c / 2**15
 #: truncated toward zero, rmul = rounded half up, sat(v, n) = clamp to
 #: +-(2**(n-1) - 1):
 #:   x = sat((vl + vr) >> 2, 20)
-#:   d = mem[p + PD_BASE + PRE[t]];  mem[p + PD_BASE] = x
+#:   high cut, c = TONE[n]:  s0 = s1;  s1 += mul(((x + xp) >> 1) - s1, c)
+#:       s2 += mul(((s1 + s0) >> 1) - s2, c);  xp = x;  f = x if c == 2**15 (Full) else s2
+#:   d = mem[p + PD_BASE + PRE[t]];  mem[p + PD_BASE] = f
 #:   for k in 0..3 (all-pass):  wm = mem[p + AP_BASE[k] + AP_LEN[k]]
 #:       w = sat(d + mul(wm, AP_G[k]), 20);  mem[p + AP_BASE[k]] = w;  d = wm - mul(w, AP_G[k])
-#:   for i in 0..7:  lp[i] += mul(mem[p + LINE_BASE[i] + LENS[t][i]] - lp[i], DAMP[t])
+#:   for i in 0..7:  tri = ph[i] bits 22:8, inverted when bit 23 is set (0 .. 2**15 - 1)
+#:       r = p + LINE_BASE[i] + LENS[t][i] + (tri >> 12)
+#:       a = mem[r];  y = a + mul(mem[r + 1] - a, (tri & 4095) << 3)
+#:       lp[i] += mul(y - lp[i], DAMP[t]);  ph[i] = (ph[i] + MOD_INC[i]) mod 2**24
 #:   h = Hadamard(lp)  (unnormalised fast Walsh-Hadamard, Sylvester order)
 #:   for i in 0..7:  mem[p + LINE_BASE[i]] = sat(mul(h[i], GAINS[t][i]) + SIGN[i] x (d >> 1), 20)
 #:   out = sat(vl + rmul(h[1], MIX[t][m]), 22), sat(vr + rmul(h[2], MIX[t][m]), 22)
 #:   p -= 1
 #: Off: out = (vl, vr). A change of type to Room/Hall/Plate (or the first
-#: sample after reset in one) clears the memory, lp and p, and the next
+#: sample after reset in one) clears the memory, lp, xp, s1, s2 and p, sets
+#: ph = MOD_PH0, and the next
 #: CLEAR samples (this one included) pass dry while the HDL clears.
 def _mul(a, c):
     p = a * c
@@ -228,10 +235,12 @@ class Reverb:
         self.mem = [0] * self.size
         self.lp = [0] * 8
         self.p = 0
+        self.xp = self.s1 = self.s2 = 0
+        self.ph = list(self.rv.MOD_PH0)
         self.kind = 0
         self.clear = 0
 
-    def step(self, vl, vr, kind, mix=0):
+    def step(self, vl, vr, kind, mix=0, tone=0):
         rv = self.rv
         if kind != self.kind:
             self.kind = kind
@@ -239,6 +248,8 @@ class Reverb:
                 self.mem = [0] * self.size
                 self.lp = [0] * 8
                 self.p = 0
+                self.xp = self.s1 = self.s2 = 0
+                self.ph = list(rv.MOD_PH0)
                 self.clear = rv.CLEAR
         if not kind:
             return vl, vr
@@ -247,18 +258,28 @@ class Reverb:
             return vl, vr
         m, p, M = self.mem, self.p, self.size - 1
         x = _sat((vl + vr) >> 2, 20)
+        c, s0 = rv.TONE[tone], self.s1
+        self.s1 += _mul(((x + self.xp) >> 1) - s0, c)
+        self.s2 += _mul(((self.s1 + s0) >> 1) - self.s2, c)
+        self.xp = x
         d = m[(p + rv.PD_BASE + rv.PRE[kind]) & M]
-        m[(p + rv.PD_BASE) & M] = x
+        m[(p + rv.PD_BASE) & M] = x if c == 1 << 15 else self.s2
         for k in range(4):
             g = rv.AP_G[k]
             wm = m[(p + rv.AP_BASE[k] + rv.AP_LEN[k]) & M]
             w = _sat(d + _mul(wm, g), 20)
             m[(p + rv.AP_BASE[k]) & M] = w
             d = wm - _mul(w, g)
-        lp, lens, damp = self.lp, rv.LENS[kind], rv.DAMP[kind]
+        lp, lens, damp, ph = self.lp, rv.LENS[kind], rv.DAMP[kind], self.ph
         for i in range(8):
-            y = m[(p + rv.LINE_BASE[i] + lens[i]) & M]
+            tri = (ph[i] >> 8) & 0x7FFF
+            if ph[i] >> 23:
+                tri ^= 0x7FFF
+            r = p + rv.LINE_BASE[i] + lens[i] + (tri >> 12)
+            a = m[r & M]
+            y = a + _mul(m[(r + 1) & M] - a, (tri & 4095) << 3)
             lp[i] += _mul(y - lp[i], damp)
+            ph[i] = (ph[i] + rv.MOD_INC[i]) & 0xFFFFFF
         h = hadamard8(lp)
         inj, gains = d >> 1, rv.GAINS[kind]
         for i in range(8):

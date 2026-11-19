@@ -605,14 +605,15 @@ def test_pcm_limit():
 def pcm_reverb_stimulus(path, seed=1, n=20000):
     """Stimulus for hdl/sim/pcm_reverb_tb.sv: pcm_out values in runs of 2000
     (silence with impulses, moderate noise, full-range noise that saturates
-    the delay memory and the output, quiet noise), the OSD Reverb type and
-    mix changed now and then (each change of type clears), and sim/pcm.py
-    Reverb's output for each. Seed 1 starts Off, seed 2 in Plate."""
+    the delay memory and the output, quiet noise), the OSD Reverb type,
+    mix and tone changed now and then (each change of type clears), and
+    sim/pcm.py Reverb's output for each. Seed 1 starts Off, seed 2 in Plate
+    (tone Full)."""
     import random
     from sim import pcm
     rng = random.Random(seed)
     rv = pcm.Reverb()
-    kind, mix = (0, 0) if seed == 1 else (3, 1)
+    kind, mix, tone = (0, 0, 0) if seed == 1 else (3, 1, 3)
     big = (1 << 21) - 1
     out = []
     for i in range(n):
@@ -622,6 +623,8 @@ def pcm_reverb_stimulus(path, seed=1, n=20000):
             kind = rng.randrange(4)
         if rng.random() < 0.001:
             mix = rng.randrange(4)
+        if rng.random() < 0.001:
+            tone = rng.randrange(4)
         phase = (i // 2000) % 4
         if phase == 0:
             l = r = 0
@@ -630,9 +633,9 @@ def pcm_reverb_stimulus(path, seed=1, n=20000):
         else:
             amp = (20000, big, 100)[phase - 1]
             l, r = rng.randrange(-amp, amp + 1), rng.randrange(-amp, amp + 1)
-        ol, orr = rv.step(l, r, kind, mix)
+        ol, orr = rv.step(l, r, kind, mix, tone)
         out.append("X %d %d" % (ol, orr))
-        out.append("V %d %d %d %d" % (kind, mix, l, r))
+        out.append("V %d %d %d %d %d" % (kind, mix, tone, l, r))
     with open(path, "w") as f:
         f.write("\n".join(out) + "\n")
 

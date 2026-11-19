@@ -1,20 +1,20 @@
 // Self-checking test of hdl/dev/pcm_reverb.sv (verilator --binary) against a
 // stimulus file made by tests/hdl/test_board.py from sim/pcm.py Reverb:
-//   V kind mix l r   an input sample (pcm_out's v), the OSD Reverb codes
-//   X l r            the output for the next V is (l, r) (before its V line)
+//   V kind mix tone l r   an input sample (pcm_out's v), the OSD Reverb codes
+//   X l r                 the output for the next V is (l, r) (before its V line)
 // Inputs come every GAP clocks (pcm_out gives one at most every 512); an
 // input that arrives while the reverb is still busy is an error.
 module pcm_reverb_tb;
     localparam int GAP = 300;
     logic        clk = 0, rst = 1;
-    logic [1:0]  kind = 0, mix = 0;
+    logic [1:0]  kind = 0, mix = 0, tone = 0;
     logic        in_valid = 0;
     logic signed [21:0] in_l = 0, in_r = 0;
     logic        out_valid;
     logic signed [21:0] out_l, out_r;
     int          errors = 0, lines = 0, outs = 0, busy_max = 0, busy = 0;
 
-    pcm_reverb dut (.clk, .rst, .kind, .mix, .in_valid, .in_l, .in_r, .out_valid, .out_l, .out_r);
+    pcm_reverb dut (.clk, .rst, .kind, .mix, .tone, .in_valid, .in_l, .in_r, .out_valid, .out_l, .out_r);
 
     always #5 clk = !clk;
 
@@ -46,7 +46,7 @@ module pcm_reverb_tb;
         string path;
         int fd, code;
         byte k;
-        longint a, b, c, e;
+        longint a, b, c, e, g;
         if (!$value$plusargs("stim=%s", path)) begin
             $display("no +stim=FILE"); $finish;
         end
@@ -56,11 +56,11 @@ module pcm_reverb_tb;
         while (!$feof(fd)) begin
             code = $fscanf(fd, " %c %d %d", k, a, b);
             if (code < 3) break;
-            if (k == "V") code = $fscanf(fd, " %d %d", c, e);
+            if (k == "V") code = $fscanf(fd, " %d %d %d", c, e, g);
             lines++;
             if (k == "X") begin want_l.push_back(a); want_r.push_back(b); end
             else begin
-                @(negedge clk); in_valid = 1; kind = 2'(a); mix = 2'(b); in_l = 22'(c); in_r = 22'(e);
+                @(negedge clk); in_valid = 1; kind = 2'(a); mix = 2'(b); tone = 2'(c); in_l = 22'(e); in_r = 22'(g);
                 @(negedge clk); in_valid = 0;
                 repeat (GAP - 1) @(negedge clk);
             end

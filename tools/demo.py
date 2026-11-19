@@ -46,7 +46,7 @@ the same), green as the core's default colour, scaled by whole pixels to
 devices/poly.py's output P(m) (pcm_out.sv bit for bit: 768 kHz instants,
 the poly staircase averaged over each, 512-tap FIR, M26; the OSD FM/Poly
 levels and limiter at their defaults or --fm-level/--poly-level/--limiter-off,
-#76; the OSD Reverb Off or --reverb/--reverb-mix).
+#76; the OSD Reverb Off or --reverb/--reverb-mix/--reverb-tone).
 Simulated time runs about 2-3 x slower than real time.
 """
 import argparse
@@ -384,7 +384,7 @@ def render(a):
                               fm_level=a.fm_level, poly_level=a.poly_level, limit=None)
     over = sum(1 for f in wide for v in f if abs(v) > LIM_T)
     peak = max([abs(v) for f in wide for v in f] or [0])
-    fm = limit_frames(wide, not a.limiter_off, a.reverb, a.reverb_mix)
+    fm = limit_frames(wide, not a.limiter_off, a.reverb, a.reverb_mix, a.reverb_tone)
     clipped = write_mix(wav, fm, n, 10 ** (a.gain / 20))
     log("audio: %.1f s, peak %.1f dBFS before the limiter, %d of %d samples over -1 dBFS (%s), "
         "%d clipped (%.2f%%)%s"
@@ -592,6 +592,8 @@ def main(argv=None):
                    help="OSD Reverb code: 0 Off (default), 1 Room, 2 Hall, 3 Plate (sim/pcm.py Reverb)")
     r.add_argument("--reverb-mix", type=int, default=0, choices=range(4),
                    help="OSD Reverb mix code: 0 -12 dB (default), 1 -6, 2 -18, 3 0 dB")
+    r.add_argument("--reverb-tone", type=int, default=0, choices=range(4),
+                   help="OSD Reverb tone code: high cut 0 8 kHz (default), 1 5 kHz, 2 3 kHz, 3 Full")
     r.add_argument("--gain", type=float, default=0,
                    help="dB applied to the mix before clipping (default 0: the core's output)")
     r.add_argument("--jobs", type=int, help="processes for the audio render (default: all CPUs)")

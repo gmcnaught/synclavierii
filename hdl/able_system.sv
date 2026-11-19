@@ -38,7 +38,7 @@ module able_system #(
     // the level detector's question for the FM voices; the output pair heard
     input  logic [3:0]  out_pair,          // 0 the stereo mix, n outputs 2n-1, 2n
     input  logic [4:0]  out_level,         // OSD (#76): {limiter off, Poly level, FM level}; 0 the defaults
-    input  logic [3:0]  reverb,            // OSD: {Reverb mix, Reverb} (pcm_reverb.sv); 0 Off
+    input  logic [5:0]  reverb,            // OSD: {Reverb tone, Reverb mix, Reverb} (pcm_reverb.sv); 0 Off
     input  logic        fm_rt_we,
     input  logic [4:0]  fm_rt_voice,
     input  logic        fm_rt_side,
@@ -449,7 +449,7 @@ module able_system #(
     logic        rv_valid;
     logic signed [21:0] rv_l, rv_r;
     pcm_reverb verb (
-        .clk, .rst, .kind(reverb[1:0]), .mix(reverb[3:2]), .in_valid(v_valid), .in_l(v_l), .in_r(v_r),
+        .clk, .rst, .kind(reverb[1:0]), .mix(reverb[3:2]), .tone(reverb[5:4]), .in_valid(v_valid), .in_l(v_l), .in_r(v_r),
         .out_valid(rv_valid), .out_l(rv_l), .out_r(rv_r)
     );
 

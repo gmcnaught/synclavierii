@@ -57,7 +57,7 @@ module synclavier_core #(
     input  logic        smpte_osd,       // OSD: SMPTE reader on (M20), taken at reset; or the state image's
     input  logic [3:0]  out_pair,        // OSD Outputs (M19): 0 stereo mix, n distributor outputs 2n-1, 2n
     input  logic [4:0]  out_level,       // OSD (#76): {Limiter off, Poly level, FM level}; 0 the defaults
-    input  logic [3:0]  reverb,          // OSD: {Reverb mix, Reverb} (pcm_reverb.sv); 0 Off
+    input  logic [5:0]  reverb,          // OSD: {Reverb tone, Reverb mix, Reverb} (pcm_reverb.sv); 0 Off
     input  logic [1:0]  poly_ftest,      // OSD DDR3 load test (dev_poly.sv `ftest`, M26)
     input  logic        printer_osd,     // OSD Hardware page (M21): a printer on D40, taken at reset
     input  logic        readback_en,     // VT640 read-back replies (0: the board bench, whose

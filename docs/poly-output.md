@@ -221,6 +221,7 @@ user's mixer did (the 9600's levels are [UNK]).
 | Limiter | **On** / Off | — |
 | Reverb (§9, status bits 62–63) | **Off** / Room / Hall / Plate | — |
 | Reverb mix (bits 64–65) | **−12** / −6 / −18 / 0 dB | wet gain |
+| Reverb tone (bits 66–67) | **8 kHz** / 5 kHz / 3 kHz / Full | high cut on the reverb's input |
 
 0 dB is the level before #76. At the defaults one FM voice is 1/4 of full
 scale; at +24 dB it is full scale, about the 9600 figure the user quoted
@@ -286,15 +287,17 @@ output, the tests and the renders are as before.
 **Place.** `hdl/dev/pcm_reverb.sv` (= `sim/pcm.py` `Reverb`, bit for bit)
 sits between `pcm_out` and the limiter (`able_system.sv`), so the limiter
 catches the wet build-up and renders (`tools/demo.py render --reverb N
---reverb-mix M`) include it.
+--reverb-mix M --reverb-tone K`) include it.
 
 **Algorithm.** An 8-line feedback delay network at 48 kHz, constants from
 `tools/gen_pcm_reverb.py` (`sim/pcm_reverb.py`, `hdl/dev/pcm_reverb.svh`):
 
 ```
 x = sat20((vl + vr) >>> 2)                      mono, −6 dB
-predelay, then 4 series all-passes (241, 173, 409, 307 samples; g 0.75, 0.75, 0.625, 0.625) → d
-lines i = 0..7:  lp[i] += (line_out[i] − lp[i]) · damp          (one-pole damping)
+tone: two stages s += ((x + x_prev)/2 − s) · c    (high cut; Full bypasses)
+predelay, then 4 series all-passes (241, 173, 409, 307 samples; g 0.6, 0.6, 0.5, 0.5) → d
+lines i = 0..7:  line_out[i] read at L[i] + 0..8 samples (triangle, 1.0 – 1.9 Hz, interpolated)
+                 lp[i] += (line_out[i] − lp[i]) · damp          (one-pole damping)
 h = Hadamard8(lp)                                (adds only)
 line_in[i] = sat20(h[i] · g[i] ± d/2),  g[i] = 10^(−3·L[i] / (T60·48000)) / √8
 out = sat22(vl + h[1] · mix), sat22(vr + h[2] · mix)   (two orthogonal Hadamard rows)
@@ -307,24 +310,40 @@ lines: a pointer decremented each sample, a line written at `p + B` and read
 `L` samples later at `p + B + L`. Types use the same regions (Room reads
 shorter).
 
-| type | predelay | lines (samples) | T60 design (no damping) | measured broadband / above 4 kHz |
+**Ringing.** The first version (all-pass g 0.75/0.625, fixed reads) left
+narrow high modes ringing on in the tail: in Room's impulse response, 9
+bins between 2 and 14 kHz stood more than 6 dB over their neighbours all
+through 0.15 – 0.45 T60, e.g. 5.2, 7.5, 11.7 kHz (Hall had some at 4.6 and
+11.7 kHz); an exponentially decaying noise has none. Lower all-pass gains
+(0.6/0.5) remove most of them, and the modulated reads (each line's delay
+swept 0 – 8 samples by its own triangle, about 1 cent of pitch wobble) the rest: no
+such bin in any type. The interpolation also damps the high band a little.
+
+**Tone.** Each stage is a one-pole with a zero at 24 kHz; `c` puts the
+two stages' −3 dB point at the OSD frequency (8 kHz default: −6.4 dB at
+10 – 14 kHz on Hall, 5 kHz: −12.1 dB, 3 kHz: −19.8 dB). The network sees
+the filtered input, so the whole wet signal is cut, early and late.
+
+| type | predelay | lines (samples) | T60 design (no damping) | measured broadband / above 4 kHz (tone Full) |
 |---|---|---|---|---|
-| Room | 8 ms | 661 – 1319 | 0.8 s | 0.65 s / 0.58 s |
+| Room | 8 ms | 661 – 1319 | 0.8 s | 0.66 s / 0.58 s |
 | Hall | 25 ms | 1201 – 2399 | 2.6 s | 1.96 s / 1.62 s |
-| Plate | 4 ms | 967 – 1913 | 2.0 s | 1.59 s / 1.49 s |
+| Plate | 4 ms | 967 – 1913 | 2.0 s | 1.58 s / 1.44 s |
 
-Mix 0 dB: an impulse's wet energy per side equals its dry energy (within
-0.05 dB measured); the default −12 dB is a quarter of that. L/R
-correlation of the wet impulse response is under 0.07.
+Mix 0 dB: with tone Full, an impulse's wet energy per side equals its dry
+energy (within 0.05 dB measured); the default −12 dB is a quarter of that.
+A lower tone takes some energy away with the highs. L/R correlation of the
+wet impulse response is under 0.08.
 
-**Changes.** The type and mix are taken with each sample. A change to
+**Changes.** The type, mix and tone are taken with each sample. A change to
 Room, Hall or Plate (or reset in one) clears the delay memory: that sample
-and the next 63 pass dry while 256 words a sample are zeroed (1.3 ms).
+and the next 63 pass dry while 256 words a sample are zeroed (1.3 ms). A
+change of mix or tone only changes the gain or the filter.
 
-**Cost.** One multiplier (24 × 18), about 100 clocks a sample (a clear
+**Cost.** One multiplier (24 × 18), about 130 clocks a sample (a clear
 256); `pcm_out` gives one every 512 or more.
 
 | check | result |
 |---|---|
-| `tests/sim/test_pcm.py` `test_reverb_*` | tables generated; Off = dry; T60 per type within 10 % of design without damping, high band shortest with it; mix 0 dB wet energy = dry ±0.5 dB; decorrelated sides; tail within 2 LSB; full-range noise stays within 22 bits and under −1 dBFS after the limiter |
-| `tests/hdl/test_board.py` `test_pcm_reverb` | HDL = `sim/pcm.py` `Reverb`, 2 × 20000 samples (impulses, noise to 2^21, type and mix changes, clears), inputs 300 clocks apart |
+| `tests/sim/test_pcm.py` `test_reverb_*` | tables generated; Off = dry; T60 per type within 10 % of design without damping or modulation, high band shortest with them; mix 0 dB wet energy = dry ±0.5 dB; decorrelated sides; tail within 2 LSB; no ringing bin in any type (the first design's Room: 9); each tone's response on Hall within 0.5 dB of its design; full-range noise stays within 22 bits and under −1 dBFS after the limiter |
+| `tests/hdl/test_board.py` `test_pcm_reverb` | HDL = `sim/pcm.py` `Reverb`, 2 × 20000 samples (impulses, noise to 2^21, type, mix and tone changes, clears), inputs 300 clocks apart |

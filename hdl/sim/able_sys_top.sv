@@ -132,6 +132,7 @@ module able_sys_top (
     wire  [13:0] hw_cfg = '0;          // OSD Hardware page: the state image's values
     wire  [3:0]  out_pair = '0;        // M19: the stereo mix; no distributor here
     wire  [4:0]  out_level = '0;       // #76: OSD output levels at their defaults
+    wire  [5:0]  reverb = '0;          // OSD Reverb Off
     wire         fm_rt_we = 1'b0, fm_rt_side = 1'b0, fm_q_side = 1'b0;
     wire  [4:0]  fm_rt_voice = '0, fm_rt_tag = '0, fm_q_voice = '0;
     logic        fm_q_live, fm_busy;

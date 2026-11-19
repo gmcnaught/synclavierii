@@ -243,6 +243,215 @@ def test_poly_aliasing():
     assert alias_old - tone_old > -20                    # before: the image folds in at ~ -14 dB
     assert alias_new - tone_new < -70                    # after: filtered out
 
+
+def test_reverb_tables_are_generated():
+    r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "gen_pcm_reverb.py"), "--check"],
+                       capture_output=True, text=True)
+    assert r.returncode == 0, r.stdout + r.stderr
+
+
+def test_reverb_off_is_dry():
+    """OSD Reverb Off leaves the samples alone; a change to a type passes
+    CLEAR samples dry, then the wet signal starts."""
+    from sim.pcm_reverb import CLEAR
+    rv = pcm.Reverb()
+    ins = [(i * 997 % 4001 - 2000, i * 389 % 3001 - 1500) for i in range(3000)]
+    assert [rv.step(l, r, 0) for l, r in ins] == ins
+    assert pcm.limit_frames(ins, True, 0) == pcm.limit_frames(ins, True)
+    outs = [rv.step(l, r, 2) for l, r in ins]
+    assert outs[:CLEAR] == ins[:CLEAR] and outs[CLEAR:] != ins[CLEAR:]
+
+
+def _edc_t60(ir, lo=-5, hi=-35):
+    """T60 from the Schroeder backward integral between lo and hi dB."""
+    e = [v * v for v in ir]
+    s = tot = sum(e)
+    edc = []
+    for v in e:
+        edc.append(10 * math.log10(max(s, 1e-30) / tot))
+        s -= v
+    t1 = next(i for i, v in enumerate(edc) if v <= lo)
+    t2 = next(i for i, v in enumerate(edc) if v <= hi)
+    return (t2 - t1) / RATE * 60 / (lo - hi)
+
+
+def _lowpass(x, fc):
+    """Two one-pole low-passes at fc."""
+    a = math.exp(-2 * math.pi * fc / RATE)
+    for _ in range(2):
+        y, out = 0.0, []
+        for v in x:
+            y = (1 - a) * v + a * y
+            out.append(y)
+        x = out
+    return x
+
+
+def _reverb_ir(kind, a, n, tables=None, tone=None):
+    """The wet part of each side's response to an impulse a, from the end of
+    the clear, mix 0 dB, tone code tone (default Full)."""
+    from sim.pcm_reverb import CLEAR, MIX_DB, TONE_HZ
+    m0 = MIX_DB.index(0)
+    tone = TONE_HZ.index(None) if tone is None else tone
+    rv = pcm.Reverb(tables)
+    for _ in range(CLEAR):
+        rv.step(0, 0, kind, m0, tone)
+    wl, wr = [], []
+    for k in range(n):
+        v = a if k == 0 else 0
+        ol, orr = rv.step(v, v, kind, m0, tone)
+        wl.append(ol - v)
+        wr.append(orr - v)
+    return rv, wl, wr
+
+
+def test_reverb_decay_and_level():
+    """Each type's impulse response. Without damping or modulation, the line
+    gains give the design T60 (within 10 %); with them, the high band dies
+    first. Wet
+    energy at mix 0 dB (tone Full) equals the dry impulse's within 0.5 dB,
+    the two sides are decorrelated, and the tail settles to within 2 LSB."""
+    import types
+    from sim import pcm_reverb
+    from sim.pcm_reverb import MIX_DB, TONE_HZ
+    from tools.gen_pcm_reverb import TYPES
+    a = 1 << 18
+    undamped = types.SimpleNamespace(**{k: getattr(pcm_reverb, k) for k in dir(pcm_reverb)
+                                        if k.isupper()})
+    undamped.DAMP = (1 << 15,) * 4
+    undamped.MOD_INC = undamped.MOD_PH0 = (0,) * 8
+    for kind, (name, _pre, _scale, t60, _damp, _mix0) in TYPES.items():
+        n = int(RATE * t60)
+        _, ul, _ = _reverb_ir(kind, a, n, undamped)
+        rv, wl, wr = _reverb_ir(kind, a, n)
+        design = _edc_t60(_lowpass(ul, 200))
+        broad, high = _edc_t60(wl), _edc_t60([x - y for x, y in zip(wl, _lowpass(wl, 4000))])
+        el, er = sum(v * v for v in wl), sum(v * v for v in wr)
+        corr = sum(x * y for x, y in zip(wl, wr)) / math.sqrt(el * er)
+        for _ in range(int(RATE * 3 * t60)):
+            tail = rv.step(0, 0, kind, MIX_DB.index(0), TONE_HZ.index(None))
+        print("  %s: T60 %.2f s undamped, unmodulated (design %.2f), %.2f s broadband, %.2f s above 4 kHz; "
+              "wet %+.2f dB; L/R correlation %+.3f; tail %s"
+              % (name, design, t60, broad, high, 10 * math.log10(el / a ** 2), corr, tail))
+        assert abs(design / t60 - 1) < 0.10
+        assert high < broad < design
+        assert abs(10 * math.log10(el / a ** 2)) < 0.5 and abs(10 * math.log10(er / a ** 2)) < 1.0
+        assert abs(corr) < 0.2
+        assert max(abs(v) for v in tail) <= 2
+
+
+def _fft(x):
+    """Radix-2 FFT of a list (length a power of 2)."""
+    import cmath
+    n = len(x)
+    if n == 1:
+        return list(x)
+    ev, od = _fft(x[0::2]), _fft(x[1::2])
+    out = [0j] * n
+    for k in range(n // 2):
+        t = cmath.exp(-2j * math.pi * k / n) * od[k]
+        out[k], out[k + n // 2] = ev[k] + t, ev[k] - t
+    return out
+
+
+def _ringing_bins(ir, t60, f1=2000, f2=14000, n=4096):
+    """Frequencies (Hz) of the bins in f1..f2 that stand more than 6 dB over
+    their 41-bin local median in each of six spectra 0.15 - 0.45 T60 into an
+    impulse response (Blackman-Harris, after a first difference): high modes
+    that ring on instead of decaying into noise like their neighbours."""
+    x = [b - a for a, b in zip(ir, ir[1:])]
+    w = [0.35875 - 0.48829 * math.cos(2 * math.pi * i / n) + 0.14128 * math.cos(4 * math.pi * i / n)
+         - 0.01168 * math.cos(6 * math.pi * i / n) for i in range(n)]
+    b1, b2 = round(f1 * n / RATE), round(f2 * n / RATE)
+    hits = None
+    for j in range(6):
+        c = int((0.15 + 0.06 * j) * t60 * RATE)
+        sp = _fft([x[c - n // 2 + i] * w[i] for i in range(n)])
+        db = [10 * math.log10(abs(sp[k]) ** 2 + 1e-12) for k in range(b1 - 20, b2 + 21)]
+        over = {k for k in range(20, len(db) - 20) if db[k] - sorted(db[k - 20:k + 21])[20] > 6}
+        hits = over if hits is None else hits & over
+    return sorted(round((k + b1 - 20) * RATE / n) for k in hits)
+
+
+def test_reverb_no_ringing_modes():
+    """No high mode rings on in any type's tail (diffuser gains 0.6/0.5 and
+    the modulated line reads); the first design (0.75/0.625, fixed reads)
+    did, which the check sees in Room."""
+    import types
+    from sim import pcm_reverb
+    from tools.gen_pcm_reverb import TYPES
+    a = 1 << 19
+    for kind, (name, _pre, _scale, t60, _damp, _mix0) in TYPES.items():
+        _, wl, _ = _reverb_ir(kind, a, int(0.45 * t60 * RATE) + 2100)
+        bins = _ringing_bins(wl, t60)
+        print("  %s: ringing bins %s" % (name, bins))
+        assert bins == []
+    old = types.SimpleNamespace(**{k: getattr(pcm_reverb, k) for k in dir(pcm_reverb) if k.isupper()})
+    old.AP_G, old.MOD_INC, old.MOD_PH0 = (24576, 24576, 20480, 20480), (0,) * 8, (0,) * 8
+    t60 = TYPES[1][3]
+    _, wl, _ = _reverb_ir(1, a, int(0.45 * t60 * RATE) + 2100, old)
+    bins = _ringing_bins(wl, t60)
+    print("  Room, first design: ringing bins %s" % bins)
+    assert len(bins) >= 5
+
+
+def test_reverb_tone():
+    """OSD Reverb tone: each code's two stages are 3 dB down at its
+    frequency (Full passes x unchanged). The same network follows the high
+    cut whatever the code, so on Hall's impulse response the spectrum's
+    ratio to Full's, over 1-2 kHz and 10-14 kHz, is the stages' own
+    response weighted by Full's spectrum (within 0.5 dB)."""
+    from sim.pcm_reverb import Q, TONE, TONE_HZ
+    from tools.gen_pcm_reverb import tone_gain2
+    for c, fc in zip(TONE, TONE_HZ):
+        if fc is None:
+            assert c == 1 << Q
+            continue
+        h2 = tone_gain2(c / (1 << Q), 2 * math.pi * fc / RATE) ** 2
+        assert abs(10 * math.log10(h2) + 3) < 0.05, (fc, h2)
+    n, frames = 4096, 6
+    win = [0.5 - 0.5 * math.cos(2 * math.pi * i / n) for i in range(n)]
+    bands = [range(f1 * n // RATE, f2 * n // RATE) for f1, f2 in ((1000, 2000), (10000, 14000))]
+
+    def power(code):
+        """Per-bin power over the bands, summed over the frames."""
+        _, wl, _ = _reverb_ir(2, 1 << 18, n * frames, tone=code)
+        p = {k: 0.0 for b in bands for k in b}
+        for j in range(frames):
+            sp = _fft([v * w for v, w in zip(wl[j * n:(j + 1) * n], win)])
+            for k in p:
+                p[k] += abs(sp[k]) ** 2
+        return p
+
+    full = power(TONE_HZ.index(None))
+    for code, fc in enumerate(TONE_HZ):
+        if fc is None:
+            continue
+        p, c = power(code), TONE[code] / (1 << Q)
+        got = [10 * math.log10(sum(p[k] for k in b) / sum(full[k] for k in b)) for b in bands]
+        want = [10 * math.log10(sum(full[k] * tone_gain2(c, 2 * math.pi * k / n) ** 2 for k in b)
+                                / sum(full[k] for k in b)) for b in bands]
+        print("  tone %d Hz: 1-2 kHz %+.1f dB (design %+.1f), 10-14 kHz %+.1f dB (design %+.1f)"
+              % (fc, got[0], want[0], got[1], want[1]))
+        assert all(abs(g - w) < 0.5 for g, w in zip(got, want))
+
+
+def test_reverb_full_scale_bounded():
+    """Full-range noise into Hall at 0 dB mix, tone Full: the output stays
+    within the 22 bits pcm_limit takes, and the Limiter holds it under
+    -1 dBFS."""
+    import random
+    from sim.pcm_reverb import TONE_HZ
+    full = TONE_HZ.index(None)
+    rng = random.Random(3)
+    big = (1 << 21) - 1
+    wide = [(rng.randrange(-big, big + 1), rng.randrange(-big, big + 1)) for _ in range(20000)]
+    rv = pcm.Reverb()
+    out = [rv.step(l, r, 2, 3, full) for l, r in wide]
+    assert max(abs(v) for f in out for v in f) <= big
+    assert max(abs(v) for f in pcm.limit_frames(wide, True, 2, 3, full) for v in f) <= pcm.LIM_T
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:

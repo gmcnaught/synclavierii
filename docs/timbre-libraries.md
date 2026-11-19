@@ -265,6 +265,9 @@ python3 tools/synx.py convert "timbres/Synclavier II Timbres/Synclavier_Bank_Sys
     -o timbres/fm-synx/System-Disk.stmb --report timbres/fm-synx/System-Disk.txt \
     --regen "timbres/fm-download/Original NED FM Timbre Libraries/System Disk"
 python3 tools/timbre_disk.py out/images/W1-SYNX.IMG timbres/fm-synx/*.stmb     # 17 libraries, 17 MB
+python3 tools/timbre_disk.py out/images/W1-SAMPLES-SYNX.IMG timbres/fm-synx/*.stmb \
+    --samples timbres/Original-NED-Sample-Patch-Libraries \
+    --seq DEMOS:0=SQ0.sseq ... --seq DEMOS:4=SQ4.sseq      # + sample libraries and demos, 274 MB
 python3 tools/synx.py verify BANK.synx TEXT_DIR      # harmonic/frame blocks vs the Regen text
 python3 tools/synx.py dump BANK.synx NAME            # frames of one preset
 ```

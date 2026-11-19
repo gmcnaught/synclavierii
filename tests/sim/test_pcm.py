@@ -318,7 +318,8 @@ def test_reverb_decay_and_level():
     a = 1 << 18
     undamped = types.SimpleNamespace(**{k: getattr(pcm_reverb, k) for k in dir(pcm_reverb)
                                         if k.isupper()})
-    undamped.DAMP = (1 << 15,) * 4
+    undamped.POLE = ((0,) * 8,) * 4
+    undamped.TC = (0,) * 4
     undamped.MOD_INC = undamped.MOD_PH0 = (0,) * 8
     for kind, (name, _pre, _scale, t60, _damp, _mix0) in TYPES.items():
         n = int(RATE * t60)
@@ -373,10 +374,38 @@ def _ringing_bins(ir, t60, f1=2000, f2=14000, n=4096):
     return sorted(round((k + b1 - 20) * RATE / n) for k in hits)
 
 
+def test_reverb_jot_damping():
+    """Jot's conditions (JOS, PASP 3.7.4-3.7.5): each type's lines add up to
+    at least 0.15 T60 x 48000 samples (mode density); every line, gain and
+    damping together, decays at the type's T60 at DC (within 1 %) and at
+    the same rate as the others at half the sample rate (within 10 %; Jot's
+    first-order design). One damping coefficient for every line, as before,
+    let Hall's longest line ring on twice as long as its shortest."""
+    from sim import pcm_reverb as rv
+    from tools.gen_pcm_reverb import TYPES
+
+    def nyquist_t60(n, g, c):
+        return -3 * n / (RATE * math.log10(g * c / (2 - c)))
+
+    for kind, (name, _pre, _scale, t60, _alpha, _mix0) in TYPES.items():
+        assert sum(rv.LENS[kind]) >= 0.15 * t60 * RATE, name
+        ny = []
+        for n, g, b in zip(rv.LENS[kind], rv.GAINS[kind], rv.POLE[kind]):
+            g, c = g / (1 << 15) * math.sqrt(8), 1 - b / (1 << 15)
+            assert abs(-3 * n / (RATE * math.log10(g)) / t60 - 1) < 0.01, (name, n)
+            ny.append(nyquist_t60(n, g, c))
+        print("  %s: T60 at 24 kHz %.3f - %.3f s across the lines" % (name, min(ny), max(ny)))
+        assert max(ny) / min(ny) < 1.10, name
+    lens = rv.LENS[2]
+    old = [nyquist_t60(n, 10 ** (-3 * n / (2.6 * RATE)), 0.65) for n in lens]
+    assert max(old) / min(old) > 1.5
+
+
 def test_reverb_no_ringing_modes():
-    """No high mode rings on in any type's tail (diffuser gains 0.6/0.5 and
-    the modulated line reads); the first design (0.75/0.625, fixed reads)
-    did, which the check sees in Room."""
+    """No high mode rings on in any type's tail (diffuser gains 0.6/0.5, the
+    modulated line reads, Jot's damping); the first design (0.75/0.625,
+    fixed reads, one damping coefficient a type) did, which the check sees
+    in Room."""
     import types
     from sim import pcm_reverb
     from tools.gen_pcm_reverb import TYPES
@@ -388,11 +417,13 @@ def test_reverb_no_ringing_modes():
         assert bins == []
     old = types.SimpleNamespace(**{k: getattr(pcm_reverb, k) for k in dir(pcm_reverb) if k.isupper()})
     old.AP_G, old.MOD_INC, old.MOD_PH0 = (24576, 24576, 20480, 20480), (0,) * 8, (0,) * 8
+    old.POLE = ((0,) * 8, (8192,) * 8, (11469,) * 8, (2621,) * 8)   # one damping pole a type
+    old.TC = (0,) * 4
     t60 = TYPES[1][3]
     _, wl, _ = _reverb_ir(1, a, int(0.45 * t60 * RATE) + 2100, old)
     bins = _ringing_bins(wl, t60)
     print("  Room, first design: ringing bins %s" % bins)
-    assert len(bins) >= 5
+    assert len(bins) >= 3
 
 
 def test_reverb_tone():

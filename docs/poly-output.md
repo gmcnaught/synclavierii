@@ -296,19 +296,38 @@ catches the wet build-up and renders (`tools/demo.py render --reverb N
 x = sat20((vl + vr) >>> 2)                      mono, −6 dB
 tone: two stages s += ((x + x_prev)/2 − s) · c    (high cut; Full bypasses)
 predelay, then 4 series all-passes (241, 173, 409, 307 samples; g 0.6, 0.6, 0.5, 0.5) → d
-lines i = 0..7:  line_out[i] read at L[i] + 0..8 samples (triangle, 1.0 – 1.9 Hz, interpolated)
-                 lp[i] += (line_out[i] − lp[i]) · damp          (one-pole damping)
+lines i = 0..7:  y = line_out[i] read at L[i] + 0..8 samples (triangle, 1.0 – 1.9 Hz, interpolated)
+                 lp[i] = y + (lp[i] − y) · b[i]                  (one-pole damping, Jot)
 h = Hadamard8(lp)                                (adds only)
 line_in[i] = sat20(h[i] · g[i] ± d/2),  g[i] = 10^(−3·L[i] / (T60·48000)) / √8
-out = sat22(vl + h[1] · mix), sat22(vr + h[2] · mix)   (two orthogonal Hadamard rows)
+e = h − tc · h_prev                              (tonal correction, Jot's E(z))
+out = sat22(vl + e[1] · mix), sat22(vr + e[2] · mix)   (two orthogonal Hadamard rows)
 ```
 
-Products are `/2^15` truncated toward zero (the tail decays to within
-±1 LSB, no limit cycles); the wet output rounds. One delay memory of
-16384 × 20-bit words (32 M10K) holds the predelay, the all-passes and the
+Products are `/2^15` truncated toward zero; the damping is written as
+`y + (lp − y) · b` so the truncation pulls `lp` onto the line output and
+the tail decays to 0 (as `lp += (y − lp) · c` it could stick at ±1 and
+hold a few LSB of DC). The wet output rounds. One delay memory of
+22528 × 20-bit words (44 M10K) holds the predelay, the all-passes and the
 lines: a pointer decremented each sample, a line written at `p + B` and read
-`L` samples later at `p + B + L`. Types use the same regions (Room reads
-shorter).
+`L` samples later at `p + B + L`, addresses mod 22528 (a compare and a
+subtract, so the memory is the size the lines need, not the next power of
+2). Types use the same regions (Room reads shorter).
+
+**Jot's design** (JOS, *Physical Audio Signal Processing*, FDN
+reverberation): each line's damping pole `b[i] = ln10/4 · log10(g'[i]) ·
+(1 − 1/α²)` (`g'` the line's gain before 1/√8, α = T60 at 24 kHz / T60
+at DC: Room 0.39, Hall 0.29, Plate 0.44), so every line loses the same dB
+per second at each frequency: one coefficient for all lines, as before, let
+Hall's longest line ring on at the top twice as long as its shortest.
+The tonal correction `E(z) = (1 − tc·z⁻¹) / (1 − tc)`, `tc = (1 − α) / (1
++ α)` (the 1/(1 − tc) folded into the mix gain), gives back the highs the
+faster-decaying modes take out of the tail's colour. The lines are 1.4
+times the first version's (Hall 1669 – 3359 samples) so each type meets
+the mode density requirement, total delay ≥ 0.15 · T60 · 48000 (Hall
+19506 ≥ 18720 samples; it had 13934). This replaced the first damping
+after listening (A/B against a Householder matrix, no diffusers, and each
+change alone: Jot's damping with the longer lines sounded least metallic).
 
 **Ringing.** The first version (all-pass g 0.75/0.625, fixed reads) left
 narrow high modes ringing on in the tail: in Room's impulse response, 9
@@ -324,26 +343,26 @@ two stages' −3 dB point at the OSD frequency (8 kHz default: −6.4 dB at
 10 – 14 kHz on Hall, 5 kHz: −12.1 dB, 3 kHz: −19.8 dB). The network sees
 the filtered input, so the whole wet signal is cut, early and late.
 
-| type | predelay | lines (samples) | T60 design (no damping) | measured broadband / above 4 kHz (tone Full) |
-|---|---|---|---|---|
-| Room | 8 ms | 661 – 1319 | 0.8 s | 0.66 s / 0.58 s |
-| Hall | 25 ms | 1201 – 2399 | 2.6 s | 1.96 s / 1.62 s |
-| Plate | 4 ms | 967 – 1913 | 2.0 s | 1.58 s / 1.44 s |
+| type | predelay | lines (samples) | T60 design (no damping) | α | measured broadband / above 4 kHz (tone Full) |
+|---|---|---|---|---|---|
+| Room | 8 ms | 653 – 1319 | 0.8 s | 0.39 | 0.64 s / 0.54 s |
+| Hall | 25 ms | 1669 – 3359 | 2.6 s | 0.29 | 1.93 s / 1.53 s |
+| Plate | 4 ms | 1327 – 2687 | 2.0 s | 0.44 | 1.56 s / 1.38 s |
 
 Mix 0 dB: with tone Full, an impulse's wet energy per side equals its dry
-energy (within 0.05 dB measured); the default −12 dB is a quarter of that.
+energy (within 0.1 dB measured); the default −12 dB is a quarter of that.
 A lower tone takes some energy away with the highs. L/R correlation of the
-wet impulse response is under 0.08.
+wet impulse response is under 0.05.
 
 **Changes.** The type, mix and tone are taken with each sample. A change to
 Room, Hall or Plate (or reset in one) clears the delay memory: that sample
-and the next 63 pass dry while 256 words a sample are zeroed (1.3 ms). A
+and the next 87 pass dry while 256 words a sample are zeroed (1.8 ms). A
 change of mix or tone only changes the gain or the filter.
 
-**Cost.** One multiplier (24 × 18), about 130 clocks a sample (a clear
-256); `pcm_out` gives one every 512 or more.
+**Cost.** One multiplier (24 × 18), about 135 clocks a sample (a clear
+256); `pcm_out` gives one every 512 or more. 44 M10K.
 
 | check | result |
 |---|---|
-| `tests/sim/test_pcm.py` `test_reverb_*` | tables generated; Off = dry; T60 per type within 10 % of design without damping or modulation, high band shortest with them; mix 0 dB wet energy = dry ±0.5 dB; decorrelated sides; tail within 2 LSB; no ringing bin in any type (the first design's Room: 9); each tone's response on Hall within 0.5 dB of its design; full-range noise stays within 22 bits and under −1 dBFS after the limiter |
-| `tests/hdl/test_board.py` `test_pcm_reverb` | HDL = `sim/pcm.py` `Reverb`, 2 × 20000 samples (impulses, noise to 2^21, type, mix and tone changes, clears), inputs 300 clocks apart |
+| `tests/sim/test_pcm.py` `test_reverb_*` | tables generated; Off = dry; T60 per type within 10 % of design without damping or modulation, high band shortest with them; mix 0 dB wet energy = dry ±0.5 dB; decorrelated sides; tail within 2 LSB; mode density met and every line's T60 at DC within 1 %, at 24 kHz within 10 % of the others (one coefficient for all: 2:1); no ringing bin in any type (the first design's Room: 5 or more); each tone's response on Hall within 0.5 dB of its design; full-range noise stays within 22 bits and under −1 dBFS after the limiter |
+| `tests/hdl/test_board.py` `test_pcm_reverb` | HDL = `sim/pcm.py` `Reverb`, 2 × 30000 samples (the pointer all the way round the memory; impulses, noise to 2^21, type, mix and tone changes, clears), inputs 300 clocks apart |

@@ -3,8 +3,9 @@
 // network's wet signal, to pcm_limit.sv, bit for bit as sim/pcm.py Reverb.
 // Constants: pcm_reverb.svh (tools/gen_pcm_reverb.py). Per sample (vl, vr),
 // type t (0 Off, 1 Room, 2 Hall, 3 Plate), mix code m and tone code n, with
-// one delay memory mem[16384] of 20-bit words and a pointer p decremented
-// each sample (a line written at p + B is read L samples later at p + B + L):
+// one delay memory mem[MEM_WORDS] of 20-bit words and a pointer p decremented
+// each sample, addresses mod MEM_WORDS (a line written at p + B is read L
+// samples later at p + B + L):
 //   x = sat20((vl + vr) >>> 2)
 //   high cut, c = tone(n):  s0 = s1;  s1 += mul(((x + xp) >>> 1) - s1, c)
 //       s2 += mul(((s1 + s0) >>> 1) - s2, c);  xp = x;  f = c == 2^15 (Full) ? x : s2
@@ -14,17 +15,18 @@
 //   lines i = 0..7:  tri = ph[i][23] ? ~ph[i][22:8] : ph[i][22:8]
 //       r = p + line_base + len(t, i) + tri[14:12];  a = mem[r]
 //       y = a + mul(mem[r + 1] - a, {tri[11:0], 3'b0})
-//       lp[i] += mul(y - lp[i], damp(t));  ph[i] += mod_inc(i)
+//       lp[i] = y + mul(lp[i] - y, pole(t, i));  ph[i] += mod_inc(i)   (Jot's damping)
 //   h = Hadamard(lp)        (unnormalised; 1/sqrt(8) is in the gains)
 //   lines i = 0..7:  mem[p + line_base] = sat20(mul(h[i], gain(t, i)) +- (d >>> 1))
-//   out = sat22(vl + rmul(h[1], mix(t, m))), sat22(vr + rmul(h[2], mix(t, m)))
+//   tonal correction:  el = h[1] - mul(hl, tc(t));  er = h[2] - mul(hr, tc(t));  hl, hr = h[1], h[2]
+//   out = sat22(vl + rmul(el, mix(t, m))), sat22(vr + rmul(er, mix(t, m)))
 // mul(a, c) = a x c / 2^15 truncated toward zero; rmul rounds half up.
 // Off: out = in. A change to a type other than Off (or the first sample
-// after reset in one) starts a clear: that sample and the next 63 pass dry
-// while 256 words a sample are zeroed, lp, xp, s1, s2 and p reset, ph[i] =
-// mod_ph0(i).
+// after reset in one) starts a clear: that sample and the next CLEAR - 1
+// pass dry while 256 words a sample are zeroed, lp, xp, s1, s2, hl, hr and p
+// reset, ph[i] = mod_ph0(i).
 //
-// Sequential, one multiplier: about 130 clocks a sample (a clear 257);
+// Sequential, one multiplier: about 135 clocks a sample (a clear 257);
 // pcm_out gives one at most every 512 clocks, so no input is ever waiting.
 module pcm_reverb (
     input  logic        clk,
@@ -42,21 +44,28 @@ module pcm_reverb (
     `include "pcm_reverb.svh"
 
     localparam logic [6:0] CLEAR = RV_CLEAR;
+    localparam logic [15:0] NW = RV_MEM_WORDS;
+
+    function automatic logic [14:0] wrap(input logic [15:0] s);   // s mod NW, for s < 2 NW
+        logic [15:0] r;
+        r = s >= NW ? s - NW : s;
+        wrap = r[14:0];
+    endfunction
 
     typedef enum logic [3:0] {IDLE, CLR, TN, PD, AP, LN, WHT, WR, OUT} st_t;
     st_t st;
     logic [2:0]  u;                             // step within a state
     logic [2:0]  k;                             // all-pass / line index
 
-    // 32 M10K: max_depth keeps Quartus from the 4K x 2 mode (40 blocks for 16K x 20)
-    (* ramstyle = "no_rw_check", max_depth = 2048 *) logic signed [19:0] mem [1 << RV_MEM_BITS];
-    logic [13:0] raddr, waddr, ptr;
+    // MEM_WORDS / 512 M10K: max_depth keeps Quartus from the 4K x 2 mode (40 blocks for 16K x 20)
+    (* ramstyle = "no_rw_check", max_depth = 2048 *) logic signed [19:0] mem [RV_MEM_WORDS];
+    logic [14:0] raddr, waddr, ptr;
     logic signed [19:0] rdata, wdata;
     logic        we;
 
     logic [1:0]  kind_q, t, m, tn;
     logic [6:0]  clr_left;
-    logic [5:0]  chunk;
+    logic [6:0]  chunk;
     logic [7:0]  ci;
 
     logic signed [21:0] vl, vr;
@@ -64,6 +73,8 @@ module pcm_reverb (
     logic signed [19:0] wm;
     logic signed [19:0] xp, s1, s2, xf;         // high cut
     logic signed [19:0] la;                     // a modulated read's nearer word
+    logic signed [19:0] yl;                     // a line's interpolated output
+    logic signed [22:0] hl, hr;                 // tonal correction: last h[1], h[2]
     logic [23:0] ph [8];                        // line modulation phases
     logic signed [19:0] lp [8];
     logic signed [22:0] h [8];
@@ -116,7 +127,7 @@ module pcm_reverb (
     wire signed [26:0] rqp = rq(pr);
     wire signed [20:0] inj = d >>> 1;
     wire               newk = kind != kind_q;
-    wire signed [26:0] lp_next = lp[k] + tqp;     // within 20 bits: lp moves toward the line output
+    wire signed [26:0] lp_next = yl + tqp;        // within 20 bits: between y and the old lp
     wire signed [19:0] xin = sat20((vl + vr) >>> 2);
     wire signed [20:0] xsum = xin + xp;
     wire signed [26:0] s1_next = s1 + tqp;        // within 20 bits: s1 moves toward the input
@@ -125,8 +136,12 @@ module pcm_reverb (
     wire        [16:0] tc = rv_tone(tn);
     wire        [23:0] phk = ph[k];
     wire        [14:0] mtri = phk[23] ? ~phk[22:8] : phk[22:8];
-    wire        [13:0] lr = ptr + rv_line_base(k) + rv_len({t, k}) + {11'd0, mtri[14:12]};
-    wire signed [26:0] y_lp = la + tqp - lp[k];
+    wire        [14:0] loff = rv_line_base(k) + rv_len({t, k}) + {12'd0, mtri[14:12]};
+    wire        [14:0] lr = wrap(ptr + loff);
+    wire        [14:0] lr1 = wrap(ptr + loff + 15'd1);
+    wire signed [26:0] y_now = la + tqp;
+    wire signed [26:0] lp_y = lp[k] - y_now;
+    wire signed [26:0] ecorr = (u == 3'd2 ? h[1] : h[2]) - tqp;
 
     always_ff @(posedge clk) begin
         if (we) mem[waddr] <= wdata;
@@ -153,16 +168,16 @@ module pcm_reverb (
                     out_l <= in_l; out_r <= in_r;
                 end
                 if (kind != 2'd0 && newk) begin
-                    chunk <= 6'd0; clr_left <= CLEAR - 7'd1;
+                    chunk <= 7'd0; clr_left <= CLEAR - 7'd1;
                     ci <= 8'd0; ptr <= '0;
-                    xp <= '0; s1 <= '0; s2 <= '0;
+                    xp <= '0; s1 <= '0; s2 <= '0; hl <= '0; hr <= '0;
                     for (int i = 0; i < 8; i++) begin
                         lp[i] <= '0;
                         ph[i] <= rv_mod_ph0(3'(i));
                     end
                     st <= CLR;
                 end else if (kind != 2'd0 && clr_left != 7'd0) begin
-                    chunk <= 6'd0 - clr_left[5:0]; clr_left <= clr_left - 7'd1;
+                    chunk <= CLEAR - clr_left; clr_left <= clr_left - 7'd1;
                     ci <= 8'd0;
                     st <= CLR;
                 end else if (kind != 2'd0) begin
@@ -195,8 +210,8 @@ module pcm_reverb (
                 u <= u + 3'd1;
                 case (u)
                     3'd0: begin
-                        raddr <= ptr + RV_PD_BASE + rv_pre(t);
-                        we <= 1'b1; waddr <= ptr + RV_PD_BASE;
+                        raddr <= wrap(ptr + RV_PD_BASE + rv_pre(t));
+                        we <= 1'b1; waddr <= wrap(ptr + RV_PD_BASE);
                         wdata <= xf;
                     end
                     3'd2: begin d <= rdata; u <= 3'd0; st <= AP; end
@@ -206,10 +221,10 @@ module pcm_reverb (
             AP: begin
                 u <= u + 3'd1;
                 case (u)
-                    3'd0: raddr <= ptr + rv_ap_base(k[1:0]) + rv_ap_len(k[1:0]);
+                    3'd0: raddr <= wrap(ptr + rv_ap_base(k[1:0]) + rv_ap_len(k[1:0]));
                     3'd2: begin wm <= rdata; ma <= rdata; mc <= {1'b0, rv_ap_g(k[1:0])}; end
                     3'd4: begin
-                        we <= 1'b1; waddr <= ptr + rv_ap_base(k[1:0]);
+                        we <= 1'b1; waddr <= wrap(ptr + rv_ap_base(k[1:0]));
                         wdata <= sat20(d + tqp);
                         ma <= sat20(d + tqp);
                     end
@@ -225,10 +240,10 @@ module pcm_reverb (
                 u <= u + 3'd1;
                 case (u)
                     3'd0: raddr <= lr;
-                    3'd1: raddr <= lr + 14'd1;
+                    3'd1: raddr <= lr1;
                     3'd2: la <= rdata;
                     3'd3: begin ma <= 24'(rdata) - 24'(la); mc <= {3'b0, mtri[11:0], 3'b0}; end
-                    3'd5: begin ma <= y_lp[23:0]; mc <= {1'b0, rv_damp(t)}; end
+                    3'd5: begin yl <= y_now[19:0]; ma <= lp_y[23:0]; mc <= {1'b0, rv_pole({t, k})}; end
                     3'd7: begin
                         lp[k] <= lp_next[19:0];
                         ph[k] <= ph[k] + rv_mod_inc(k);
@@ -247,7 +262,7 @@ module pcm_reverb (
                 case (u)
                     3'd0: begin ma <= h[k]; mc <= {1'b0, rv_gain({t, k})}; end
                     3'd2: begin
-                        we <= 1'b1; waddr <= ptr + rv_line_base(k);
+                        we <= 1'b1; waddr <= wrap(ptr + rv_line_base(k));
                         wdata <= sat20(RV_SIGN_NEG[k] ? tqp - inj : tqp + inj);
                         u <= 3'd0; k <= k + 3'd1;
                         if (k == 3'd7) st <= OUT;
@@ -258,13 +273,17 @@ module pcm_reverb (
             OUT: begin
                 u <= u + 3'd1;
                 case (u)
-                    3'd0: begin ma <= h[1]; mc <= {1'b0, rv_mix({t, m})}; end
-                    3'd2: begin wl <= rqp; ma <= h[2]; end
-                    3'd4: begin
+                    3'd0: begin ma <= 24'(hl); mc <= {1'b0, rv_tc(t)}; end
+                    3'd1: ma <= 24'(hr);
+                    3'd2: begin ma <= ecorr[23:0]; mc <= {1'b0, rv_mix({t, m})}; end   // el
+                    3'd3: ma <= ecorr[23:0];                                            // er
+                    3'd4: wl <= rqp;
+                    3'd5: begin
                         out_valid <= 1'b1;
                         out_l <= sat22(vl + wl);
                         out_r <= sat22(vr + rqp);
-                        ptr <= ptr - 14'd1;
+                        hl <= h[1]; hr <= h[2];
+                        ptr <= ptr == 15'd0 ? 15'(NW - 16'd1) : ptr - 15'd1;
                         st <= IDLE;
                     end
                     default: ;

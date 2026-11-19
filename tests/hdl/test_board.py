@@ -602,8 +602,9 @@ def test_pcm_limit():
         os.unlink(path)
 
 
-def pcm_reverb_stimulus(path, seed=1, n=20000):
-    """Stimulus for hdl/sim/pcm_reverb_tb.sv: pcm_out values in runs of 2000
+def pcm_reverb_stimulus(path, seed=1, n=30000):
+    """Stimulus for hdl/sim/pcm_reverb_tb.sv (n samples, more than the delay
+    memory's words, so the pointer goes all the way round): pcm_out values in runs of 2000
     (silence with impulses, moderate noise, full-range noise that saturates
     the delay memory and the output, quiet noise), the OSD Reverb type,
     mix and tone changed now and then (each change of type clears), and

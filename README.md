@@ -53,12 +53,12 @@ M0–M15, with acceptance criteria and results, are in
 
 ## Using the core
 
-Download the core from [Releases](../../releases): `Synclavier_YYYYMMDD.rbf`
-(the version is the build date; the OSD shows `vYYMMDD`) goes in
-`_Computer/` on the SD card, and the release's MGLs
-(`Synclavier-5.3.mgl`, `Synclavier-ReleaseL.mgl`, also in
-[`mister/mgl/`](mister/mgl/)) in the SD card's root. The disk images they
-mount are not included; you build them from your own NED images.
+Download the newest `Synclavier_YYYYMMDD.rbf` from
+[`releases/`](releases/) (the version is the build date; the OSD shows
+`vYYMMDD`) and the MGLs beside it (`Synclavier-5.3.mgl`,
+`Synclavier-ReleaseL.mgl`), and copy them all to `_Computer/` on the SD
+card. The disk images the MGLs mount are not included; you build them from
+your own NED images.
 
 [`mister/README.md`](mister/README.md) has the build, the image tools and
 the MIDI mapping. In short, for Release 5.3:

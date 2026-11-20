@@ -27,9 +27,11 @@
 
 ## Releases
 
-Versions are build dates, as for MiSTer cores: `Synclavier_YYYYMMDD.rbf`,
-released by the **Release** workflow from a **Build RBF** run on `main`
-(see [`mister/README.md`](mister/README.md#releases)).
+Versions are build dates, as for MiSTer-devel cores: a release is a
+`Release YYYYMMDD.` commit on `main` adding `releases/Synclavier_YYYYMMDD.rbf`,
+made by the **Release** workflow from a **Build RBF** run on `main`
+(see [`mister/README.md`](mister/README.md#releases)). Do not commit RBFs by
+hand or put other files in `releases/`.
 
 ## Licence (decision D1)
 

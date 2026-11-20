@@ -9,5 +9,6 @@ timbres/
 *.IMG
 *.SST
 *.rbf
+!releases/Synclavier_20[0-9][0-9][0-9][0-9][0-9][0-9].rbf
 *.sseq
 reference/

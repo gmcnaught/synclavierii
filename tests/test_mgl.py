@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""The MGLs shipped with a release (mister/mgl/, attached by
-.github/workflows/release.yml) load the released core and mount each image
+"""The MGLs shipped with the core (releases/*.mgl, which Distribution_MiSTer
+copies to _Computer/ next to the RBF) load the released core and mount each image
 in an S slot of CONF_STR whose extension matches.
 
 Run:  python3 tests/test_mgl.py
@@ -22,9 +22,17 @@ def conf_str():
     return name, slots
 
 
+def test_released_rbfs():
+    names = [os.path.basename(p) for p in
+             glob.glob(os.path.join(ROOT, "releases", "*.rbf"))]
+    assert names, "no RBF in releases/"
+    for n in names:
+        assert re.match(r"^Synclavier_20\d{6}\.rbf$", n), n
+
+
 def mgls():
-    paths = sorted(glob.glob(os.path.join(ROOT, "mister", "mgl", "*.mgl")))
-    assert paths, "no MGLs in mister/mgl"
+    paths = sorted(glob.glob(os.path.join(ROOT, "releases", "*.mgl")))
+    assert paths, "no MGLs in releases/"
     return paths
 
 

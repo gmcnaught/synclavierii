@@ -5,32 +5,25 @@ Synclavier(R) is a registered trademark of Synclavier Digital. This
 project is independent and is not affiliated with, endorsed by or
 supported by Synclavier Digital or New England Digital.
 
+The source is in https://github.com/gmcnaught/synthcores under
+cores/synclavier/. This repository holds the built cores (releases/*.rbf),
+the MGLs, the tools that make the disk and state images the core loads
+(tools/, with the Python simulator they use in sim/) and the documentation.
+Its history before the move to synthcores still holds the source up to
+Synclavier_20261118.
+
 This repository contains:
 
   * The project's own files, under the MIT licence (LICENSE).
 
-  * mister/sys/: the MiSTer framework (Template_MiSTer), unchanged, under
-    the GNU General Public License version 2 (mister/sys/LICENSE-GPL2). A
-    built core (.rbf) includes it and is distributed under GPL-2.0.
-
-  * third_party/font8x8/font8x8_basic.h: 8x8 bitmap font by Daniel
-    Hepper, based on work by Marcel Sondaar / IBM; public domain.
-
-  * third_party/font6x10/6x10-ascii.bdf: X.Org misc-misc 6x10 font;
-    public domain.
-
-  * third_party/glasstty/: the dot matrix of the Glass TTY VT220 font by
-    svofski (https://github.com/svofski/glasstty), Unlicense
-    (third_party/glasstty/LICENSE).
-
-  * tests/fixtures/NED-SCSI.LST: an NED assembler listing from
-    jbemond/Software ("Official Software for the Synclavier(R) Digital
-    Audio System"), Copyright (c) 2017 Synclavier Digital, MIT licence
-    (tests/fixtures/LICENSE-NED-Software).
+  * The built cores (releases/*.rbf) include the MiSTer framework
+    (Template_MiSTer, mister/sys/ in the source), unchanged, under the GNU
+    General Public License version 2 (licenses/GPL-2.0.txt). A built core
+    is distributed under GPL-2.0.
 
 It does not contain NED disk images, timbre or sound files, ROM contents,
-or board photos. docs/sources.md lists every source used, with URLs,
-commits and checksums.
+or board photos. docs/sources.md in the source lists every source used,
+with URLs, commits and checksums.
 
 Rights holders with a concern about any content: please open an issue on
 the repository.

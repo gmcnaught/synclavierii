@@ -547,18 +547,21 @@ SYSTEM_RTL = ["hdl/able_cpu.sv", "hdl/code_cache.sv", "hdl/dev/dev_rtc.sv", "hdl
               "hdl/dev/dev_floppy.sv", "hdl/dev/dev_keyboard.sv", "hdl/dev/dev_vpk.sv",
               "hdl/dev/dev_fm.sv",
               "hdl/dev/poly_box.sv", "hdl/dev/pcm_out.sv", "hdl/dev/pcm_reverb.sv", "hdl/dev/pcm_limit.sv", "hdl/throttle.sv", "hdl/voice_clock.sv", "hdl/able_system.sv"]
-CORE_RTL = ["hdl/core/sd_floppy.sv", "hdl/dev/dev_scsi.sv", "hdl/dev/dev_poly.sv", "hdl/dev/dev_midi.sv", "hdl/dev/dev_smpte.sv", "hdl/dev/dev_mouse.sv", "hdl/dev/dev_multi.sv",
-            "hdl/dev/dev_printer.sv", "hdl/core/print_capture.sv",
-            "hdl/core/boot_loader.sv", "hdl/core/term_display.sv", "hdl/core/tek_plane.sv",
-            "hdl/core/ps2_ascii.sv", "hdl/core/midi_in.sv", "hdl/core/midi_vpk.sv", "hdl/core/midi_card_feed.sv",
-            "hdl/core/panel_mouse.sv", "hdl/core/audio_fifo.sv", "hdl/core/dig_stm.sv",
-            "hdl/core/synclavier_core.sv",
-            "hdl/board/ddram_word.sv"]
+
+
+def core_rtl():
+    """The MiSTer core's HDL (sim/files.f, which synthcore writes from cfg/files.yaml), as paths
+    from ROOT."""
+    with open(os.path.join(ROOT, "sim", "files.f")) as f:
+        lines = [ln.strip() for ln in f]
+    return [os.path.normpath(os.path.join("sim", ln)) for ln in lines if ln and not ln.startswith(("//", "+"))]
+
+
 TOPS = {
     "cpu": ("able_sim_top", ["hdl/able_cpu.sv", "hdl/sim/able_sim_top.sv"], []),
     "system": ("able_sys_top", SYSTEM_RTL + ["hdl/sim/able_sys_top.sv"], ["-DSYSTEM"]),
     # the MiSTer core from power-on (boot loader, SD floppies, DDR3, display)
-    "board": ("board_top", SYSTEM_RTL + CORE_RTL + ["hdl/sim/board_top.sv"], ["-DBOARD"]),
+    "board": ("board_top", None, ["-DBOARD"]),         # core_rtl() and hdl/sim/board_top.sv
 }
 INCLUDES = ["hdl/core/boot_defaults.svh", "hdl/core/font8x8.svh", "hdl/core/font6x10.svh", "hdl/core/fontglass.svh", "hdl/core/midi_tables.svh", "hdl/core/panel_labels.svh",
             "hdl/dev/sine_rom.svh", "hdl/dev/fm_num_rom.svh", "hdl/dev/pcm_fir.svh", "hdl/dev/pan_law.svh", "hdl/dev/pcm_reverb.svh"]
@@ -568,11 +571,13 @@ def build(top="cpu", force=False):
     """Build the Verilator bench for `top` ("cpu", "system" or "board");
     returns the executable path."""
     name, rtl, defines = TOPS[top]
+    if rtl is None:                           # SYSTEM_RTL first keeps Verilator's output as before
+        rtl = SYSTEM_RTL + [p for p in core_rtl() if p not in SYSTEM_RTL] + ["hdl/sim/board_top.sv"]
     mdir = os.path.join(BUILD_DIR, top)
     exe = os.path.join(mdir, "V" + name)
     srcs = [os.path.join(ROOT, p) for p in rtl + ["hdl/sim/lockstep.cpp"] + INCLUDES]
     if not force and os.path.exists(exe) and \
-            os.path.getmtime(exe) > max(os.path.getmtime(s) for s in srcs):
+            os.path.getmtime(exe) > max(os.path.getmtime(s) for s in srcs + [os.path.join(ROOT, "sim", "files.f")]):
         return exe
     os.makedirs(mdir, exist_ok=True)          # older Verilator does not create parents
     b = subprocess.run(["verilator", "--cc", "--exe", "--build", "-O3", "-Wall", "-Wno-fatal",
@@ -1110,7 +1115,7 @@ def main(argv=None):
         print("digital STM calls: %s" % ", ".join("%d x%d" % kv for kv in sorted(cpu.dig_stm.calls.items())),
               file=sys.stderr)
     if a.mode == "w0boot" and a.printer:
-        open(path + ".prn", "wb").write(cpu.printer.out)
+        with open(path + ".prn", "wb") as _f: _f.write(cpu.printer.out)
         print("printed %d bytes -> %s.prn" % (len(cpu.printer.out), path), file=sys.stderr)
     print("recorded %d instructions in %.1f s -> %s%s" % (
         n, time.time() - t, path, " (halted: %s)" % (cpu.halted,) if cpu.halted else ""),

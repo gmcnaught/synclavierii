@@ -190,7 +190,7 @@ def main(argv=None):
             print("W0:.SYSTEM:%s %s" % (name, action))
         disk = bytes(disk)
     w0 = os.path.join(a.outdir, "W0-53.IMG")
-    open(w0, "wb").write(disk)
+    with open(w0, "wb") as _f: _f.write(disk)
     from sim.boot import boot_from_w0
     from tools.state_image import state_bytes
     poly = None
@@ -215,7 +215,7 @@ def main(argv=None):
             + ("-B%d" % a.baud if a.baud != 9600 else ""))
     sst = os.path.join(a.outdir, name + ".SST")
     data = state_bytes(cpu)
-    open(sst, "wb").write(data)
+    with open(sst, "wb") as _f: _f.write(data)
     print("%s: %d MB; %s: %d blocks" % (w0, len(disk) >> 20, sst, len(data) // 512))
 
 

@@ -252,7 +252,7 @@ def main(argv=None):
             ap.error("--extract needs CAPTURE")
         data = open(a.capture, "rb").read()
         data = data if a.raw else read_capture(data)
-        open(a.extract, "wb").write(data)
+        with open(a.extract, "wb") as _f: _f.write(data)
         print("%s: %d bytes" % (a.extract, len(data)))
         return 0
     if not a.capture or not a.out:
@@ -263,7 +263,7 @@ def main(argv=None):
     base, ext = os.path.splitext(a.out)
     ps = postscript(data)
     if ps is not None:                          # Music Printing: PostScript
-        open(base + ".ps", "wb").write(ps)
+        with open(base + ".ps", "wb") as _f: _f.write(ps)
         import shutil
         import subprocess
         gs = shutil.which("gs")
@@ -282,9 +282,9 @@ def main(argv=None):
     names = [a.out] if len(pages) == 1 else ["%s-%d%s" % (base, i + 1, ext or ".png")
                                              for i in range(len(pages))]
     for p, n in zip(pages, names):
-        open(n, "wb").write(png(p))
+        with open(n, "wb") as _f: _f.write(png(p))
     if a.pdf:
-        open(a.pdf, "wb").write(pdf(pages))
+        with open(a.pdf, "wb") as _f: _f.write(pdf(pages))
     print("%d bytes, %d page(s): %s%s" % (len(data), len(pages), ", ".join(names),
                                           " and " + a.pdf if a.pdf else ""))
     return 0

@@ -120,7 +120,7 @@ def main(argv=None):
     from tools.ned_disk import load
     cpu, _dbg, lay = start_rtp(a.image, a.rtp)        # as the lockstep traces
     data = state_bytes(cpu)
-    open(a.out, "wb").write(data)
+    with open(a.out, "wb") as _f: _f.write(data)
     first = rtp_parts(load(a.image), a.rtp)[0][1].strip("/").split("/")[0]
     print("%s: %d blocks; mount F0 = 03-SYSTD, F1 = %s" % (a.out, len(data) // BLOCK, first))
 

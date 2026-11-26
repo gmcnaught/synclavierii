@@ -142,7 +142,7 @@ def patch_source(mplt):
         data = open(path, "rb").read()
         if data.count(old) != 1:
             raise SystemExit("MPLT/%s: text to patch not found once: %r" % (name, old[:60]))
-        open(path, "wb").write(data.replace(old, new))
+        with open(path, "wb") as _f: _f.write(data.replace(old, new))
 
 
 def build(software, out):
@@ -258,7 +258,7 @@ def main(argv=None):
     disk = bytearray(open(a.image, "rb").read())
     for name, action in install(disk, mplt_files(a.outdir)):
         print("W0:.SYSTEM:%-8s %s" % (name, action))
-    open(a.image, "wb").write(disk)
+    with open(a.image, "wb") as _f: _f.write(disk)
     return 0
 
 

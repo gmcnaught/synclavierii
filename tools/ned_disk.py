@@ -249,7 +249,7 @@ def main():
                 fw = list(W[start * SECTOR_WORDS:(start + length) * SECTOR_WORDS])
                 for n, path in a.bank:
                     put_bank(W, p, start, fw, int(n), path)
-                open(out, "wb").write(struct.pack(">%dH" % len(fw), *fw))
+                with open(out, "wb") as _f: _f.write(struct.pack(">%dH" % len(fw), *fw))
                 print("%s: %d sectors -> %s" % (name, length, out))
                 return
         raise SystemExit("no floppy (type-7 sub-catalog) named %s" % name)
@@ -263,7 +263,7 @@ def main():
             if not os.path.realpath(out).startswith(root + os.sep):
                 raise SystemExit("refusing to write outside %s: %s" % (a.extract, out))
             os.makedirs(os.path.dirname(out), exist_ok=True)
-            open(out, "wb").write(data)
+            with open(out, "wb") as _f: _f.write(data)
 
 
 if __name__ == "__main__":
